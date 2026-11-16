@@ -34,7 +34,7 @@ func NewEngagementHandler(svc service.EngagementService) *EngagementHandler {
 	return &EngagementHandler{svc: svc}
 }
 
-// writeJSONCreated writes v as a 201 JSON response.
+// engagementWriteCreated writes v as a 201 JSON response.
 func engagementWriteCreated(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

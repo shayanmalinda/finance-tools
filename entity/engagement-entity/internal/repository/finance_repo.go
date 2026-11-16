@@ -817,9 +817,7 @@ func (r *financeRepo) ReleaseInvoicePush(ctx context.Context, id int, actor stri
 // push, plus the NS Sync Failures marker with the error in reject_reason.
 func (r *financeRepo) FailInvoicePush(ctx context.Context, id int, actor, msg string) error {
 	reason := textnorm.Latin1(domain.InvoiceNSFailurePrefix + msg)
-	if len(reason) > 255 { // reject_reason varchar(255)
-		reason = reason[:255]
-	}
+	reason = travelCut(reason, domain.InvoiceReasonMax)
 	_, err := r.trackedUpdate(ctx, "invoice", `id = ? AND status = 'Complete'`, []any{id},
 		financePushStep(financeAuditEvent(audit.StatusChange, "invoice", actor), "failed"),
 		`UPDATE invoice SET updated_by = ?, updated_date = NOW(), status = 'Accepted by finance', reject_reason = ?

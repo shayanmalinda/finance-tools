@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/domain"
@@ -320,7 +321,6 @@ func (s *financeService) withInvoiceCampaigns(ctx context.Context, items []domai
 	for i := range items {
 		if a := items[i].AllocationID; a != nil {
 			if c, ok := camps[*a]; ok {
-				c := c
 				items[i].Campaign = &c
 			}
 		}
@@ -562,7 +562,7 @@ func (s *financeService) DecideInvoices(ctx context.Context, d domain.FinanceInv
 		if reason == "" {
 			return nil, financeBad("Please enter a reject reason")
 		}
-		if len(reason) > 255 {
+		if utf8.RuneCountInString(reason) > domain.InvoiceReasonMax {
 			return nil, financeBad("The reject reason must be 255 characters or fewer.")
 		}
 		t.Reason = &reason
@@ -621,7 +621,6 @@ func (s *financeService) withPaymentCampaigns(ctx context.Context, items []domai
 	for i := range items {
 		if a := items[i].AllocationID; a != nil {
 			if c, ok := camps[*a]; ok {
-				c := c
 				items[i].Campaign = &c
 			}
 		}

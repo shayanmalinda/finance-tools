@@ -469,3 +469,7 @@ type FinancePushResult struct {
 type FinanceReference struct {
 	Reference *string `json:"reference"`
 }
+
+// InvoiceReasonMax is the length in characters of invoice.reject_reason
+// (varchar(255)).
+const InvoiceReasonMax = 255

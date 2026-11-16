@@ -93,8 +93,10 @@ func NewRouter(d Deps) http.Handler {
 	registerDashboardRoutes(mux, d)
 
 	return middleware.CorrelationID(middleware.Actor(
-		middleware.Recovery(
-			middleware.Logger(
+		// Logger wraps Recovery so a panicking request still gets its access
+		// line, with the 500 Recovery wrote.
+		middleware.Logger(
+			middleware.Recovery(
 				middleware.Timeout(30*time.Second, netsuite.Timeout+30*time.Second, isNetSuiteRoute)(mux),
 			),
 		),

@@ -30,12 +30,19 @@ type AuditRepository interface {
 	Record(ctx context.Context, e audit.Event) (bool, error)
 }
 
-// auditSchemas maps entity types to their schema: true is allocation_db,
-// false travelapp.
-var auditSchemas = map[string]bool{
-	"engagement": true, "allocation": true, "allocation_type": true,
-	"travel_request": false, "visa": false, "travel_document": false, "per_diem": false,
-	"per_diem_payment": false, "invoice": false, "travel_card": false,
+// auditSchema names the schema an entity type's audit events go to.
+type auditSchema int
+
+const (
+	auditAllocationDB auditSchema = iota
+	auditTravelApp
+)
+
+// auditSchemas maps entity types to their schema.
+var auditSchemas = map[string]auditSchema{
+	"engagement": auditAllocationDB, "allocation": auditAllocationDB, "allocation_type": auditAllocationDB,
+	"travel_request": auditTravelApp, "visa": auditTravelApp, "travel_document": auditTravelApp, "per_diem": auditTravelApp,
+	"per_diem_payment": auditTravelApp, "invoice": auditTravelApp, "travel_card": auditTravelApp,
 }
 
 type auditRepo struct{ alloc, travel *sql.DB }
@@ -46,12 +53,12 @@ func NewAuditRepository(alloc, travel *sql.DB) AuditRepository {
 }
 
 func (r *auditRepo) Record(ctx context.Context, e audit.Event) (bool, error) {
-	inAlloc, ok := auditSchemas[e.EntityType]
+	schema, ok := auditSchemas[e.EntityType]
 	if !ok {
 		return false, nil
 	}
 	db := r.travel
-	if inAlloc {
+	if schema == auditAllocationDB {
 		db = r.alloc
 	}
 	return true, audit.Record(ctx, db, e)
