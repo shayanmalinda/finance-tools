@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -459,7 +460,11 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 		if !ok {
 			emp, err = s.financeEmployee(ctx, traveller)
 			if err != nil {
-				return domain.BatchResult{}, err
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return domain.BatchResult{}, err
+				}
+				out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr("Not pushed: the traveller's HR record could not be read. Try again.")})
+				continue
 			}
 			employees[traveller] = emp
 		}

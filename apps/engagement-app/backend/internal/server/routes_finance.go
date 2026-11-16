@@ -58,7 +58,7 @@ func registerFinanceRoutes(a *area) {
 
 	// A travel request's finance tabs (legacy interceptor rules: View any or
 	// View own on GET, the Add privilege on POST).
-	a.handle("GET /travel-requests/{jobNumber}/per-diems", travel(28, 37), h.PerDiems)
+	a.handle("GET /travel-requests/{jobNumber}/per-diems", travel(18, 28, 37), h.PerDiems)
 	a.handleIdem("POST /travel-requests/{jobNumber}/per-diems", travel(26), h.AddPerDiem)
 	a.handle("DELETE /travel-requests/{jobNumber}/per-diems/{perDiemId}", travel(27), h.DeletePerDiem)
 	a.handle("GET /travel-requests/{jobNumber}/invoices", travel(30, 38), h.TripInvoices)

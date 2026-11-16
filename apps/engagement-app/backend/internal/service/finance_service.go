@@ -331,10 +331,13 @@ func (s *FinanceService) AddPerDiem(ctx context.Context, p domain.Perms, jobNumb
 	ed, _ := time.Parse("2006-01-02", in.EndDate)
 	days := int(ed.Sub(sd).Hours()/24) + 1
 	first, last := 1.0, 1.0
-	if in.StartTime > "12:00" {
+	// Compare the parsed clock times: a non-canonical "9:00" parses but sorts
+	// after "12:00" as a string.
+	noon := 12 * 60
+	if start.Hour()*60+start.Minute() > noon {
 		first = 0.5
 	}
-	if in.EndTime < "12:00" {
+	if end.Hour()*60+end.Minute() < noon {
 		last = 0.5
 	}
 	total := financeRound2((first + last + float64(days) - 2) * in.Rate)

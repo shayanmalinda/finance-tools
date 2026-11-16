@@ -86,7 +86,7 @@ type JWTConfig struct {
 	// Both or neither.
 	GatewayIssuer  string
 	GatewayJWKSURL string
-	// Audiences, when set, must contain one of the token's aud values.
+	// Audiences is required: the token must contain one of these aud values.
 	Audiences []string
 	// ClockSkew is the leeway allowed on exp, nbf and iat.
 	ClockSkew time.Duration
@@ -280,6 +280,9 @@ func (c *Config) Validate() error {
 		if c.JWT.GatewayIssuer == c.JWT.Issuer {
 			errs = append(errs, errors.New("GATEWAY_JWT_ISSUER must differ from JWT_ISSUER"))
 		}
+	}
+	if len(c.JWT.Audiences) == 0 {
+		errs = append(errs, errors.New("JWT_AUDIENCES is required (this application's One WSO2 client id)"))
 	}
 	if c.EngagementEntityBaseURL == "" {
 		errs = append(errs, errors.New("ENGAGEMENT_ENTITY_BASE_URL is required"))

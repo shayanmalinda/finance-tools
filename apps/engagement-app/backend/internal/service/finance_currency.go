@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -112,7 +113,7 @@ func (fx *financeFX) convert(ctx context.Context, src, tgt string, amount float6
 		rates = r
 	}
 	rate, ok := rates[strings.ToUpper(tgt)]
-	if !ok || rate == 0 {
+	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 		return 0, &apierror.ServiceUnavailableError{Msg: fmt.Sprintf("Error while currency conversion: no %s rate for %s on %s", tgt, src, date)}
 	}
 	return amount / rate, nil

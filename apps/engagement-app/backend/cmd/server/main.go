@@ -57,9 +57,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("JWT verifier: %v", err)
 	}
-	if len(cfg.JWT.Audiences) == 0 {
-		slog.Warn("JWT_AUDIENCES is not set: tokens are checked for signature, issuer and expiry, not audience")
-	}
 	if cfg.JWT.GatewayIssuer == "" {
 		slog.Info("GATEWAY_JWT_ISSUER is not set: only tokens issued by JWT_ISSUER are accepted (also in X-Jwt-Assertion)")
 	}

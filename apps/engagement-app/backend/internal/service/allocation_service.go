@@ -713,6 +713,11 @@ func (s *allocationService) UpdateStatus(ctx context.Context, p domain.Perms, id
 	}
 	out := domain.AllocationCreated{Allocation: s.toAllocation(p, res.Allocation, typeID, res.TravelJobNumber), TravelRequest: res.TravelJobNumber}
 	prev := allocStr(res.PreviousClearanceStatus)
+	if prev == "" {
+		// The entity did not echo the previous status; the one read for this
+		// request is what it was.
+		prev = current
+	}
 	if email.AllocationMailInitiated(next, prev) {
 		eng, err := s.d.Entity.AllocationEngagement(ctx, a.Engagement.ID)
 		if err != nil {

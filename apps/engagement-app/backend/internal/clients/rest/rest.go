@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
@@ -70,7 +71,11 @@ func New(service, baseURL string, httpClient *http.Client) *Client {
 // projects reached through a Choreo connection.
 func NewOAuthHTTPClient(tokenURL, clientID, clientSecret string) *http.Client {
 	cc := clientcredentials.Config{ClientID: clientID, ClientSecret: clientSecret, TokenURL: tokenURL}
-	c := cc.Client(context.Background())
+	// The token source fetches with the HTTP client on the construction
+	// context, so give it one with a timeout; otherwise a stalled token
+	// endpoint blocks every request behind the token mutex.
+	tokenCtx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{Timeout: DefaultTimeout})
+	c := cc.Client(tokenCtx)
 	c.Timeout = DefaultTimeout
 	return c
 }

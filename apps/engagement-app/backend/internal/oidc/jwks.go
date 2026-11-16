@@ -51,6 +51,9 @@ type keySet struct {
 
 	minGap time.Duration
 
+	// refreshMu serialises refreshes; mu guards only the key map and
+	// lastRefresh, so a slow JWKS fetch never blocks cached-key lookups.
+	refreshMu   sync.Mutex
 	mu          sync.RWMutex
 	keys        map[string]*rsa.PublicKey
 	lastRefresh time.Time
@@ -84,14 +87,17 @@ func (k *keySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error)
 }
 
 func (k *keySet) refreshIfDue(ctx context.Context) error {
+	k.refreshMu.Lock()
+	defer k.refreshMu.Unlock()
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	if !k.lastRefresh.IsZero() && time.Since(k.lastRefresh) < k.minGap {
+		k.mu.Unlock()
 		return nil
 	}
 	// Counted before the request, so a failing endpoint is also rate limited.
 	k.lastRefresh = time.Now()
 	k.fetches++
+	k.mu.Unlock()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url, nil)
 	if err != nil {
@@ -122,7 +128,9 @@ func (k *keySet) refreshIfDue(ctx context.Context) error {
 		}
 		keys[key.Kid] = pub
 	}
+	k.mu.Lock()
 	k.keys = keys
+	k.mu.Unlock()
 	return nil
 }
 

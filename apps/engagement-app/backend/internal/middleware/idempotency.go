@@ -95,21 +95,24 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 			}
 		}
 		if e, ok := s.entries[id]; ok {
+			// Snapshot under the lock: the original request fills the entry
+			// under it too.
+			done, bodySum, status, header, body := e.done, e.bodySum, e.status, e.header, e.body
 			s.mu.Unlock()
-			if !e.done {
+			if !done {
 				apierror.WriteJSON(w, http.StatusConflict, "This request is already being processed.")
 				return
 			}
-			if e.bodySum != sum {
+			if bodySum != sum {
 				apierror.WriteJSON(w, http.StatusUnprocessableEntity, "This Idempotency-Key was already used for a different request.")
 				return
 			}
-			for k, v := range e.header {
+			for k, v := range header {
 				w.Header()[k] = v
 			}
 			w.Header().Set("Idempotent-Replayed", "true")
-			w.WriteHeader(e.status)
-			_, _ = w.Write(e.body)
+			w.WriteHeader(status)
+			_, _ = w.Write(body)
 			return
 		}
 		entry := &idemEntry{bodySum: sum, expires: now.Add(idempotencyTTL)}

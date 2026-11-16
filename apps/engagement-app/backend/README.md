@@ -38,7 +38,7 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
   (One WSO2 calling directly, e.g. locally), and verifies it in
   `internal/oidc`: RS256 signature against the issuer's JWKS (cached;
   refetched on an unknown key id at most every 30 s), issuer, expiry
-  (required), issued-at, and audience when `JWT_AUDIENCES` is set. Trusted
+  (required), issued-at, and audience (`JWT_AUDIENCES`, required). Trusted
   issuers: the WSO2 Asgardeo organisation (default) and, when
   `GATEWAY_JWT_ISSUER` is set, the gateway's issuer. Missing email or groups
   in a Bearer token are read from the userinfo endpoint (cached 5 minutes per
@@ -102,7 +102,7 @@ values in committed files.
 | `JWT_ISSUER` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | WSO2 Asgardeo organisation |
 | `JWT_JWKS_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/jwks` | – |
 | `JWT_USERINFO_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/userinfo` | – |
-| `JWT_AUDIENCES` | Recommended | – (audience not checked; a warning is logged) | One WSO2 client id (comma-separated list allowed) |
+| `JWT_AUDIENCES` | Yes | – | One WSO2 client id (comma-separated list allowed) |
 | `GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_JWKS_URL` | Only if the gateway's JWT is not issued by Asgardeo | – | Choreo gateway backend JWT issuer and keys (to confirm on staging) |
 | `JWT_CLOCK_SKEW_SECONDS` | No | `60` | – |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |
