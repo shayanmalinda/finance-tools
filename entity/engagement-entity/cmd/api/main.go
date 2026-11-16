@@ -30,6 +30,7 @@ import (
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/audit"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/config"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/db"
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/netsuite"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/repository"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/server"
 )
@@ -110,17 +111,26 @@ func main() {
 	log.Println("server stopped")
 }
 
-// sweepStalePushes moves NetSuite pushes stuck for 15 minutes (three times
-// the NetSuite timeout) to NS Sync Failures.
+const (
+	// stalePushAge must stay above the longest a live push can run (the
+	// settle context, 2*netsuite.Timeout plus a final write), or the sweep
+	// would expire a push that is still going.
+	stalePushAge = 3 * netsuite.Timeout
+	// stalePushSweepEvery is how often the sweep looks for stale pushes.
+	stalePushSweepEvery = time.Minute
+)
+
+// sweepStalePushes moves NetSuite pushes stuck for stalePushAge to NS Sync
+// Failures.
 func sweepStalePushes(ctx context.Context, pools *db.Pools) {
-	t := time.NewTicker(time.Minute)
+	t := time.NewTicker(stalePushSweepEvery)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := repository.ExpireStalePushes(ctx, pools.Travel, 15*time.Minute); err != nil {
+			if err := repository.ExpireStalePushes(ctx, pools.Travel, stalePushAge); err != nil {
 				log.Printf("expire stale NetSuite pushes: %v", err)
 			}
 		}

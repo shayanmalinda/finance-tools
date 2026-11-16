@@ -216,6 +216,6 @@ func roleStringList(ids []int) string {
 func SettingsAuditLog(ctx context.Context, db *sql.DB, resource, action, description, user string) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO audit_log (resource, action, user, description, timestamp)
 		VALUES (?, ?, ?, ?, UTC_TIMESTAMP())`, resource, action, user, description); err != nil {
-		log.Printf("Error while inserting audit log for %s %s by %s (%s): %v", resource, action, user, description, err) // #nosec G706
+		log.Printf("Error while inserting audit log for %s %s: %v", resource, action, err) // #nosec G706
 	}
 }
