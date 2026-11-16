@@ -28,6 +28,7 @@ package salesentity
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
@@ -48,7 +49,7 @@ type Client interface {
 	// false leaves isOnlyActiveOpportunities unset, as the legacy BFF did.
 	Opportunities(ctx context.Context, customerID string, onlyActive bool) ([]SalesOpportunity, error)
 	// OpportunityLineItems returns an opportunity's line items with the legacy
-	// classifications from POST /opportunities/line-items/search, all pages.
+	// classifications from POST /opportunity-line-items/search, all pages.
 	OpportunityLineItems(ctx context.Context, opportunityID string) ([]SalesLineItem, error)
 	// OpportunityLineItem looks one line item up by id (Fetch New Dates); nil
 	// when Salesforce has none.
@@ -151,6 +152,7 @@ type SalesOpportunity struct {
 type SalesLineItem struct {
 	ID                 *string `json:"id"`
 	Name               *string `json:"name"`
+	Classification     *string `json:"classification"`
 	Description        *string `json:"description"`
 	EngagementCodeAuto *string `json:"engagementCodeAuto"`
 	IsTentativeDates   *bool   `json:"isTentativeDates"`
@@ -227,14 +229,13 @@ type opportunitySearch struct {
 	SortBy                    string `json:"sortBy"`
 }
 
-// lineItemSearch is the service's OpportunityLineItemFilter.
+// lineItemSearch is the service's OpportunityLineItemFilter. It has no
+// classification filter or sort, so classifications are filtered here.
 type lineItemSearch struct {
-	ID              string   `json:"id,omitempty"`
-	OpportunityID   string   `json:"opportunityId,omitempty"`
-	Classifications []string `json:"classifications,omitempty"`
-	Limit           int      `json:"limit"`
-	Offset          int      `json:"offset"`
-	SortBy          string   `json:"sortBy,omitempty"`
+	ID            string `json:"id,omitempty"`
+	OpportunityID string `json:"opportunityId,omitempty"`
+	Limit         int    `json:"limit"`
+	Offset        int    `json:"offset"`
 }
 
 // searchAll posts page after page of a search to path until a short page.
@@ -270,10 +271,19 @@ func (c *HTTPClient) Opportunities(ctx context.Context, customerID string, onlyA
 
 // OpportunityLineItems implements Client.
 func (c *HTTPClient) OpportunityLineItems(ctx context.Context, opportunityID string) ([]SalesLineItem, error) {
-	return searchAll[SalesLineItem](ctx, c.rest, "/opportunities/line-items/search", func(offset int) any {
-		return lineItemSearch{OpportunityID: opportunityID, Classifications: LineItemClassifications,
-			Limit: searchPageSize, Offset: offset, SortBy: "id"}
+	all, err := searchAll[SalesLineItem](ctx, c.rest, "/opportunity-line-items/search", func(offset int) any {
+		return lineItemSearch{OpportunityID: opportunityID, Limit: searchPageSize, Offset: offset}
 	})
+	if err != nil {
+		return nil, err
+	}
+	out := []SalesLineItem{}
+	for _, li := range all {
+		if li.Classification != nil && slices.Contains(LineItemClassifications, *li.Classification) {
+			out = append(out, li)
+		}
+	}
+	return out, nil
 }
 
 // OpportunityLineItem implements Client.
@@ -282,7 +292,7 @@ func (c *HTTPClient) OpportunityLineItem(ctx context.Context, id string) (*Sales
 		return nil, notConfigured()
 	}
 	var items []SalesLineItem
-	if err := c.rest.Post(ctx, "/opportunities/line-items/search", lineItemSearch{ID: id, Limit: 1}, &items); err != nil {
+	if err := c.rest.Post(ctx, "/opportunity-line-items/search", lineItemSearch{ID: id, Limit: 1}, &items); err != nil {
 		return nil, err
 	}
 	if len(items) == 0 {

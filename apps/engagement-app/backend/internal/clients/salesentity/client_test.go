@@ -106,7 +106,7 @@ func TestOpportunities_PagesAndActiveFlag(t *testing.T) {
 
 func TestOpportunityLineItems(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/opportunities/line-items/search" {
+		if r.URL.Path != "/opportunity-line-items/search" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		var body map[string]any
@@ -120,10 +120,10 @@ func TestOpportunityLineItems(t *testing.T) {
 		case "00kNone":
 			_, _ = w.Write([]byte(`[]`))
 		default:
-			if body["opportunityId"] != "006A" || len(body["classifications"].([]any)) != 6 {
+			if _, ok := body["classifications"]; ok || body["opportunityId"] != "006A" || body["limit"].(float64) != searchPageSize {
 				t.Errorf("body = %v", body)
 			}
-			_, _ = w.Write([]byte(`[{"id":"00kA","engagementCodeAuto":"NWB-CO","stage":"50 - Closed Won"}]`))
+			_, _ = w.Write([]byte(`[{"id":"00kA","classification":"CO","engagementCodeAuto":"NWB-CO"},{"id":"00kB","classification":"SUB"},{"id":"00kC"}]`))
 		}
 	}))
 	defer srv.Close()
