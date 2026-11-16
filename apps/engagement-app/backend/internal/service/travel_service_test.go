@@ -524,6 +524,20 @@ func TestTravelListVisas_HidesPlaceholders(t *testing.T) {
 	}
 }
 
+// Only the Expired filter asks the entity for the visas marked Expired.
+func TestTravelListVisas_ExpiredFilterIncludesMarkedExpired(t *testing.T) {
+	f := newTravelFixture(travelTrip(domain.TravelStatusNew, nil))
+	for status, want := range map[string]bool{"": false, "Active": false, "Expired": true} {
+		q := domain.TravelRecordQuery{Status: status, Limit: 10}
+		if _, err := f.docs.ListVisas(context.Background(), travelTeam, q, false); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.entity.visaQuery.IncludeMarkedExpired; got != want {
+			t.Errorf("status %q: includeMarkedExpired = %v, want %v", status, got, want)
+		}
+	}
+}
+
 // ── Update ────────────────────────────────────────────────────────────────
 
 func TestTravelAssign_InProgressSendsAssignedEmail(t *testing.T) {
