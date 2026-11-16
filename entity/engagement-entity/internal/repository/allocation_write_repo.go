@@ -260,7 +260,8 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 }
 
 // allocationDuplicateKey identifies a Bulk candidate by the fields the
-// duplicate check compares.
+// duplicate check compares, plus its status, so an Active and an Inactive
+// candidate with the same details are not refused as a pair.
 func allocationDuplicateKey(a domain.AllocationInput) string {
 	opt := func(s *string) string {
 		if s == nil {
@@ -268,7 +269,8 @@ func allocationDuplicateKey(a domain.AllocationInput) string {
 		}
 		return *s
 	}
-	return strings.Join([]string{strings.ToLower(a.Email), a.EngagementID, a.StartDate, a.EndDate, opt(a.StartTime), opt(a.EndTime)}, "|")
+	return strings.Join([]string{strings.ToLower(a.Email), a.EngagementID, a.StartDate, a.EndDate, opt(a.StartTime),
+		opt(a.EndTime), strings.ToLower(a.Status)}, "|")
 }
 
 // allocationNeedsTravel reports whether a new allocation gets a travel row:

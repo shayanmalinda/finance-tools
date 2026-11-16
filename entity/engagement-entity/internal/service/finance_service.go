@@ -29,6 +29,7 @@ import (
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/domain"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/netsuite"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/repository"
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/textnorm"
 )
 
 // FinanceService is the travel finance area: per diems, travel cards,
@@ -558,7 +559,8 @@ func (s *financeService) DecideInvoices(ctx context.Context, d domain.FinanceInv
 		t.To = map[string]string{domain.FinanceStepTravel: domain.InvoiceStatusAcceptedByTravel,
 			domain.FinanceStepFinance: domain.InvoiceStatusAcceptedByFinance}[d.Step]
 	case domain.FinanceDecisionReject:
-		reason := strings.TrimSpace(d.Reason)
+		// Measured as it will be saved: Latin1 can lengthen it ("→" is "->").
+		reason := strings.TrimSpace(textnorm.Latin1(d.Reason))
 		if reason == "" {
 			return nil, financeBad("Please enter a reject reason")
 		}
