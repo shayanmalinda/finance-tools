@@ -1,0 +1,214 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Package config loads settings from environment variables; only the
+// database host, user and password are required.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/go-sql-driver/mysql"
+)
+
+// Legacy schema names. They are the same in every environment, so they are
+// constants rather than settings.
+const (
+	AllocationSchema = "allocation_db"
+	TravelSchema     = "travelapp"
+	ExpenseSchema    = "expense_app"
+)
+
+// Config holds all environment-driven settings for the engagement entity service.
+type Config struct {
+	// DB is the one MySQL user the entity uses for every legacy schema:
+	// allocation_db and travelapp read/write, expense_app read-only (the
+	// expense pool is opened read-only whatever the user is granted).
+	DB DBConfig
+
+	// NetSuite is used only when NetSuite.PushEnabled is true.
+	NetSuite NetSuiteConfig
+
+	ServerPort string
+}
+
+// DBConfig is how the entity reaches MySQL.
+type DBConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	// TLS is the go-sql-driver tls= value. Empty means verified TLS
+	// (tls=true), as in the GRC compliance entity. A local MySQL without TLS
+	// sets DB_TLS=false.
+	TLS string
+}
+
+// DSN returns the go-sql-driver DSN for schema. The db package normalises it
+// further (UTC, TLS default, read-only session).
+// The DSN is built by the driver, so a password with "@", "/" or ":" in it
+// needs no escaping.
+func (d DBConfig) DSN(schema string) string {
+	c := mysql.NewConfig()
+	c.User = d.User
+	c.Passwd = d.Password
+	c.Net = "tcp"
+	c.Addr = net.JoinHostPort(d.Host, strconv.Itoa(d.Port))
+	c.DBName = schema
+	c.ParseTime = true
+	c.TLSConfig = d.TLS
+	return c.FormatDSN()
+}
+
+// NetSuiteConfig is the NetSuite account the entity pushes invoices
+// (Purchase Orders) and per diem payments (Vendor Bills) to, and the legacy
+// Travel app's RESTlets. Every field except PushEnabled is read only when
+// PushEnabled is true.
+type NetSuiteConfig struct {
+	// PushEnabled switches pushing to NetSuite (and the lookups that guard
+	// each push and re-sync) on. Off by default, so the entity runs without
+	// NetSuite credentials; a push request then answers 503.
+	PushEnabled bool
+
+	AccountID      string
+	ConsumerKey    string
+	ConsumerSecret string
+	TokenID        string
+	TokenSecret    string
+	// RestletsBaseURL defaults to https://<account>.restlets.api.netsuite.com.
+	RestletsBaseURL string
+
+	// RESTlet script ids and deployment ids (deployment default 1) of the
+	// legacy createPurchaseOrder, getPurchaseOrder, insertPerDiemPayments and
+	// getVendorBill.
+	CreatePurchaseOrderScriptID string
+	CreatePurchaseOrderDeployID string
+	GetPurchaseOrderScriptID    string
+	GetPurchaseOrderDeployID    string
+	CreateVendorBillScriptID    string
+	CreateVendorBillDeployID    string
+	GetVendorBillScriptID       string
+	GetVendorBillDeployID       string
+	// CreateMarketingEvent* is the legacy createMarketingEvent RESTlet,
+	// called when a Marketing Event engagement is created.
+	CreateMarketingEventScriptID string
+	CreateMarketingEventDeployID string
+
+	// PurchaseOrderTaxCode is sent on every purchase order (legacy
+	// [app_travel.operation] taxCode).
+	PurchaseOrderTaxCode string
+}
+
+// Load reads configuration from environment variables. Malformed values are
+// returned as errors rather than silently defaulted.
+func Load() (*Config, error) {
+	port := 3306
+	if v := strings.TrimSpace(os.Getenv("DB_PORT")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 65535 {
+			return nil, errors.New("DB_PORT must be a port number")
+		}
+		port = n
+	}
+	push := false
+	if v := strings.TrimSpace(os.Getenv("NETSUITE_PUSH_ENABLED")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, errors.New("NETSUITE_PUSH_ENABLED must be true or false")
+		}
+		push = b
+	}
+	ns := NetSuiteConfig{PushEnabled: push}
+	if push {
+		ns.AccountID = strings.TrimSpace(os.Getenv("NETSUITE_ACCOUNT_ID"))
+		ns.ConsumerKey = os.Getenv("NETSUITE_CONSUMER_KEY")
+		ns.ConsumerSecret = os.Getenv("NETSUITE_CONSUMER_SECRET")
+		ns.TokenID = os.Getenv("NETSUITE_TOKEN_ID")
+		ns.TokenSecret = os.Getenv("NETSUITE_TOKEN_SECRET")
+		ns.RestletsBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("NETSUITE_RESTLETS_BASE_URL")), "/")
+		if ns.RestletsBaseURL == "" && ns.AccountID != "" {
+			ns.RestletsBaseURL = "https://" + strings.ToLower(strings.ReplaceAll(ns.AccountID, "_", "-")) + ".restlets.api.netsuite.com"
+		}
+		ns.CreatePurchaseOrderScriptID = strings.TrimSpace(os.Getenv("NETSUITE_CREATE_PURCHASE_ORDER_SCRIPT_ID"))
+		ns.CreatePurchaseOrderDeployID = getEnvOrDefault("NETSUITE_CREATE_PURCHASE_ORDER_DEPLOY_ID", "1")
+		ns.GetPurchaseOrderScriptID = strings.TrimSpace(os.Getenv("NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID"))
+		ns.GetPurchaseOrderDeployID = getEnvOrDefault("NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID", "1")
+		ns.CreateVendorBillScriptID = strings.TrimSpace(os.Getenv("NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID"))
+		ns.CreateVendorBillDeployID = getEnvOrDefault("NETSUITE_CREATE_VENDOR_BILL_DEPLOY_ID", "1")
+		ns.GetVendorBillScriptID = strings.TrimSpace(os.Getenv("NETSUITE_GET_VENDOR_BILL_SCRIPT_ID"))
+		ns.GetVendorBillDeployID = getEnvOrDefault("NETSUITE_GET_VENDOR_BILL_DEPLOY_ID", "1")
+		ns.CreateMarketingEventScriptID = strings.TrimSpace(os.Getenv("NETSUITE_CREATE_MARKETING_EVENT_SCRIPT_ID"))
+		ns.CreateMarketingEventDeployID = getEnvOrDefault("NETSUITE_CREATE_MARKETING_EVENT_DEPLOY_ID", "1")
+		ns.PurchaseOrderTaxCode = strings.TrimSpace(os.Getenv("NETSUITE_PURCHASE_ORDER_TAX_CODE"))
+	}
+	return &Config{
+		DB: DBConfig{
+			Host:     strings.TrimSpace(os.Getenv("DB_HOST")),
+			Port:     port,
+			User:     os.Getenv("DB_USER"),
+			Password: os.Getenv("DB_PASSWORD"),
+			TLS:      strings.TrimSpace(os.Getenv("DB_TLS")),
+		},
+		NetSuite:   ns,
+		ServerPort: getEnvOrDefault("SERVER_PORT", "8290"),
+	}, nil
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return defaultVal
+}
+
+// Validate returns an error naming every required setting that is missing.
+func (c *Config) Validate() error {
+	var errs []error
+	if c.DB.Host == "" {
+		errs = append(errs, errors.New("DB_HOST is required"))
+	}
+	if c.DB.User == "" {
+		errs = append(errs, errors.New("DB_USER is required"))
+	}
+	if c.DB.Password == "" {
+		errs = append(errs, errors.New("DB_PASSWORD is required"))
+	}
+	if n := c.NetSuite; n.PushEnabled {
+		for _, kv := range []struct{ key, val string }{
+			{"NETSUITE_ACCOUNT_ID", n.AccountID},
+			{"NETSUITE_CONSUMER_KEY", n.ConsumerKey},
+			{"NETSUITE_CONSUMER_SECRET", n.ConsumerSecret},
+			{"NETSUITE_TOKEN_ID", n.TokenID},
+			{"NETSUITE_TOKEN_SECRET", n.TokenSecret},
+			{"NETSUITE_CREATE_PURCHASE_ORDER_SCRIPT_ID", n.CreatePurchaseOrderScriptID},
+			{"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", n.GetPurchaseOrderScriptID},
+			{"NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID", n.CreateVendorBillScriptID},
+			{"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", n.GetVendorBillScriptID},
+			{"NETSUITE_CREATE_MARKETING_EVENT_SCRIPT_ID", n.CreateMarketingEventScriptID},
+			{"NETSUITE_PURCHASE_ORDER_TAX_CODE", n.PurchaseOrderTaxCode},
+		} {
+			if kv.val == "" {
+				errs = append(errs, fmt.Errorf("%s is required when NETSUITE_PUSH_ENABLED=true", kv.key))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}

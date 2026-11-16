@@ -1,0 +1,11 @@
+# Local environment - never commit real credentials
+.env
+
+# Build artifacts
+/engagement-entity
+/bin/
+*.out
+*.test
+
+# OS / editor
+.DS_Store

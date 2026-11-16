@@ -1,0 +1,5234 @@
+openapi: 3.0.3
+info:
+  title: Engagement Entity Service
+  description: |-
+    Internal entity service for the Engagement App (Release 1). It is the only component that reads and writes the legacy Allocations (allocation_db) and Travel (travelapp) databases, reads expense_app (card spend, read-only), and talks to NetSuite. Its one caller is the Engagement App Backend: the component is visible to its Choreo project only and applies no auth of its own. The backend verifies the user's token and enforces the legacy privileges before calling here, and passes the acting user's email in request bodies (createdBy / updatedBy) where a write needs it.
+
+    Audit: the backend sends the signed-in user in X-User-Email and its request id in X-Correlation-ID on every call. Every write records audit_event rows (allocation_db or travelapp, the schema of the change) in its own transaction, with that user and request id; views, downloads and exports are recorded through POST /audit-events.
+
+    No authentication: the component is visible to its Choreo project only (security: []).
+  version: 0.2.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+- url: http://localhost:8290
+  description: Local development
+security: []
+tags:
+- name: Health
+- name: Access
+  description: Roles, privileges and role-privilege mappings of each legacy app.
+- name: Lookups
+- name: Engagements
+- name: Reference Data
+- name: Settings
+- name: Finance
+- name: Audit
+paths:
+  /health:
+    get:
+      tags:
+      - Health
+      summary: Liveness check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /access/{app}/roles:
+    get:
+      tags:
+      - Access
+      summary: List an app's roles
+      description: Every row of the app's roles table. A role name is an Asgardeo group name; there is
+        no user-to-role table.
+      operationId: listRoles
+      parameters:
+      - $ref: '#/components/parameters/App'
+      responses:
+        '200':
+          description: Roles, ordered by id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListRolesResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /access/{app}/privileges:
+    get:
+      tags:
+      - Access
+      summary: List an app's active privileges
+      description: Rows of the app's privileges table with status 'active', as the legacy Role Settings
+        screen lists them.
+      operationId: listPrivileges
+      parameters:
+      - $ref: '#/components/parameters/App'
+      responses:
+        '200':
+          description: Active privileges, ordered by id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListPrivilegesResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /access/{app}/role-privileges:
+    get:
+      tags:
+      - Access
+      summary: Get an app's full role-to-privilege mapping
+      description: Every role name with the privilege ids it grants. The backend caches this and resolves
+        a caller's groups locally; the result for a set of groups is exactly what the legacy backend's
+        "privileges for these roles" query returns (Allocations joins role_privilege to roles; Travel
+        also requires the privilege row to exist; neither filters on privilege status). Privilege ids
+        are only meaningful within their app.
+      operationId: getRolePrivilegeMap
+      parameters:
+      - $ref: '#/components/parameters/App'
+      responses:
+        '200':
+          description: Role-privilege mapping
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RolePrivilegeMapResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /access/travel/agency:
+    get:
+      tags:
+      - Access
+      summary: The travel agency a person works for
+      description: Legacy getTravelAgentIdByEmailQuery (travel_agent_employee, status Active) joined to
+        the agency name. Agents see only their agency's travel requests and invoices. `agency` is null
+        when the person is not an active travel agent employee.
+      operationId: getTravelAgency
+      parameters:
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The agency, or null
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - agency
+                properties:
+                  agency:
+                    type: object
+                    nullable: true
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /engagement-types:
+    get:
+      tags:
+      - Lookups
+      summary: List engagement types
+      description: Port of the legacy getEngagementTypeQuery, ordered by id.
+      operationId: listEngagementTypes
+      parameters:
+      - name: type
+        in: query
+        required: false
+        description: Internal or Customer (case-insensitive). Omitted, both.
+        schema:
+          type: string
+          enum:
+          - Internal
+          - Customer
+      - name: isActive
+        in: query
+        required: false
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Engagement types
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListEngagementTypesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /allocation-types:
+    get:
+      tags:
+      - Lookups
+      summary: List allocation types
+      description: 'Port of the legacy getAllocationTypesQuery: only Active and Deleted rows, joined to
+        their engagement type, ordered by name. status values are returned as stored (both "ACTIVE" and
+        "Active" occur).'
+      operationId: listAllocationTypes
+      parameters:
+      - name: engagementTypeId
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: status
+        in: query
+        required: false
+        description: Active or Deleted (case-insensitive). Omitted, both.
+        schema:
+          type: string
+          enum:
+          - Active
+          - Deleted
+      responses:
+        '200':
+          description: Allocation types
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAllocationTypesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /reference-data:
+    get:
+      tags:
+      - Reference Data
+      summary: Every lookup list of allocation_db and travelapp
+      description: Engagement types (all), allocation types (Active and Deleted), business units, product
+        units (with their business unit), regions, sub regions (with their region), travel agencies (all,
+        with the NetSuite vendor id), active invoice cost types and Active per diem rates (a non-numeric
+        amount is left out).
+      operationId: getReferenceData
+      responses:
+        '200':
+          description: The lists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferenceDataResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /audit-events:
+    post:
+      tags:
+      - Audit
+      summary: Record a view, download or export
+      description: Written to the schema of entityType (allocation_db for engagement, allocation and allocation_type;
+        travelapp for the rest). Writes record their own events, so only View, Download and Export are accepted.
+        Append-only; there is no read API.
+      operationId: recordAuditEvent
+      parameters:
+      - name: X-User-Email
+        in: header
+        description: The signed-in user; without it the event is recorded as system.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditReadEvent'
+      responses:
+        '204':
+          description: Recorded
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /engagements/search:
+    post:
+      tags:
+      - Engagements
+      summary: Search engagements (legacy getEngagements / getEngagementsForApprovalProcess)
+      description: 'pendingApproval false lists every engagement that is not Pending Approval; true lists
+        only those. Multi-value filters are OR within, AND across. search matches id, account, title,
+        code, country and allocation type (and the creator for pendingApproval). Sort `current` (default):
+        rows ending on or after `today` first by start ascending, then the rest by start descending; `created`:
+        oldest first. typeCounts counts the base set per engagement type.'
+      operationId: searchEngagements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngagementSearchRequest'
+      responses:
+        '200':
+          description: A page of engagements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementSearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /engagements/facets:
+    get:
+      tags:
+      - Engagements
+      summary: Distinct accounts, allocation types and countries of engagements (not Pending Approval)
+        of the types
+      operationId: getEngagementFacets
+      parameters:
+      - name: engagementTypeId
+        in: query
+        schema:
+          type: array
+          items:
+            type: integer
+      responses:
+        '200':
+          description: Distinct values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementFacetsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /engagements:
+    post:
+      tags:
+      - Engagements
+      summary: Create an engagement (legacy addEngagement)
+      description: 'The id comes from a database trigger; the row is re-read by uuid. Funding sources
+        are resolved by name (unknown names insert nothing, as legacy). For a Marketing Event the NetSuite
+        marketing event is created inside the transaction (a failure rolls back: 503; an event name
+        NetSuite already has: 409) once a NetSuite client is wired; until then it is skipped with a
+        warning.'
+      operationId: createEngagement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngagementCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Engagement'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /engagements/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9]+$
+    get:
+      tags:
+      - Engagements
+      summary: One engagement with its funding sources
+      operationId: getEngagement
+      responses:
+        '200':
+          description: The engagement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Engagement'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Engagements
+      summary: Update an engagement (legacy updateEngagement), with the cancel cascade
+      description: Only the fields sent are written; funding sources are replaced when a non-empty list
+        is sent. engagementStatus Cancelled also sets every allocation of the engagement to Allocation
+        Cancelled / Inactive and, in travelapp, cancels the travel requests of the Active allocations
+        that were Confirmed or Confirmed - Visa Pending with travel required (status Cancelled, last_updated_by,
+        last_updated_date). Those allocations, read before the cascade, are returned for the email.
+      operationId: updateEngagement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngagementUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementUpdateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /engagements/{id}/roster:
+    get:
+      tags:
+      - Engagements
+      summary: The engagement's allocations with their travel requests
+      operationId: getEngagementRoster
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: activeOnly
+        in: query
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: Allocations by id
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - allocations
+                properties:
+                  allocations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EngagementAllocation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /role-settings/{app}:
+    get:
+      tags:
+      - Settings
+      summary: Roles of one legacy app with their privilege ids, and its active privileges
+      operationId: getRoleSettings
+      parameters:
+      - name: app
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - allocations
+          - travel
+      responses:
+        '200':
+          description: Roles and privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleSettingsResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /role-settings/{app}/roles/{roleId}/privileges:
+    put:
+      tags:
+      - Settings
+      summary: Replace a role's privileges, with the legacy privilege audit
+      description: 'Allocations: delete + insert in a transaction, then an audit_log row (ROLE / UPDATE,
+        legacy description). Travel: delete, insert and a privilege_auditlog row in one transaction. Ids
+        must be active privileges of the app.'
+      operationId: replaceRolePrivileges
+      parameters:
+      - name: app
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - allocations
+          - travel
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - privilegeIds
+              - updatedBy
+              properties:
+                privilegeIds:
+                  type: array
+                  items:
+                    type: integer
+                updatedBy:
+                  type: string
+      responses:
+        '200':
+          description: The role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleWithPrivileges'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /settings/allocation-types:
+    post:
+      tags:
+      - Settings
+      summary: Add an allocation type (status ACTIVE, department upper case, audit row)
+      operationId: createAllocationType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsAllocationTypeInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementAllocationType'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /settings/allocation-types/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    put:
+      tags:
+      - Settings
+      summary: Update an allocation type (audit row)
+      operationId: updateAllocationType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsAllocationTypeInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementAllocationType'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags:
+      - Settings
+      summary: Soft-delete an allocation type (status Deleted, audit row, no in-use check)
+      operationId: deleteAllocationType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActorRequest'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /allocations/engagements/{id}:
+    get:
+      tags:
+      - Allocations
+      summary: The engagement an allocation is made on (legacy getEngagement, with funding sources)
+      operationId: getAllocationEngagement
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The engagement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationEngagement'
+        '404':
+          $ref: '#/components/responses/Error'
+  /allocations/{id}:
+    get:
+      tags:
+      - Allocations
+      summary: One allocation in any status, with its engagement when it has one
+      operationId: getAllocation
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The allocation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationRecord'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags:
+      - Allocations
+      summary: Update an allocation (legacy updateAllocation) and create or cancel its travel row
+      description: 'Only the fields sent change (updated_by always). For an engagement allocation of an
+        employee with travel required and a new clearance status: Confirmed - Visa Pending, or Confirmed
+        when the previous status was not Confirmed - Visa Pending, inserts a travelapp.travel row (status
+        New, Pre-Approved, added by the allocation''s added_by); another valid status after Confirmed
+        / Confirmed - Visa Pending cancels its travel rows. The travel write happens before the allocation_db
+        commit, so a travel failure rolls the update back.'
+      operationId: updateAllocation
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationUpdateResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+      - Allocations
+      summary: Set the allocation's status to Deleted (legacy deleteAllocation; no travel cancel)
+      operationId: deleteAllocation
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/Error'
+  /allocations/timeline:
+    post:
+      tags:
+      - Allocations
+      summary: Active allocations of people touching a window (legacy getAllocationsByEmail, without the
+        employee join)
+      operationId: allocationTimeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationTimelineRequest'
+      responses:
+        '200':
+          description: Allocations by start date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationList'
+        '400':
+          $ref: '#/components/responses/Error'
+  /allocations/search:
+    post:
+      tags:
+      - Allocations
+      summary: Engagement Allocations list page and total (legacy getEngagementAllocations, Active only)
+      operationId: searchAllocations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationSearchRequest'
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationSearchResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+  /allocations/bulk:
+    post:
+      tags:
+      - Allocations
+      summary: Insert and update allocations in one transaction (legacy bulkUploadAllocations)
+      description: Refuses (409) an identical active engagement allocation (same email, engagement and
+        dates; LEGACY-ISSUES L5). Inserts newAllocations in order and returns the id the trigger gave
+        the first; inserts the travel row of the first engagement allocation with travel required, Confirmed
+        / Confirmed - Visa Pending and not a partner; applies updateAllocations; writes allocationLogs
+        to allocation_upload_log; sets the engagement's request status to In Progress when asked.
+      operationId: bulkAllocations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationBulkRequest'
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationBulkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /allocations/visas:
+    get:
+      tags:
+      - Allocations
+      summary: Visas valid over an allocation (travel readiness of the Confirmed email; every country,
+        first 100)
+      operationId: allocationVisas
+      parameters:
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: startDate
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: endDate
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Visas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  visas:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AllocationVisa'
+        '400':
+          $ref: '#/components/responses/Error'
+  /consultant-allocations:
+    get:
+      tags:
+      - Allocations
+      summary: Consultant Allocations report rows (legacy getConsultantAllocations, with funding sources)
+      description: Reads allocation_db.employee (the HR copy, which also holds partners under business
+        unit PARTNER).
+      operationId: consultantAllocations
+      parameters:
+      - $ref: '#/components/parameters/StartDate'
+      - $ref: '#/components/parameters/EndDate'
+      - name: email
+        in: query
+        schema:
+          type: string
+      - name: allocationTypeId
+        in: query
+        schema:
+          type: array
+          items:
+            type: integer
+      - name: businessUnit
+        in: query
+        schema:
+          type: string
+      - name: department
+        in: query
+        schema:
+          type: string
+      - name: team
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Rows ordered by allocation id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allocations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConsultantAllocation'
+        '400':
+          $ref: '#/components/responses/Error'
+  /consultant-allocations/non-allocated:
+    get:
+      tags:
+      - Allocations
+      summary: Employees (not department PARTNER) with no active allocation in the window (legacy nonAllocatedEmployees)
+      operationId: consultantNonAllocated
+      parameters:
+      - $ref: '#/components/parameters/StartDate'
+      - $ref: '#/components/parameters/EndDate'
+      - name: businessUnit
+        in: query
+        schema:
+          type: string
+      - name: department
+        in: query
+        schema:
+          type: string
+      - name: team
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Employees by email
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  employees:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConsultantNonAllocatedEmployee'
+        '400':
+          $ref: '#/components/responses/Error'
+  /consultant-allocations/team-defaults:
+    get:
+      tags:
+      - Allocations
+      summary: Default allocation type and code per team (default_allocation_for_team)
+      operationId: consultantTeamDefaults
+      responses:
+        '200':
+          description: Defaults ordered by business unit, department, team
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defaults:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConsultantTeamDefault'
+  /consultant-allocations/engagement-codes:
+    get:
+      tags:
+      - Allocations
+      summary: Engagement code groups and GL codes (engcode_grouping_gl_codes), in table order
+      operationId: consultantEngagementCodes
+      responses:
+        '200':
+          description: Codes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  codes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConsultantEngagementCode'
+  /travel-requests/search:
+    post:
+      tags:
+      - Travel
+      summary: Search travel requests (legacy travel-search / agent-travel-search)
+      description: Rows with status Deleted or NULL are never returned (legacy get_sorted_all_travel_requests
+        view). Multi-value filters are OR within a filter and AND across filters. Default limit 100, at
+        most 1000.
+      operationId: searchTravelRequests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TravelRequestSearch'
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelRequestPage'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+  /travel-requests/{jobNumber}:
+    parameters:
+    - name: jobNumber
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^TRV-\d{4}-\d{2}-\d{4}$
+    get:
+      tags:
+      - Travel
+      summary: A travel request with its live engagement and funding sources
+      operationId: getTravelRequest
+      responses:
+        '200':
+          description: The request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelRequestDetail'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+        '404':
+          $ref: '#/components/responses/TravelNotFound'
+    patch:
+      tags:
+      - Travel
+      summary: Update status, travel agent and visa (legacy updateTravel)
+      description: Always sets last_updated_by and last_updated_date = NOW(); nil fields are unchanged.
+      operationId: updateTravelRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTravelRequestInput'
+      responses:
+        '200':
+          description: The updated request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelRequestDetail'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+        '404':
+          $ref: '#/components/responses/TravelNotFound'
+  /travel-requests/{jobNumber}/active-per-diems:
+    get:
+      tags:
+      - Travel
+      summary: Active per diems of a request, for the Completed email
+      operationId: listActivePerDiems
+      parameters:
+      - name: jobNumber
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Per diems
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TravelActivePerDiem'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+  /travel-agencies:
+    get:
+      tags:
+      - Travel
+      summary: Travel agents (legacy getTravelAgentsQuery), ordered by name
+      operationId: listTravelAgencies
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - Active
+        description: Empty lists every agent.
+      responses:
+        '200':
+          description: Agents
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TravelAgent'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+  /travel-email-audit-logs:
+    post:
+      tags:
+      - Travel
+      summary: Write one email_auditlog row (legacy insertEmailAuditLog)
+      description: Values longer than the columns (255, contentKeyValPairs 3000) are cut.
+      operationId: insertTravelEmailAudit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TravelEmailAuditInput'
+      responses:
+        '204':
+          description: Written
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+  /visas:
+    get:
+      tags:
+      - Travel
+      summary: Search visas (visa_status), earliest end date first
+      operationId: listVisas
+      parameters:
+      - name: email
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: country
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - Active
+          - Inactive
+          - Expired
+        description: Stored status
+      - name: validity
+        in: query
+        schema:
+          type: string
+          enum:
+          - active
+          - expired
+        description: By end date against today.
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: coversFrom
+        in: query
+        schema:
+          type: string
+          format: date
+        description: start_date on or before.
+      - name: coversTo
+        in: query
+        schema:
+          type: string
+          format: date
+        description: end_date on or after.
+      - name: search
+        in: query
+        schema:
+          type: string
+        description: Email, country, visa type, entry type.
+      - name: excludeId
+        in: query
+        schema:
+          type: array
+          items:
+            type: integer
+        description: Visa ids to leave out (the placeholder visas on the list pages).
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TravelVisa'
+                  total:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+    post:
+      tags:
+      - Travel
+      summary: Add a visa (legacy insertVisa)
+      description: The traveller's Active visa of the same country is set Inactive in the same transaction.
+      operationId: createVisa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTravelVisaInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelVisa'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+  /visas/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      tags:
+      - Travel
+      summary: A visa with its tagged passport
+      operationId: getVisa
+      responses:
+        '200':
+          description: The visa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelVisa'
+        '404':
+          $ref: '#/components/responses/TravelNotFound'
+    put:
+      tags:
+      - Travel
+      summary: Edit a visa (legacy update-visa)
+      operationId: updateVisa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTravelVisaInput'
+      responses:
+        '200':
+          description: The visa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelVisa'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+        '404':
+          $ref: '#/components/responses/TravelNotFound'
+        '409':
+          description: Another Active visa of the same email and country exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelError'
+  /travel-documents:
+    get:
+      tags:
+      - Travel
+      summary: Search travel documents, earliest expiry first, no expiry last
+      operationId: listTravelDocuments
+      parameters:
+      - name: email
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: country
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: documentType
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - Active
+          - Inactive
+      - name: validity
+        in: query
+        schema:
+          type: string
+          enum:
+          - active
+          - expired
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: search
+        in: query
+        schema:
+          type: string
+        description: Email, number, type, country.
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TravelDocument'
+                  total:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+    post:
+      tags:
+      - Travel
+      summary: Add a travel document (legacy insertTravelDocument)
+      description: The Active document of the same email, type and country is set Inactive in the same
+        transaction.
+      operationId: createTravelDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTravelDocumentInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelDocument'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+  /travel-documents/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      tags:
+      - Travel
+      summary: A travel document
+      operationId: getTravelDocument
+      responses:
+        '200':
+          description: The document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelDocument'
+        '404':
+          $ref: '#/components/responses/TravelNotFound'
+    put:
+      tags:
+      - Travel
+      summary: Edit a travel document (legacy update-travel-document)
+      operationId: updateTravelDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTravelDocumentInput'
+      responses:
+        '200':
+          description: The document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelDocument'
+        '400':
+          $ref: '#/components/responses/TravelBadRequest'
+        '404':
+          $ref: '#/components/responses/TravelNotFound'
+        '409':
+          description: Another Active document of the same email, type and country exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelError'
+  /finance/travel-requests/{jobNumber}:
+    get:
+      tags:
+      - Finance
+      summary: A travel request's finance facts (status, traveller, agency, live engagement code, campaign)
+      operationId: financeTrip
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      responses:
+        '200':
+          description: The trip
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceTrip'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /finance/travel-requests/{jobNumber}/per-diems:
+    get:
+      tags:
+      - Finance
+      summary: Active per diems
+      operationId: financePerDiems
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      responses:
+        '200':
+          description: Per diems
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  perDiems:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FinancePerDiem'
+    post:
+      tags:
+      - Finance
+      summary: Add a per diem (engagement code taken from the trip; perdiem_auditlog written in the same
+        transaction)
+      operationId: financeAddPerDiem
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancePerDiemCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePerDiem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /finance/travel-requests/{jobNumber}/per-diems/{id}:
+    get:
+      tags:
+      - Finance
+      summary: One active per diem of the trip
+      operationId: financePerDiem
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: The per diem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePerDiem'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+      - Finance
+      summary: Soft-delete a per diem (status Deleted); the processed check is the backend's
+      operationId: financeDeletePerDiem
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/Error'
+  /finance/travel-requests/{jobNumber}/payment-basis:
+    get:
+      tags:
+      - Finance
+      summary: Inputs of the per diem balance (totals per currency, Complete Currency invoices, cards,
+        payments)
+      operationId: financePaymentBasis
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      responses:
+        '200':
+          description: Basis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePaymentBasis'
+  /finance/travel-requests/{jobNumber}/travel-cards:
+    get:
+      tags:
+      - Finance
+      summary: Travel cards
+      operationId: financeTravelCards
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      responses:
+        '200':
+          description: Cards
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  travelCards:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FinanceTravelCard'
+    post:
+      tags:
+      - Finance
+      summary: Add a travel card (400 once a per diem payment exists)
+      operationId: financeAddTravelCard
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - currency
+              - amount
+              - createdBy
+              properties:
+                currency:
+                  type: string
+                amount:
+                  type: number
+                createdBy:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceTravelCard'
+        '400':
+          $ref: '#/components/responses/Error'
+  /finance/travel-requests/{jobNumber}/invoices:
+    post:
+      tags:
+      - Finance
+      summary: Add invoices (all validated, then inserted in one transaction)
+      description: Invoice number format and uniqueness (Travel DB any status, and NetSuite purchase orders
+        when enabled - 409), Currency cost type refused once a payment exists (400), account classification
+        by engagement code or suffix (Travel Insurance - ALL).
+      operationId: financeAddInvoices
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - invoices
+              - createdBy
+              properties:
+                invoices:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FinanceInvoiceCreate'
+                createdBy:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FinanceInvoice'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/travel-requests/{jobNumber}/per-diem-payments:
+    post:
+      tags:
+      - Finance
+      summary: Add a converted per diem payment (ns_status Pending; number new in the Travel DB and NetSuite)
+      operationId: financeAddPayment
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancePaymentCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePayment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/invoice-cost-types:
+    get:
+      tags:
+      - Finance
+      summary: Active invoice cost types
+      operationId: financeCostTypes
+      responses:
+        '200':
+          description: Cost types
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  costTypes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+  /finance/invoices:
+    get:
+      tags:
+      - Finance
+      summary: Invoices with their trip and campaign, newest first, with the total of matches
+      operationId: financeInvoices
+      parameters:
+      - name: jobNumber
+        in: query
+        schema:
+          type: string
+      - name: status
+        in: query
+        description: Repeated legacy status values.
+        schema:
+          type: array
+          items:
+            type: string
+      - name: failed
+        in: query
+        description: true - NS Sync Failures only; false - none of them.
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+      - name: search
+        in: query
+        schema:
+          type: string
+      - name: costType
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: agency
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: month
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: campaignId
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: agencyId
+        in: query
+        description: Only invoices added by that agency's agents.
+        schema:
+          type: integer
+      - name: addedFrom
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: addedTo
+        in: query
+        description: Inclusive.
+        schema:
+          type: string
+          format: date
+      - name: limit
+        in: query
+        description: 0 or absent - every match (up to 10000).
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FinanceInvoice'
+                  total:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/Error'
+  /finance/invoices/counts:
+    get:
+      tags:
+      - Finance
+      summary: Invoice queue sizes
+      operationId: financeInvoiceCounts
+      parameters:
+      - name: agencyId
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: integer
+                  acceptedByTravel:
+                    type: integer
+                  acceptedByFinance:
+                    type: integer
+                    description: Not counting NS Sync Failures.
+                  failed:
+                    type: integer
+                  all:
+                    type: integer
+  /finance/invoices/decisions:
+    post:
+      tags:
+      - Finance
+      summary: Approve or reject invoices at one step (conditional on the current status)
+      operationId: financeDecideInvoices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - invoiceIds
+              - decision
+              - step
+              - updatedBy
+              properties:
+                invoiceIds:
+                  type: array
+                  items:
+                    type: integer
+                decision:
+                  type: string
+                  enum:
+                  - approve
+                  - reject
+                step:
+                  type: string
+                  enum:
+                  - travel
+                  - finance
+                  description: travel - Pending, writes hr_approved_by; finance - Accepted by travel,
+                    writes finance_approved_by.
+                reason:
+                  type: string
+                  description: Required to reject.
+                updatedBy:
+                  type: string
+      responses:
+        '200':
+          description: Per-invoice results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        ok:
+                          type: boolean
+                        jobNumber:
+                          type: string
+                          nullable: true
+                        message:
+                          type: string
+                          nullable: true
+        '400':
+          $ref: '#/components/responses/Error'
+  /finance/invoices/{id}:
+    get:
+      tags:
+      - Finance
+      summary: One invoice
+      operationId: financeInvoice
+      parameters:
+      - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: The invoice
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceInvoice'
+        '404':
+          $ref: '#/components/responses/Error'
+  /finance/invoices/{id}/push:
+    post:
+      tags:
+      - Finance
+      summary: Push one invoice as a purchase order (claim, lookup, push)
+      operationId: financePushInvoice
+      parameters:
+      - $ref: '#/components/parameters/ID'
+      requestBody:
+        $ref: '#/components/requestBodies/Actor'
+      responses:
+        '200':
+          description: Outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePushResult'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/invoices/{id}/resync:
+    post:
+      tags:
+      - Finance
+      summary: Settle an NS Sync Failure by a purchase order lookup
+      operationId: financeResyncInvoice
+      parameters:
+      - $ref: '#/components/parameters/ID'
+      requestBody:
+        $ref: '#/components/requestBodies/Actor'
+      responses:
+        '200':
+          description: Outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePushResult'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/invoices/{id}/netsuite-reference:
+    get:
+      tags:
+      - Finance
+      summary: Live purchase order lookup (the id is not stored)
+      operationId: financeInvoiceReference
+      parameters:
+      - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceReference'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/per-diem-payments:
+    get:
+      tags:
+      - Finance
+      summary: Per diem payments with their trip and campaign, newest first
+      operationId: financePayments
+      parameters:
+      - name: jobNumber
+        in: query
+        schema:
+          type: string
+      - name: nsStatus
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - Pending
+            - Complete
+            - Failed
+      - name: search
+        in: query
+        schema:
+          type: string
+      - name: traveller
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: convertedCurrency
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: campaignId
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: addedFrom
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: addedTo
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FinancePayment'
+                  total:
+                    type: integer
+  /finance/per-diem-payments/counts:
+    get:
+      tags:
+      - Finance
+      summary: Payment queue sizes
+      operationId: financePaymentCounts
+      responses:
+        '200':
+          description: Counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: integer
+                  failed:
+                    type: integer
+                  all:
+                    type: integer
+  /finance/per-diem-payments/{perDiemNumber}:
+    get:
+      tags:
+      - Finance
+      summary: One payment by its per diem number
+      operationId: financePayment
+      parameters:
+      - $ref: '#/components/parameters/PerDiemNumber'
+      responses:
+        '200':
+          description: The payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePayment'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags:
+      - Finance
+      summary: Edit a Pending payment's amount and conversion (409 when not Pending)
+      operationId: financeUpdatePayment
+      parameters:
+      - $ref: '#/components/parameters/PerDiemNumber'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - paymentAmount
+              - convertedCurrency
+              - convertedAmount
+              - updatedBy
+              properties:
+                paymentAmount:
+                  type: number
+                convertedCurrency:
+                  type: string
+                convertedAmount:
+                  type: number
+                updatedBy:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePayment'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /finance/per-diem-payments/{perDiemNumber}/push:
+    post:
+      tags:
+      - Finance
+      summary: Push one Pending payment as a vendor bill (claim, lookup, push)
+      operationId: financePushPayment
+      parameters:
+      - $ref: '#/components/parameters/PerDiemNumber'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - updatedBy
+              - employee
+              properties:
+                updatedBy:
+                  type: string
+                employee:
+                  $ref: '#/components/schemas/FinanceEmployee'
+      responses:
+        '200':
+          description: Outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePushResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/per-diem-payments/{perDiemNumber}/resync:
+    post:
+      tags:
+      - Finance
+      summary: Settle a Failed payment by a vendor bill lookup
+      operationId: financeResyncPayment
+      parameters:
+      - $ref: '#/components/parameters/PerDiemNumber'
+      requestBody:
+        $ref: '#/components/requestBodies/Actor'
+      responses:
+        '200':
+          description: Outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancePushResult'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/per-diem-payments/{perDiemNumber}/netsuite-reference:
+    get:
+      tags:
+      - Finance
+      summary: Live vendor bill lookup
+      operationId: financePaymentReference
+      parameters:
+      - $ref: '#/components/parameters/PerDiemNumber'
+      responses:
+        '200':
+          description: Reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceReference'
+        '503':
+          $ref: '#/components/responses/Error'
+  /finance/subsidiaries/{company}:
+    get:
+      tags:
+      - Finance
+      summary: The active expense_app subsidiary whose code is the HR company name
+      operationId: financeSubsidiary
+      parameters:
+      - name: company
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Subsidiary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceSubsidiary'
+        '404':
+          $ref: '#/components/responses/Error'
+  /dashboard/allocations-today:
+    get:
+      tags:
+      - Dashboard
+      summary: The legacy Allocations dashboard queries (allocation_db), verbatim
+      description: No date runs getAllocationsWithEngagementTypeQuery, getPaidAllocationsWithAllocationTypeQuery
+        and getNonPaidAllocationsWithAllocationTypeQuery (curdate()); a date runs their getPast… variants.
+        Plus count(DISTINCT allocation.email) under the same predicates.
+      operationId: dashboardAllocationsToday
+      parameters:
+      - name: date
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: businessUnitId
+        in: query
+        description: engagement_funding_source.business_unit_id
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardAllocationsToday'
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/my-work:
+    get:
+      tags:
+      - Dashboard
+      summary: A person's active engagement allocations ending today or later, today's team allocation
+        and (trips) upcoming trips
+      operationId: dashboardMyWork
+      parameters:
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: trips
+        in: query
+        schema:
+          type: boolean
+      - name: tripLimit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 3
+      responses:
+        '200':
+          description: Own work
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardMyWork'
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/queues:
+    get:
+      tags:
+      - Dashboard
+      summary: Waiting on You counts (allocation_db and travelapp)
+      description: Only the parts asked for run. Failed invoice push = Accepted by finance and updated_by
+        set and not the finance approver; failed payment push = Pending and last_updated_by set (the legacy
+        schema has no push column; travel-finance-port-spec 5.5).
+      operationId: dashboardQueues
+      parameters:
+      - name: pendingApprovalType
+        in: query
+        description: Engagement types (1, 5).
+        schema:
+          type: array
+          items:
+            type: integer
+      - name: clearanceType
+        in: query
+        description: Engagement types for the clearance counts.
+        schema:
+          type: array
+          items:
+            type: integer
+      - name: travelRequests
+        in: query
+        schema:
+          type: boolean
+      - name: invoices
+        in: query
+        schema:
+          type: boolean
+      - name: payments
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardQueues'
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/travel:
+    get:
+      tags:
+      - Dashboard
+      summary: Travel section (travelapp) and Travel Cost lines (travelapp, expense_app)
+      operationId: dashboardTravel
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: trips
+        in: query
+        schema:
+          type: boolean
+      - name: costInvoices
+        in: query
+        schema:
+          type: boolean
+      - name: costPayments
+        in: query
+        schema:
+          type: boolean
+      - name: costCards
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Figures
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardTravel'
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+        '503':
+          description: Card spend asked for without an expense_app pool
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /dashboard/engagements:
+    get:
+      tags:
+      - Dashboard
+      summary: Engagements starting in 30 days, Available Consultants, Allocations Over Time (allocation_db)
+      operationId: dashboardEngagements
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: engagementType
+        in: query
+        description: Types to list; none skips the list.
+        schema:
+          type: array
+          items:
+            type: integer
+      - name: bench
+        in: query
+        schema:
+          type: boolean
+      - name: trend
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Figures
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardEngagements'
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/agency:
+    get:
+      tags:
+      - Dashboard
+      summary: Travel agent dashboard of one agency (travelapp)
+      operationId: dashboardAgency
+      parameters:
+      - name: agencyId
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Figures
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardAgency'
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+components:
+  parameters:
+    App:
+      name: app
+      in: path
+      required: true
+      description: The legacy app whose tables are read. Privilege ids are never comparable across apps.
+      schema:
+        type: string
+        enum:
+        - allocations
+        - travel
+    StartDate:
+      name: startDate
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+    EndDate:
+      name: endDate
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+    JobNumber:
+      name: jobNumber
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^TRV-\d{4}-\d{2}-\d{4}$
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    PerDiemNumber:
+      name: perDiemNumber
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^TRV-\d{4}-\d{2}-\d{4}-\d{3}$
+  responses:
+    BadRequest:
+      description: Invalid query parameter
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 400
+            message: isActive must be true or false
+    NotFound:
+      description: Unknown app
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 404
+            message: 'unknown app "finance": must be allocations or travel'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 500
+            message: internal server error
+    Conflict:
+      description: Duplicate or in use
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: A dependency failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Error:
+      description: '{code, message}'
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - code
+            - message
+            properties:
+              code:
+                type: integer
+              message:
+                type: string
+    TravelBadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TravelError'
+    TravelNotFound:
+      description: No such record
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TravelError'
+    DashboardBadRequest:
+      description: Invalid query parameter
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+    Role:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: integer
+          example: 7
+        name:
+          type: string
+          example: app-allocations-admin-super
+    Privilege:
+      type: object
+      required:
+      - id
+      - name
+      - description
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Dashboard Page
+        description:
+          type: string
+          nullable: true
+          example: View Dashboard Page
+    ListRolesResponse:
+      type: object
+      required:
+      - roles
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+    ListPrivilegesResponse:
+      type: object
+      required:
+      - privileges
+      properties:
+        privileges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Privilege'
+    RolePrivilegeMapResponse:
+      type: object
+      required:
+      - rolePrivileges
+      properties:
+        rolePrivileges:
+          type: object
+          description: Role (group) name to the privilege ids it grants, ascending. Roles with none are
+            absent.
+          additionalProperties:
+            type: array
+            items:
+              type: integer
+          example:
+            wso2-employees:
+            - 1
+            app-allocations-manager-cust-eng-pre-sale:
+            - 33
+    EngagementType:
+      type: object
+      required:
+      - id
+      - name
+      - type
+      - isActive
+      properties:
+        id:
+          type: integer
+          example: 5
+        name:
+          type: string
+          example: Marketing Event
+        type:
+          type: string
+          enum:
+          - Internal
+          - Customer
+        isActive:
+          type: boolean
+    ListEngagementTypesResponse:
+      type: object
+      required:
+      - engagementTypes
+      properties:
+        engagementTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngagementType'
+    AllocationType:
+      type: object
+      required:
+      - id
+      - allocationTypeName
+      - status
+      - engagementTypeId
+      - engagementTypeName
+      properties:
+        id:
+          type: integer
+        allocationTypeName:
+          type: string
+          example: Pre-sale Support
+        status:
+          type: string
+          description: As stored; Active or Deleted in any case.
+          example: ACTIVE
+        color:
+          type: string
+          nullable: true
+          example: '#d030eb'
+        department:
+          type: string
+          nullable: true
+          example: SOLUTIONS ARCHITECTURE
+        emailToAllocations:
+          type: string
+          nullable: true
+        defaultEngagementCode:
+          type: string
+          nullable: true
+          example: PRE-GEN
+        engagementCodeSuffix:
+          type: string
+          nullable: true
+        engagementTypeId:
+          type: integer
+          example: 1
+        engagementTypeName:
+          type: string
+          example: Internal Engagement
+    ListAllocationTypesResponse:
+      type: object
+      required:
+      - allocationTypes
+      properties:
+        allocationTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationType'
+    ActorRequest:
+      type: object
+      required:
+      - actor
+      properties:
+        actor:
+          type: string
+    EngagementEngagementType:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+        isActive:
+          type: boolean
+    EngagementAllocationType:
+      type: object
+      properties:
+        id:
+          type: integer
+        allocationTypeName:
+          type: string
+        status:
+          type: string
+        color:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        emailToAllocations:
+          type: string
+          nullable: true
+        defaultEngagementCode:
+          type: string
+          nullable: true
+        engagementCodeSuffix:
+          type: string
+          nullable: true
+        engagementTypeId:
+          type: integer
+        engagementTypeName:
+          type: string
+    ReferenceItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        active:
+          type: boolean
+    ReferenceDataResponse:
+      type: object
+      properties:
+        engagementTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngagementEngagementType'
+        allocationTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngagementAllocationType'
+        businessUnits:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReferenceItem'
+        productUnits:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              active:
+                type: boolean
+              businessUnit:
+                type: string
+                nullable: true
+              customer:
+                type: boolean
+              internal:
+                type: boolean
+              marketing:
+                type: boolean
+        regions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReferenceItem'
+        subRegions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              active:
+                type: boolean
+              region:
+                type: string
+                nullable: true
+        travelAgencies:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              netsuiteVendorId:
+                type: string
+                nullable: true
+              active:
+                type: boolean
+        costTypes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        perDiemRates:
+          type: array
+          items:
+            type: object
+            properties:
+              country:
+                type: string
+              currency:
+                type: string
+              amount:
+                type: number
+    FundingSource:
+      type: object
+      properties:
+        businessUnit:
+          type: string
+        productUnit:
+          type: string
+        region:
+          type: string
+        subRegion:
+          type: string
+        percentage:
+          type: number
+    Engagement:
+      type: object
+      properties:
+        id:
+          type: string
+          example: E07201
+        engagementTypeId:
+          type: integer
+        engagementTypeName:
+          type: string
+          nullable: true
+        allocationTypeId:
+          type: integer
+        allocationTypeName:
+          type: string
+          nullable: true
+        customerCode:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        projectName:
+          type: string
+          nullable: true
+          description: Opportunity name, event (campaign) name or name / purpose.
+        opportunityId:
+          type: string
+          nullable: true
+        opportunityLineItemId:
+          type: string
+          nullable: true
+        productName:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        businessDomain:
+          type: string
+          nullable: true
+        createdBy:
+          type: string
+          nullable: true
+        contractsSigned:
+          type: boolean
+          nullable: true
+        engagementCode:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          nullable: true
+          format: date
+        endDate:
+          type: string
+          nullable: true
+          format: date
+        requestStatus:
+          type: string
+          nullable: true
+        engagementScope:
+          type: string
+          nullable: true
+        engagementNature:
+          type: string
+          nullable: true
+        engagementStatus:
+          type: string
+          nullable: true
+        customerContact:
+          type: string
+          nullable: true
+        opportunityOwner:
+          type: string
+          nullable: true
+        tentativeDates:
+          type: boolean
+          nullable: true
+        technicalOwner:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+          nullable: true
+        createdOn:
+          type: string
+          nullable: true
+          format: date-time
+          description: last_updated_date (set on insert only).
+        campaignId:
+          type: string
+          nullable: true
+        fundingSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/FundingSource'
+        consultants:
+          type: array
+          items:
+            type: string
+          description: Emails of Active allocations; search with includeConsultants only.
+    EngagementSearchRequest:
+      type: object
+      properties:
+        pendingApproval:
+          type: boolean
+        engagementTypeIds:
+          type: array
+          items:
+            type: integer
+        search:
+          type: string
+        accounts:
+          type: array
+          items:
+            type: string
+        allocationTypes:
+          type: array
+          items:
+            type: string
+        requestStatuses:
+          type: array
+          items:
+            type: string
+        engagementStatuses:
+          type: array
+          items:
+            type: string
+        businessUnits:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+        consultants:
+          type: string
+          enum:
+          - ''
+          - allocated
+          - none
+        startFrom:
+          type: string
+          format: date
+        startTo:
+          type: string
+          format: date
+        endTo:
+          type: string
+          format: date
+        sort:
+          type: string
+          enum:
+          - current
+          - created
+        today:
+          type: string
+          format: date
+        includeConsultants:
+          type: boolean
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 50
+        offset:
+          type: integer
+          minimum: 0
+    EngagementSearchResponse:
+      type: object
+      required:
+      - items
+      - total
+      - typeCounts
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Engagement'
+        total:
+          type: integer
+        typeCounts:
+          type: object
+          additionalProperties:
+            type: integer
+    EngagementFacetsResponse:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            type: string
+        allocationTypes:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+    EngagementCreateRequest:
+      type: object
+      required:
+      - allocationTypeId
+      - uuid
+      - createdBy
+      - requestStatus
+      - engagementStatus
+      - startDate
+      - endDate
+      properties:
+        allocationTypeId:
+          type: integer
+        customerName:
+          type: string
+        customerCode:
+          type: string
+        address:
+          type: string
+        businessDomain:
+          type: string
+        contractsSigned:
+          type: boolean
+        engagementCode:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        requestStatus:
+          type: string
+        projectName:
+          type: string
+        opportunityId:
+          type: string
+        opportunityLineItemId:
+          type: string
+        opportunityOwner:
+          type: string
+        productName:
+          type: string
+        engagementScope:
+          type: string
+        engagementStatus:
+          type: string
+        tentativeDates:
+          type: boolean
+        engagementNature:
+          type: string
+        customerContact:
+          type: string
+        technicalOwner:
+          type: string
+        comment:
+          type: string
+        country:
+          type: string
+        description:
+          type: string
+        campaignId:
+          type: string
+          nullable: true
+        fundingSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/FundingSource'
+        uuid:
+          type: string
+        createdBy:
+          type: string
+    EngagementUpdateRequest:
+      type: object
+      required:
+      - updatedBy
+      properties:
+        allocationTypeId:
+          type: integer
+        engagementCode:
+          type: string
+        engagementScope:
+          type: string
+        engagementNature:
+          type: string
+        comment:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        engagementStatus:
+          type: string
+        requestStatus:
+          type: string
+        country:
+          type: string
+        customerContact:
+          type: string
+        address:
+          type: string
+        description:
+          type: string
+        projectName:
+          type: string
+        campaignId:
+          type: string
+        fundingSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/FundingSource'
+        updatedBy:
+          type: string
+        tentativeDates:
+          type: boolean
+          nullable: true
+    EngagementAllocation:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        allocationTypeId:
+          type: integer
+          nullable: true
+        startDate:
+          type: string
+          nullable: true
+        endDate:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        clearanceStatus:
+          type: string
+          nullable: true
+        isTravelRequired:
+          type: string
+          nullable: true
+        addedBy:
+          type: string
+          nullable: true
+        addedDate:
+          type: string
+          nullable: true
+          format: date-time
+        isRecurring:
+          type: string
+          nullable: true
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        timeZone:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        travelRequests:
+          type: array
+          items:
+            type: object
+            properties:
+              jobNumber:
+                type: string
+              status:
+                type: string
+                nullable: true
+    EngagementUpdateResponse:
+      type: object
+      required:
+      - engagement
+      - cancelledAllocations
+      properties:
+        engagement:
+          $ref: '#/components/schemas/Engagement'
+        cancelledAllocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngagementAllocation'
+    RoleWithPrivileges:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        privilegeIds:
+          type: array
+          items:
+            type: integer
+    RoleSettingsResponse:
+      type: object
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleWithPrivileges'
+        privileges:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              description:
+                type: string
+                nullable: true
+    SettingsAllocationTypeInput:
+      type: object
+      required:
+      - engagementTypeId
+      - allocationTypeName
+      - defaultEngagementCode
+      - actor
+      properties:
+        engagementTypeId:
+          type: integer
+        allocationTypeName:
+          type: string
+          maxLength: 90
+        defaultEngagementCode:
+          type: string
+          maxLength: 90
+        engagementCodeSuffix:
+          type: string
+          maxLength: 90
+        department:
+          type: string
+          maxLength: 90
+        emailToAllocations:
+          type: string
+          enum:
+          - ''
+          - 'Yes'
+          - 'No'
+        color:
+          type: string
+          example: '#00aabb'
+        actor:
+          type: string
+    AllocationFundingSource:
+      type: object
+      properties:
+        businessUnit:
+          type: string
+          nullable: true
+        productUnit:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        subRegion:
+          type: string
+          nullable: true
+        percentage:
+          type: number
+          nullable: true
+    AllocationEngagement:
+      type: object
+      required:
+      - id
+      - engagementTypeId
+      - contractsSigned
+      - fundingSources
+      properties:
+        id:
+          type: string
+        engagementTypeId:
+          type: integer
+        engagementTypeName:
+          type: string
+          nullable: true
+        engagementKind:
+          type: string
+          nullable: true
+          description: Internal or Customer.
+        allocationTypeId:
+          type: integer
+          nullable: true
+        allocationTypeName:
+          type: string
+          nullable: true
+        emailToAllocations:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        customerCode:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+          description: project_name.
+        opportunityId:
+          type: string
+          nullable: true
+        productId:
+          type: string
+          nullable: true
+        productName:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        businessDomain:
+          type: string
+          nullable: true
+        createdBy:
+          type: string
+          nullable: true
+        contractsSigned:
+          type: boolean
+        engagementCode:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        requestStatus:
+          type: string
+          nullable: true
+        engagementStatus:
+          type: string
+          nullable: true
+        engagementScope:
+          type: string
+          nullable: true
+        engagementNature:
+          type: string
+          nullable: true
+        customerContact:
+          type: string
+          nullable: true
+        opportunityOwner:
+          type: string
+          nullable: true
+        technicalOwner:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        fundingSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationFundingSource'
+    AllocationEngagementRef:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        engagementTypeId:
+          type: integer
+        engagementTypeName:
+          type: string
+          nullable: true
+        engagementKind:
+          type: string
+          nullable: true
+        allocationTypeName:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        engagementCode:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        requestStatus:
+          type: string
+          nullable: true
+        engagementStatus:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        productId:
+          type: string
+          nullable: true
+    AllocationTravelRef:
+      type: object
+      properties:
+        jobNumber:
+          type: string
+        allocationId:
+          type: string
+        travellerEmail:
+          type: string
+        status:
+          type: string
+          nullable: true
+    AllocationRecord:
+      type: object
+      required:
+      - id
+      - email
+      - startDate
+      - endDate
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        allocationTypeId:
+          type: integer
+          nullable: true
+        allocationTypeName:
+          type: string
+          nullable: true
+        allocationTypeColor:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        isRecurring:
+          type: string
+          nullable: true
+        startTime:
+          type: string
+          nullable: true
+          example: 09:00
+        endTime:
+          type: string
+          nullable: true
+        timeZone:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        clearanceStatus:
+          type: string
+          nullable: true
+        isTravelRequired:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        addedBy:
+          type: string
+          nullable: true
+        addedDate:
+          type: string
+          format: date-time
+          nullable: true
+        engagementId:
+          type: string
+          nullable: true
+          description: '"-1" / "-1.0" for default allocations.'
+        engagementCode:
+          type: string
+          nullable: true
+        engagement:
+          $ref: '#/components/schemas/AllocationEngagementRef'
+        travelRequests:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationTravelRef'
+          description: Search only.
+    AllocationList:
+      type: object
+      properties:
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationRecord'
+    AllocationTimelineRequest:
+      type: object
+      required:
+      - startDate
+      - endDate
+      properties:
+        emails:
+          type: array
+          maxItems: 5000
+          items:
+            type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        allocationTypeIds:
+          type: array
+          items:
+            type: integer
+    AllocationSearchRequest:
+      type: object
+      required:
+      - engagementTypeIds
+      - today
+      - limit
+      properties:
+        engagementTypeIds:
+          type: array
+          items:
+            type: integer
+          description: Types the caller may list; empty returns nothing.
+        clearanceStatuses:
+          type: array
+          items:
+            type: string
+        consultants:
+          type: array
+          items:
+            type: string
+        allocationTypes:
+          type: array
+          items:
+            type: string
+        travelRequired:
+          type: boolean
+          nullable: true
+        startFrom:
+          type: string
+          format: date
+        endTo:
+          type: string
+          format: date
+        search:
+          type: string
+        today:
+          type: string
+          format: date
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+        offset:
+          type: integer
+          minimum: 0
+    AllocationSearchResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationRecord'
+        total:
+          type: integer
+    AllocationInput:
+      type: object
+      required:
+      - email
+      - allocationTypeId
+      - status
+      - startDate
+      - endDate
+      - engagementId
+      - isTravelRequired
+      - isRecurring
+      properties:
+        email:
+          type: string
+        allocationTypeId:
+          type: integer
+        status:
+          type: string
+          enum:
+          - Active
+          - Inactive
+        allocationStatus:
+          type: string
+          nullable: true
+        clearanceStatus:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        timeZone:
+          type: string
+          nullable: true
+        engagementId:
+          type: string
+        engagementCode:
+          type: string
+        isTravelRequired:
+          type: string
+          enum:
+          - 'Yes'
+          - 'No'
+        isRecurring:
+          type: string
+          enum:
+          - 'Yes'
+          - 'No'
+        comment:
+          type: string
+          nullable: true
+          maxLength: 255
+    AllocationBulkRequest:
+      type: object
+      required:
+      - newAllocations
+      - createdBy
+      properties:
+        newAllocations:
+          type: array
+          minItems: 1
+          maxItems: 5000
+          items:
+            $ref: '#/components/schemas/AllocationInput'
+        updateAllocations:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - startDate
+            - endDate
+            properties:
+              id:
+                type: string
+              startDate:
+                type: string
+                format: date
+              endDate:
+                type: string
+                format: date
+        allocationLogs:
+          type: array
+          items:
+            type: object
+            required:
+            - email
+            - allocationTypeId
+            - startDate
+            - endDate
+            properties:
+              email:
+                type: string
+              allocationTypeId:
+                type: integer
+              startDate:
+                type: string
+                format: date
+              endDate:
+                type: string
+                format: date
+              engagementCode:
+                type: string
+        requestStatusInProgress:
+          type: string
+          nullable: true
+          description: Engagement id whose request status becomes In Progress.
+        createdBy:
+          type: string
+    AllocationBulkResponse:
+      type: object
+      properties:
+        recordsAdded:
+          type: integer
+        recordsUpdated:
+          type: integer
+        firstAllocationId:
+          type: string
+          nullable: true
+        travelJobNumber:
+          type: string
+          nullable: true
+    AllocationUpdateRequest:
+      type: object
+      required:
+      - updatedBy
+      properties:
+        clearanceStatus:
+          type: string
+        status:
+          type: string
+          enum:
+          - Active
+          - Inactive
+        comment:
+          type: string
+          maxLength: 255
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        updatedBy:
+          type: string
+    AllocationUpdateResponse:
+      type: object
+      properties:
+        allocation:
+          $ref: '#/components/schemas/AllocationRecord'
+        previousClearanceStatus:
+          type: string
+          nullable: true
+        travelJobNumber:
+          type: string
+          nullable: true
+        travelCancelled:
+          type: boolean
+    AllocationVisa:
+      type: object
+      properties:
+        country:
+          type: string
+          nullable: true
+        visaType:
+          type: string
+          nullable: true
+        entryType:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+    ConsultantAllocation:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        allocationTypeName:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        engagementId:
+          type: string
+          nullable: true
+        isRecurring:
+          type: string
+          nullable: true
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        timeZone:
+          type: string
+          nullable: true
+        engagementCode:
+          type: string
+          nullable: true
+        engagementNature:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        initialEngagementCode:
+          type: string
+          nullable: true
+        defaultEngagementCodeForAllocType:
+          type: string
+          nullable: true
+        engagementTypeName:
+          type: string
+          nullable: true
+        numOfDays:
+          type: integer
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        team:
+          type: string
+          nullable: true
+        businessUnit:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        fundingSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationFundingSource'
+    ConsultantNonAllocatedEmployee:
+      type: object
+      properties:
+        workEmail:
+          type: string
+          nullable: true
+        team:
+          type: string
+          nullable: true
+        businessUnit:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        jobRole:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+    ConsultantTeamDefault:
+      type: object
+      properties:
+        businessUnit:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        team:
+          type: string
+          nullable: true
+        defaultAllocTypeName:
+          type: string
+          nullable: true
+        engagementTypeName:
+          type: string
+          nullable: true
+        defaultEngagementCode:
+          type: string
+          nullable: true
+    ConsultantEngagementCode:
+      type: object
+      properties:
+        engagementCode:
+          type: string
+          nullable: true
+        engGroup:
+          type: string
+          nullable: true
+        accountName:
+          type: string
+          nullable: true
+        glCode:
+          type: string
+          nullable: true
+    TravelError:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+    TravelRequestSearch:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            type: string
+            enum:
+            - New
+            - In Progress
+            - On Hold
+            - Extended
+            - Completed
+            - Cancelled
+        travellerEmails:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+        agencyNames:
+          type: array
+          items:
+            type: string
+        travelAgentId:
+          type: integer
+          description: Scopes to one agency (agents).
+        visaId:
+          type: integer
+        startFrom:
+          type: string
+          format: date
+        endTo:
+          type: string
+          format: date
+        search:
+          type: string
+          description: Job number, traveller email, city, country; plus account and engagement title with
+            searchEngagements; plus agent name with searchAgency.
+        searchEngagements:
+          type: boolean
+        searchAgency:
+          type: boolean
+        sort:
+          type: string
+          enum:
+          - current
+          - startDesc
+          default: current
+        today:
+          type: string
+          format: date
+        limit:
+          type: integer
+          default: 100
+          maximum: 1000
+        offset:
+          type: integer
+          default: 0
+        withStatusCounts:
+          type: boolean
+          description: Also count matches per status, ignoring statuses.
+    TravelVisaRef:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        visaType:
+          type: string
+          nullable: true
+        entryType:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+    TravelEngagement:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        engagementCode:
+          type: string
+          nullable: true
+        typeName:
+          type: string
+          nullable: true
+        kind:
+          type: string
+          nullable: true
+          enum:
+          - Internal
+          - Customer
+        campaignId:
+          type: string
+          nullable: true
+        typeId:
+          type: integer
+          nullable: true
+    TravelFundingSource:
+      type: object
+      properties:
+        businessUnit:
+          type: string
+          nullable: true
+        productUnit:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        subRegion:
+          type: string
+          nullable: true
+        percentage:
+          type: number
+          nullable: true
+    TravelRequest:
+      type: object
+      required:
+      - jobNumber
+      - status
+      - travellerEmail
+      properties:
+        jobNumber:
+          type: string
+        status:
+          type: string
+        travellerEmail:
+          type: string
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+        customerName:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        allocationId:
+          type: string
+          nullable: true
+        engagementId:
+          type: string
+          nullable: true
+        engagementCode:
+          type: string
+        engagementType:
+          type: string
+        travelAgentId:
+          type: integer
+          nullable: true
+        travelAgentName:
+          type: string
+          nullable: true
+        visaId:
+          type: integer
+          nullable: true
+        visa:
+          type: string
+          nullable: true
+          description: Legacy free-text visa column.
+        visaDetails:
+          $ref: '#/components/schemas/TravelVisaRef'
+        lastUpdatedBy:
+          type: string
+          nullable: true
+        lastUpdatedDate:
+          type: string
+          nullable: true
+        engagement:
+          $ref: '#/components/schemas/TravelEngagement'
+    TravelRequestPage:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TravelRequest'
+        total:
+          type: integer
+        statusCounts:
+          type: object
+          additionalProperties:
+            type: integer
+    TravelRequestDetail:
+      allOf:
+      - $ref: '#/components/schemas/TravelRequest'
+      - type: object
+        required:
+        - fundingSources
+        properties:
+          fundingSources:
+            type: array
+            items:
+              $ref: '#/components/schemas/TravelFundingSource'
+    UpdateTravelRequestInput:
+      type: object
+      required:
+      - updatedBy
+      properties:
+        status:
+          type: string
+          enum:
+          - New
+          - In Progress
+          - On Hold
+          - Extended
+          - Completed
+          - Cancelled
+        travelAgentId:
+          type: integer
+        visaId:
+          type: integer
+        updatedBy:
+          type: string
+    TravelAgent:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          nullable: true
+    TravelActivePerDiem:
+      type: object
+      properties:
+        startDate:
+          type: string
+          nullable: true
+          description: YYYY-MM-DD HH:MM:SS
+        endDate:
+          type: string
+          nullable: true
+        noOfDays:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        perDiemValue:
+          type: number
+        total:
+          type: number
+          nullable: true
+    AuditReadEvent:
+      type: object
+      required:
+      - action
+      - entityType
+      properties:
+        action:
+          type: string
+          enum: [View, Download, Export]
+        entityType:
+          type: string
+          enum: [engagement, allocation, allocation_type, travel_request, visa, travel_document, per_diem,
+            per_diem_payment, invoice, travel_card]
+        entityId:
+          type: string
+          maxLength: 64
+          description: Empty for a list page or an export.
+        parentType:
+          type: string
+          maxLength: 64
+        parentId:
+          type: string
+          maxLength: 255
+        metadata:
+          type: object
+          additionalProperties: true
+          description: For example the list filters, the page or the report range.
+    TravelEmailAuditInput:
+      type: object
+      required:
+      - subject
+      - templateId
+      properties:
+        subject:
+          type: string
+        templateId:
+          type: string
+        contentKeyValPairs:
+          type: string
+          description: The final content map as JSON.
+        recipients:
+          type: string
+          description: To, joined with ", ".
+        ccRecipients:
+          type: string
+    TravelPassportRef:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: integer
+        country:
+          type: string
+          nullable: true
+        documentNo:
+          type: string
+          nullable: true
+        issuedDate:
+          type: string
+          format: date
+          nullable: true
+        expiryDate:
+          type: string
+          format: date
+          nullable: true
+    TravelVisa:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        visaType:
+          type: string
+          nullable: true
+        entryType:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        issuedDate:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        imageId:
+          type: string
+          nullable: true
+          description: Blob name in the visas container.
+        passportId:
+          type: integer
+          nullable: true
+        passport:
+          $ref: '#/components/schemas/TravelPassportRef'
+        addedBy:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+          nullable: true
+    CreateTravelVisaInput:
+      type: object
+      required:
+      - email
+      - country
+      - visaType
+      - entryType
+      - issuedDate
+      - startDate
+      - endDate
+      - imageId
+      - createdBy
+      properties:
+        email:
+          type: string
+        country:
+          type: string
+        visaType:
+          type: string
+        entryType:
+          type: string
+        issuedDate:
+          type: string
+          format: date
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        passportId:
+          type: integer
+        imageId:
+          type: string
+        createdBy:
+          type: string
+    UpdateTravelVisaInput:
+      type: object
+      required:
+      - country
+      - visaType
+      - entryType
+      - issuedDate
+      - startDate
+      - endDate
+      - status
+      - updatedBy
+      properties:
+        country:
+          type: string
+        visaType:
+          type: string
+        entryType:
+          type: string
+        issuedDate:
+          type: string
+          format: date
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        passportId:
+          type: integer
+          description: Unchanged when absent.
+        status:
+          type: string
+          enum:
+          - Active
+          - Inactive
+          - Expired
+        imageId:
+          type: string
+          description: Unchanged when absent.
+        updatedBy:
+          type: string
+    TravelDocument:
+      type: object
+      required:
+      - id
+      - status
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          nullable: true
+        documentNo:
+          type: string
+          nullable: true
+        documentType:
+          type: string
+          nullable: true
+        issuedCountry:
+          type: string
+          nullable: true
+        issuedDate:
+          type: string
+          format: date
+          nullable: true
+        expiryDate:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+        imageId:
+          type: string
+          nullable: true
+          description: Blob name in the travel-documents container.
+        addedBy:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+          nullable: true
+    CreateTravelDocumentInput:
+      type: object
+      required:
+      - email
+      - documentNo
+      - documentType
+      - issuedCountry
+      - issuedDate
+      - imageId
+      - createdBy
+      properties:
+        email:
+          type: string
+        documentNo:
+          type: string
+        documentType:
+          type: string
+          enum:
+          - Passport
+          - Driver License
+          - Other ID Document
+        issuedCountry:
+          type: string
+        issuedDate:
+          type: string
+          format: date
+        expiryDate:
+          type: string
+          format: date
+          description: Required except for Other ID Document.
+        imageId:
+          type: string
+        createdBy:
+          type: string
+    UpdateTravelDocumentInput:
+      type: object
+      required:
+      - documentType
+      - issuedCountry
+      - issuedDate
+      - status
+      - updatedBy
+      properties:
+        documentNo:
+          type: string
+          description: Unchanged when absent.
+        documentType:
+          type: string
+          enum:
+          - Passport
+          - Driver License
+          - Other ID Document
+        issuedCountry:
+          type: string
+        issuedDate:
+          type: string
+          format: date
+        expiryDate:
+          type: string
+          format: date
+          description: Unchanged when absent.
+        status:
+          type: string
+          enum:
+          - Active
+          - Inactive
+        imageId:
+          type: string
+          description: Unchanged when absent.
+        updatedBy:
+          type: string
+    FinanceCampaign:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          nullable: true
+    FinanceTrip:
+      type: object
+      properties:
+        jobNumber:
+          type: string
+        status:
+          type: string
+          nullable: true
+        travellerEmail:
+          type: string
+        agencyId:
+          type: integer
+          nullable: true
+        agencyName:
+          type: string
+          nullable: true
+        allocationId:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          nullable: true
+        endDate:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        engagementCode:
+          type: string
+          nullable: true
+        campaign:
+          $ref: '#/components/schemas/FinanceCampaign'
+    FinancePerDiem:
+      type: object
+      properties:
+        id:
+          type: integer
+        engagementCode:
+          type: string
+        jobNumber:
+          type: string
+        currency:
+          type: string
+          nullable: true
+        perDiemValue:
+          type: number
+        total:
+          type: number
+        startDate:
+          type: string
+          nullable: true
+          description: YYYY-MM-DD HH:MM:SS
+        endDate:
+          type: string
+          nullable: true
+        noOfDays:
+          type: integer
+          nullable: true
+        status:
+          type: string
+    FinancePerDiemCreate:
+      type: object
+      required:
+      - currency
+      - perDiemValue
+      - total
+      - startDate
+      - endDate
+      - noOfDays
+      - createdBy
+      properties:
+        currency:
+          type: string
+        perDiemValue:
+          type: number
+        total:
+          type: number
+        startDate:
+          type: string
+          description: YYYY-MM-DD HH:MM:SS
+        endDate:
+          type: string
+        noOfDays:
+          type: integer
+        createdBy:
+          type: string
+    FinanceAmount:
+      type: object
+      properties:
+        amount:
+          type: number
+        currency:
+          type: string
+        addedDate:
+          type: string
+    FinancePaymentBasis:
+      type: object
+      properties:
+        perDiemTotals:
+          type: array
+          items:
+            type: object
+            properties:
+              currency:
+                type: string
+              totalAmount:
+                type: number
+        currencyInvoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinanceAmount'
+        travelCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinanceAmount'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinanceAmount'
+        paymentCount:
+          type: integer
+    FinanceTravelCard:
+      type: object
+      properties:
+        id:
+          type: integer
+        jobNumber:
+          type: string
+        currency:
+          type: string
+        amount:
+          type: number
+        addedBy:
+          type: string
+        addedDate:
+          type: string
+    FinanceInvoiceCreate:
+      type: object
+      required:
+      - invoiceNumber
+      - month
+      - costTypeId
+      - invoiceCurrency
+      - invoiceAmount
+      properties:
+        invoiceNumber:
+          type: string
+          pattern: ^[A-Za-z0-9_-]+$
+        month:
+          type: string
+        costTypeId:
+          type: integer
+        invoiceCurrency:
+          type: string
+        invoiceAmount:
+          type: number
+        convertedCurrency:
+          type: string
+        convertedAmount:
+          type: number
+          description: Paid amount; optional (0).
+    FinanceInvoice:
+      type: object
+      properties:
+        id:
+          type: integer
+        invoiceNumber:
+          type: string
+        month:
+          type: string
+        costTypeId:
+          type: integer
+        costTypeName:
+          type: string
+          nullable: true
+        accountClassificationId:
+          type: integer
+        accountInternalId:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        invoiceCurrency:
+          type: string
+        invoiceAmount:
+          type: number
+        convertedCurrency:
+          type: string
+        convertedAmount:
+          type: number
+          description: Paid amount; optional (0).
+        status:
+          type: string
+        addedBy:
+          type: string
+          nullable: true
+        addedDate:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+          nullable: true
+        updatedDate:
+          type: string
+          nullable: true
+        rejectReason:
+          type: string
+          nullable: true
+          description: Never the NS failure marker.
+        jobNumber:
+          type: string
+        hrApprovedBy:
+          type: string
+          nullable: true
+        financeApprovedBy:
+          type: string
+          nullable: true
+        agentEmail:
+          type: string
+          nullable: true
+        vendorId:
+          type: integer
+          nullable: true
+        agencyId:
+          type: integer
+          nullable: true
+        agencyName:
+          type: string
+          nullable: true
+        travellerEmail:
+          type: string
+          nullable: true
+        travelStatus:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        travelStartDate:
+          type: string
+          nullable: true
+        travelEndDate:
+          type: string
+          nullable: true
+        netsuiteFailed:
+          type: boolean
+        netsuitePushing:
+          type: boolean
+        netsuiteError:
+          type: string
+          nullable: true
+        netsuiteReference:
+          type: string
+          nullable: true
+          description: 'Purchase order id of a Complete invoice this app pushed or re-synced (stored in
+            reject_reason as "NetSuite PO: <id>"; never shown as a reject reason).'
+        campaign:
+          $ref: '#/components/schemas/FinanceCampaign'
+      required: []
+    FinancePayment:
+      type: object
+      properties:
+        id:
+          type: integer
+        jobNumber:
+          type: string
+        perDiemNumber:
+          type: string
+        paymentCurrency:
+          type: string
+          nullable: true
+        paymentAmount:
+          type: number
+          nullable: true
+        nsStatus:
+          type: string
+          nullable: true
+          enum:
+          - Pending
+          - Complete
+          - Failed
+        convertedCurrency:
+          type: string
+          nullable: true
+        convertedAmount:
+          type: number
+          nullable: true
+        addedBy:
+          type: string
+          nullable: true
+        addedDate:
+          type: string
+          nullable: true
+        lastUpdatedBy:
+          type: string
+          nullable: true
+        lastUpdatedDate:
+          type: string
+          nullable: true
+        travellerEmail:
+          type: string
+          nullable: true
+        travelStatus:
+          type: string
+          nullable: true
+        campaign:
+          $ref: '#/components/schemas/FinanceCampaign'
+    FinancePaymentCreate:
+      type: object
+      required:
+      - perDiemNumber
+      - paymentCurrency
+      - paymentAmount
+      - convertedCurrency
+      - convertedAmount
+      - createdBy
+      properties:
+        perDiemNumber:
+          type: string
+        paymentCurrency:
+          type: string
+        paymentAmount:
+          type: number
+        convertedCurrency:
+          type: string
+        convertedAmount:
+          type: number
+        createdBy:
+          type: string
+    FinanceEmployee:
+      type: object
+      properties:
+        employeeId:
+          type: string
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        jobRole:
+          type: string
+        department:
+          type: string
+        company:
+          type: string
+    FinancePushResult:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        jobNumber:
+          type: string
+        ok:
+          type: boolean
+        outcome:
+          type: string
+          enum:
+          - pushed
+          - found
+          - not_found
+          - failed
+          - skipped
+        reference:
+          type: string
+          nullable: true
+          description: NetSuite internal id of the purchase order or vendor bill.
+        message:
+          type: string
+          nullable: true
+    FinanceReference:
+      type: object
+      properties:
+        reference:
+          type: string
+          nullable: true
+    FinanceSubsidiary:
+      type: object
+      properties:
+        id:
+          type: integer
+        legalName:
+          type: string
+        currencyCode:
+          type: string
+        country:
+          type: string
+        taxCodeInternalId:
+          type: string
+    DashboardCount:
+      type: object
+      properties:
+        label:
+          type: string
+        count:
+          type: integer
+    DashboardTrip:
+      type: object
+      properties:
+        jobNumber:
+          type: string
+        status:
+          type: string
+          nullable: true
+        travellerEmail:
+          type: string
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        agency:
+          type: string
+          nullable: true
+    DashboardAllocationsToday:
+      type: object
+      properties:
+        byEngagementType:
+          type: array
+          items:
+            type: object
+            properties:
+              engagementTypeId:
+                type: integer
+              engagementType:
+                type: string
+              count:
+                type: integer
+        paidByAllocationType:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardAllocationTypeCount'
+        nonPaidByAllocationType:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardAllocationTypeCount'
+        consultants:
+          type: integer
+    DashboardAllocationTypeCount:
+      type: object
+      properties:
+        allocationType:
+          type: string
+        color:
+          type: string
+          nullable: true
+        count:
+          type: integer
+    DashboardMyWork:
+      type: object
+      properties:
+        allocations:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              engagementId:
+                type: string
+              engagementTypeId:
+                type: integer
+                nullable: true
+              account:
+                type: string
+                nullable: true
+              title:
+                type: string
+                nullable: true
+              startDate:
+                type: string
+                format: date
+              endDate:
+                type: string
+                format: date
+              clearanceStatus:
+                type: string
+                nullable: true
+        teamAllocation:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            allocationType:
+              type: string
+              nullable: true
+            color:
+              type: string
+              nullable: true
+            engagementCode:
+              type: string
+              nullable: true
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date
+            clearanceStatus:
+              type: string
+              nullable: true
+            comment:
+              type: string
+              nullable: true
+        trips:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardTrip'
+        tripCount:
+          type: integer
+    DashboardQueues:
+      type: object
+      properties:
+        pendingApproval:
+          type: object
+          additionalProperties:
+            type: integer
+          description: By engagement type id.
+        clearance:
+          type: object
+          additionalProperties:
+            type: integer
+          description: By clearance status.
+        newTravelRequests:
+          type: integer
+        invoicesPending:
+          type: integer
+        invoicesAcceptedByTravel:
+          type: integer
+        invoicesToPush:
+          type: integer
+        invoicesFailed:
+          type: integer
+        paymentsToPush:
+          type: integer
+        paymentsFailed:
+          type: integer
+    DashboardTravel:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+          description: Exclusive.
+        trips:
+          type: object
+          properties:
+            inProgress:
+              type: integer
+            startingIn30Days:
+              type: integer
+            completedThisMonth:
+              type: integer
+            last12Months:
+              type: integer
+            upcomingTotal:
+              type: integer
+            upcoming:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardTrip'
+            byMonth:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardCount'
+            byCountry:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardCount'
+            byAgency:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardCount'
+        cost:
+          type: array
+          items:
+            type: object
+            description: Sum by source, month, cost type (invoices) and currency; USD when the record
+              carries a USD amount on either side, else the original currency.
+            properties:
+              source:
+                type: string
+                enum:
+                - invoice
+                - perDiem
+                - card
+              month:
+                type: string
+                example: 2026-10
+              costType:
+                type: string
+              currency:
+                type: string
+              amount:
+                type: number
+    DashboardEngagements:
+      type: object
+      properties:
+        startingSoon:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              engagementTypeId:
+                type: integer
+                nullable: true
+              engagementTypeName:
+                type: string
+                nullable: true
+              account:
+                type: string
+                nullable: true
+              title:
+                type: string
+                nullable: true
+              allocationType:
+                type: string
+                nullable: true
+              engagementCode:
+                type: string
+                nullable: true
+              city:
+                type: string
+                nullable: true
+              country:
+                type: string
+                nullable: true
+              startDate:
+                type: string
+                format: date
+              endDate:
+                type: string
+                format: date
+              requestStatus:
+                type: string
+                nullable: true
+              engagementStatus:
+                type: string
+                nullable: true
+              consultants:
+                type: integer
+        startingSoonTotal:
+          type: integer
+        bench:
+          type: array
+          items:
+            type: object
+            properties:
+              businessUnit:
+                type: string
+              consultants:
+                type: integer
+              allocated:
+                type: integer
+        trend:
+          type: object
+          properties:
+            byMonth:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardCount'
+            byBusinessUnit:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardCount'
+    DashboardAgency:
+      type: object
+      properties:
+        inProgress:
+          type: integer
+        startingIn7Days:
+          type: integer
+        startingIn30Days:
+          type: integer
+        completedWithoutInvoice:
+          type: integer
+        upcomingTotal:
+          type: integer
+        upcoming:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardTrip'
+        invoicesByStatus:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardCount'
+        tripsByMonth:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardCount'
+        perDiemsOnOpenTrips:
+          type: array
+          items:
+            type: object
+            properties:
+              jobNumber:
+                type: string
+              travellerEmail:
+                type: string
+              startDate:
+                type: string
+                format: date
+                nullable: true
+              endDate:
+                type: string
+                format: date
+                nullable: true
+              days:
+                type: integer
+                nullable: true
+              currency:
+                type: string
+                nullable: true
+              total:
+                type: number
+                nullable: true
+  requestBodies:
+    Actor:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - updatedBy
+            properties:
+              updatedBy:
+                type: string
