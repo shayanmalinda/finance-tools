@@ -66,7 +66,7 @@ func TestReferenceLists(t *testing.T) {
 	// amount is a VARCHAR; a non-numeric row is left out.
 	travelMock.ExpectQuery(re(`FROM perdiem_metadata WHERE status = 'Active' ORDER BY id`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "c", "cur", "amt"}).
-			AddRow(1, "United Kingdom", "GBP", "70").AddRow(2, "Bad", "USD", "n/a"))
+			AddRow(1, "United Kingdom", "GBP", "70").AddRow(2, "Bad", "USD", "n/a").AddRow(3, "Nan", "USD", "NaN").AddRow(4, "Inf", "USD", "+Inf"))
 	rates, err := repo.PerDiemRates(ctx)
 	if err != nil || len(rates) != 1 || rates[0].Amount != 70 || rates[0].Currency != "GBP" {
 		t.Fatalf("rates %+v err %v", rates, err)

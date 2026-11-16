@@ -103,6 +103,32 @@ func TestTracker_ChangedFieldsMaskedAndStatusChange(t *testing.T) {
 	}
 }
 
+func TestTracker_FundingOnlyEventWithMetadataIsRecordedWithoutRowChanges(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cols := []string{"id", "updated_by"}
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM engagement WHERE id = ? FOR UPDATE`)).WithArgs("E1").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@wso2.com"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM engagement WHERE id IN (?)`)).WithArgs("E1").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@wso2.com"))
+	mock.ExpectExec(regexp.QuoteMeta(insertSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
+	ctx := context.Background()
+	tr, err := Track(ctx, db, "engagement", "id", `id = ?`, "E1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := Event{Action: Update, EntityType: "engagement", Actor: "mgr@wso2.com", Metadata: map[string]any{"fundingSources": 1}}
+	if err := tr.Record(ctx, db, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestDisabled_RecordsNothing(t *testing.T) {
 	SetEnabled(false)
 	defer SetEnabled(true)

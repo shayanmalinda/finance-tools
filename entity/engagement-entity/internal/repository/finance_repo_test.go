@@ -256,8 +256,8 @@ func TestFinancePaymentBasis(t *testing.T) {
 	at := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
 	mock.ExpectQuery(re("WHERE job_number = ? AND status = 'ACTIVE' GROUP BY currency ORDER BY MIN(id)")).WithArgs("TRV-2026-11-0001").
 		WillReturnRows(sqlmock.NewRows([]string{"t", "c"}).AddRow(770.0, "GBP"))
-	mock.ExpectQuery(re("status = 'Complete' AND inv_cost_type_id = (SELECT id FROM inv_cost_type WHERE status='active' AND name='Currency' LIMIT 1)")).
-		WithArgs("TRV-2026-11-0001").WillReturnRows(sqlmock.NewRows([]string{"a", "c", "d"}).AddRow("100.00", "USD", at))
+	mock.ExpectQuery(re("status = 'Complete' AND COALESCE(reject_reason, '') <> ? AND inv_cost_type_id = (SELECT id FROM inv_cost_type WHERE status='active' AND name='Currency' LIMIT 1)")).
+		WithArgs("TRV-2026-11-0001", domain.InvoiceNSPushingMarker).WillReturnRows(sqlmock.NewRows([]string{"a", "c", "d"}).AddRow("100.00", "USD", at))
 	mock.ExpectQuery(re("FROM travel_card WHERE job_number = ?")).WithArgs("TRV-2026-11-0001").
 		WillReturnRows(sqlmock.NewRows([]string{"a", "c", "d"}).AddRow(50.0, "GBP", at))
 	mock.ExpectQuery(re("FROM perdiem_payment WHERE job_number = ?")).WithArgs("TRV-2026-11-0001").
