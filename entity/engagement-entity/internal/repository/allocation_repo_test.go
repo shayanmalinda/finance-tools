@@ -253,6 +253,20 @@ func TestAllocationBulk_DuplicateCandidatesInOnePayloadAreRefused(t *testing.T) 
 	m.verify(t)
 }
 
+func TestAllocationDuplicateKey_SeparatesStatuses(t *testing.T) {
+	a := domain.AllocationInput{Email: "jane@wso2.com", EngagementID: "E07201", StartDate: "2026-11-10",
+		EndDate: "2026-11-20", Status: "Active"}
+	twin, inactive := a, a
+	twin.Email, twin.Status = "Jane@wso2.com", "active"
+	inactive.Status = "Inactive"
+	if allocationDuplicateKey(a) != allocationDuplicateKey(twin) {
+		t.Error("the same candidate with a different case must share a key")
+	}
+	if allocationDuplicateKey(a) == allocationDuplicateKey(inactive) {
+		t.Error("an Active and an Inactive candidate must not share a key")
+	}
+}
+
 func TestAllocationBulk_TravelBindsToTheFirstQualifyingAllocationID(t *testing.T) {
 	m := newAllocationMocks(t)
 	eng := "E07201"

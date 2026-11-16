@@ -391,4 +391,13 @@ func TestDecideInvoices(t *testing.T) {
 		InvoiceIDs: []int{7}, Decision: "reject", Step: "finance", UpdatedBy: "f@wso2.com"}); err == nil {
 		t.Error("a reject without a reason must fail")
 	}
+	// 253 x + "→" saves as 255 characters: accepted. 254 x + "→" is 255 raw but 256 saved: refused.
+	for n, ok := range map[int]bool{253: true, 254: false} {
+		reason := strings.Repeat("x", n) + "→"
+		_, err := newFinanceSvc(repo, &fakeNetSuite{}).DecideInvoices(context.Background(), domain.FinanceInvoiceDecision{
+			InvoiceIDs: []int{7}, Decision: "reject", Step: "finance", Reason: reason, UpdatedBy: "f@wso2.com"})
+		if (err == nil) != ok {
+			t.Errorf("reason of %d+→: err = %v, want accepted %v", n, err, ok)
+		}
+	}
 }
