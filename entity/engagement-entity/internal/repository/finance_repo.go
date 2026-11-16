@@ -390,8 +390,8 @@ func (r *financeRepo) PaymentBasis(ctx context.Context, jobNumber string) (domai
 		return b, err
 	}
 
-	amounts := func(q string, dst *[]domain.FinanceAmount) error {
-		rows, err := r.db.QueryContext(ctx, q, jobNumber)
+	amounts := func(q string, dst *[]domain.FinanceAmount, extra ...any) error {
+		rows, err := r.db.QueryContext(ctx, q, append([]any{jobNumber}, extra...)...)
 		if err != nil {
 			return err
 		}
@@ -413,8 +413,9 @@ func (r *financeRepo) PaymentBasis(ctx context.Context, jobNumber string) (domai
 	}
 	if err := amounts(`SELECT converted_amount as invoiceAmount, converted_currency as invoiceCurrency, added_date as addedDate
 		FROM invoice
-		WHERE job_number = ? AND status = 'Complete'
-			AND inv_cost_type_id = (SELECT id FROM inv_cost_type WHERE status='active' AND name='Currency' LIMIT 1)`, &b.CurrencyInvoices); err != nil {
+		WHERE job_number = ? AND status = 'Complete' AND COALESCE(reject_reason, '') <> ?
+			AND inv_cost_type_id = (SELECT id FROM inv_cost_type WHERE status='active' AND name='Currency' LIMIT 1)`,
+		&b.CurrencyInvoices, domain.InvoiceNSPushingMarker); err != nil {
 		return b, fmt.Errorf("finance.PaymentBasis invoices: %w", err)
 	}
 	if err := amounts(`SELECT travel_card_amount, travel_card_currency, added_date FROM travel_card WHERE job_number = ?`, &b.TravelCards); err != nil {

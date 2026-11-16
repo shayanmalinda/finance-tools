@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 
@@ -200,7 +201,7 @@ func (r *referenceRepo) PerDiemRates(ctx context.Context) ([]domain.ReferencePer
 			return nil, fmt.Errorf("perDiemMetadata.List scan: %w", err)
 		}
 		v, err := strconv.ParseFloat(strings.TrimSpace(amnt.String), 64)
-		if err != nil {
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 			log.Printf("perdiem_metadata id %d: amount %q is not a number; left out", id, amnt.String) // #nosec G706
 			continue
 		}

@@ -228,7 +228,7 @@ func (t *Tracker) Record(ctx context.Context, q Querier, e Event) error {
 		for k, v := range e.Changes {
 			ev.Changes[k] = v
 		}
-		if len(ev.Changes) == 0 && t.before[id] != nil {
+		if len(ev.Changes) == 0 && len(ev.Metadata) == 0 && t.before[id] != nil {
 			continue
 		}
 		if ev.Action == Update && statusChanged(ev.Changes) {

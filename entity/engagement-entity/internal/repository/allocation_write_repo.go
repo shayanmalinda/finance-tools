@@ -158,10 +158,17 @@ func (r *allocationRepo) cancelTravel(ctx context.Context, travellerEmail, alloc
 func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequest) (domain.AllocationBulkResponse, error) {
 	var resp domain.AllocationBulkResponse
 	err := WithTx(ctx, r.alloc, func(tx *sql.Tx) error {
+		seen := map[string]bool{}
 		for _, a := range req.NewAllocations {
 			if domain.AllocationIsDefault(a.EngagementID) {
 				continue
 			}
+			// The same candidate twice in one payload is a duplicate as well.
+			k := allocationDuplicateKey(a)
+			if seen[k] {
+				return &apierror.ConflictError{Msg: AllocationDuplicateMsg}
+			}
+			seen[k] = true
 			var n int
 			// Same times too: hourly allocations whose windows differ are allowed.
 			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM allocation
@@ -175,6 +182,7 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 			}
 		}
 
+		ids := map[int]string{}
 		for i, a := range req.NewAllocations {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO allocation (
 					email, allocation_type, status, allocation_status, clearance_status, start_date, end_date,
@@ -187,11 +195,12 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 			); err != nil {
 				return fmt.Errorf("allocation.Bulk insert: %w", err)
 			}
-			if i == 0 || audit.Enabled() {
+			if i == 0 || audit.Enabled() || allocationNeedsTravel(a) {
 				id, err := allocationNewID(ctx, tx, a)
 				if err != nil {
 					return err
 				}
+				ids[i] = id
 				if i == 0 {
 					resp.FirstAllocationID = &id
 				}
@@ -202,7 +211,7 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 		}
 		resp.RecordsAdded = len(req.NewAllocations)
 
-		if err := r.bulkTravel(ctx, tx, req, &resp); err != nil {
+		if err := r.bulkTravel(ctx, tx, req, ids, &resp); err != nil {
 			return err
 		}
 
@@ -250,6 +259,28 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 	return resp, nil
 }
 
+// allocationDuplicateKey identifies a Bulk candidate by the fields the
+// duplicate check compares.
+func allocationDuplicateKey(a domain.AllocationInput) string {
+	opt := func(s *string) string {
+		if s == nil {
+			return "\x00"
+		}
+		return *s
+	}
+	return strings.Join([]string{strings.ToLower(a.Email), a.EngagementID, a.StartDate, a.EndDate, opt(a.StartTime), opt(a.EndTime)}, "|")
+}
+
+// allocationNeedsTravel reports whether a new allocation gets a travel row:
+// engagement allocation, travel required, not a partner, clearance Confirmed
+// or Confirmed - Visa Pending.
+func allocationNeedsTravel(a domain.AllocationInput) bool {
+	return !domain.AllocationIsDefault(a.EngagementID) && a.IsTravelRequired == allocationTravelRequiredYes &&
+		a.ClearanceStatus != nil && !allocationIsPartner(a.Email) &&
+		(*a.ClearanceStatus == domain.AllocationClearanceConfirmed ||
+			*a.ClearanceStatus == domain.AllocationClearanceConfirmedVisaPending)
+}
+
 // allocationNewID reads back the id the allocation trigger gave a row just
 // inserted in tx (the id is not an auto-increment column; legacy matched the
 // row on its fields the same way).
@@ -265,32 +296,29 @@ func allocationNewID(ctx context.Context, tx *sql.Tx, a domain.AllocationInput) 
 }
 
 // bulkTravel is step 3 of Bulk (travel-requests-port-spec §3.4 path A).
-func (r *allocationRepo) bulkTravel(ctx context.Context, tx *sql.Tx, req domain.AllocationBulkRequest, resp *domain.AllocationBulkResponse) error {
-	for _, a := range req.NewAllocations {
-		if domain.AllocationIsDefault(a.EngagementID) || a.IsTravelRequired != allocationTravelRequiredYes ||
-			a.ClearanceStatus == nil || allocationIsPartner(a.Email) ||
-			(*a.ClearanceStatus != domain.AllocationClearanceConfirmed &&
-				*a.ClearanceStatus != domain.AllocationClearanceConfirmedVisaPending) {
+// ids holds the id read back for each inserted allocation (by index), so the
+// travel row is bound to the first qualifying allocation, not to a re-query.
+func (r *allocationRepo) bulkTravel(ctx context.Context, tx *sql.Tx, req domain.AllocationBulkRequest, ids map[int]string, resp *domain.AllocationBulkResponse) error {
+	for i, a := range req.NewAllocations {
+		if !allocationNeedsTravel(a) {
 			continue
 		}
 		var (
-			id           string
 			typeName     *string
 			country      *string
 			address      *string
 			customerName *string
 			productID    *string
 		)
-		err := tx.QueryRowContext(ctx, `SELECT a.id, aT.allocation_type, e.country, REPLACE(e.location, 'BR()', CHAR(10)), e.customer_name,
+		id := ids[i]
+		err := tx.QueryRowContext(ctx, `SELECT aT.allocation_type, e.country, REPLACE(e.location, 'BR()', CHAR(10)), e.customer_name,
 				e.opportunity_line_item_id
 			FROM allocation AS a
 				JOIN engagement AS e ON a.engagement_id = e.id
 				JOIN allocation_type AS aT ON e.allocation_type = aT.id
-			WHERE e.id = ? AND a.email = ? AND a.start_date = ? AND a.end_date = ? AND a.clearance_status = ?
-				AND a.status = 'Active'
-			ORDER BY a.id DESC LIMIT 1`,
-			a.EngagementID, a.Email, a.StartDate, a.EndDate, *a.ClearanceStatus,
-		).Scan(&id, &typeName, &country, &address, &customerName, &productID)
+			WHERE a.id = ?`,
+			id,
+		).Scan(&typeName, &country, &address, &customerName, &productID)
 		if err != nil {
 			return fmt.Errorf("allocation.Bulk travel allocation: %w", err)
 		}
@@ -389,6 +417,9 @@ func (r *allocationRepo) updateTravel(ctx context.Context, pre domain.Allocation
 	if pre.ClearanceStatus != nil {
 		prev = *pre.ClearanceStatus
 	}
+	if next == prev {
+		return nil // an unchanged status neither creates nor cancels travel
+	}
 	cvp := domain.AllocationClearanceConfirmedVisaPending
 	confirmed := domain.AllocationClearanceConfirmed
 	switch {
@@ -398,8 +429,16 @@ func (r *allocationRepo) updateTravel(ctx context.Context, pre domain.Allocation
 		if pre.AddedBy != nil {
 			addedBy = *pre.AddedBy
 		}
+		// The travel covers the dates this update leaves on the allocation.
+		start, end := pre.StartDate, pre.EndDate
+		if req.StartDate != nil {
+			start = *req.StartDate
+		}
+		if req.EndDate != nil {
+			end = *req.EndDate
+		}
 		job, err := r.insertTravel(ctx, allocationTravelInput{
-			travellerEmail: pre.Email, startDate: pre.StartDate, endDate: pre.EndDate,
+			travellerEmail: pre.Email, startDate: start, endDate: end,
 			engagementType: e.AllocationTypeName, engagementCode: e.EngagementCode, country: e.Country,
 			city: e.Address, customerName: e.CustomerName, addedBy: addedBy, lastUpdatedBy: addedBy,
 			productID: e.ProductID, engagementID: e.ID, allocationID: pre.ID,
