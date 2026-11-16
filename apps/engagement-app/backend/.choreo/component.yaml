@@ -1,0 +1,14 @@
+schemaVersion: 1.2
+
+endpoints:
+  - name: engagement-app-backend
+    displayName: Engagement App Backend
+    service:
+      basePath: /
+      port: 8190
+    type: REST
+    # Public: One WSO2 calls it through the API gateway, which validates the
+    # user's access token and forwards x-jwt-assertion.
+    networkVisibilities:
+      - Public
+    schemaFilePath: openapi.yaml

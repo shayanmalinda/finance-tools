@@ -1,0 +1,11 @@
+# Local environment - never commit real credentials
+.env
+
+# Build artifacts (anchored, so cmd/server and internal/server still match)
+/server
+/bin/
+*.out
+*.test
+
+# OS / editor
+.DS_Store
