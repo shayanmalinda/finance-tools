@@ -37,9 +37,11 @@ func setMinimalEnv(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "http://engagement-entity:8290/")
+	t.Setenv("JWT_AUDIENCES", "client-a")
 }
 
-// The only required setting is the entity URL; everything else defaults.
+// The only required settings are the entity URL and the audience; everything
+// else defaults.
 func TestLoadMinimal(t *testing.T) {
 	setMinimalEnv(t)
 	c, err := Load()
@@ -68,6 +70,15 @@ func TestValidateRequiresEntityURL(t *testing.T) {
 	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "")
 	c, _ := Load()
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ENGAGEMENT_ENTITY_BASE_URL") {
+		t.Errorf("Validate() = %v", err)
+	}
+}
+
+func TestValidateRequiresAudiences(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("JWT_AUDIENCES", "")
+	c, _ := Load()
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "JWT_AUDIENCES") {
 		t.Errorf("Validate() = %v", err)
 	}
 }
