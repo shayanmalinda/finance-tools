@@ -34,6 +34,9 @@ backend, use `apps/engagement-app/run-local.sh`.
   the trusted caller: it verifies the user's JWT and enforces the legacy
   privileges, then passes the acting user's email in the JSON body of writes
   (`createdBy` / `updatedBy`). Handler code never reads identity from headers.
+  The one use of the `X-User-Email` header is the audit trail: the `Actor`
+  middleware puts it on the request context and `audit_event` rows take their
+  actor from it, falling back to the body's user.
 - The two legacy apps keep separate roles, privileges and `role_privilege`
   tables. Every access endpoint takes the app (`allocations` or `travel`) in
   the path, and the two apps' privilege ids are never merged: Allocations
@@ -174,8 +177,9 @@ can store (accented letters such as "é", curly quotes, en and em dashes, "€",
 ## Schema changes
 
 As in `grc-tools/apps/grc-platform/backend/Resources`, schema changes are
-idempotent SQL scripts that Infra runs by hand before the deploy that needs
-them. Nothing runs them automatically.
+SQL scripts that Infra runs by hand before the deploy that needs them (the
+`audit_event` scripts are safe to re-run, the `campaign_id` one is not).
+Nothing runs them automatically.
 
 Each script holds one statement, so it runs with Ctrl+Enter or as a script.
 

@@ -86,10 +86,3 @@ func (c *Cache[K, V]) Delete(key K) {
 	delete(c.items, key)
 	c.mu.Unlock()
 }
-
-// Flush empties the entire cache.
-func (c *Cache[K, V]) Flush() {
-	c.mu.Lock()
-	c.items = make(map[K]entry[V])
-	c.mu.Unlock()
-}

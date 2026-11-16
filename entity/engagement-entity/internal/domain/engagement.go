@@ -33,7 +33,6 @@ const EngagementStatusCancelled = "Cancelled"
 
 // Legacy allocation values the engagement cancel cascade reads and writes.
 const (
-	EngagementAllocationActive             = "Active"
 	EngagementAllocationInactive           = "Inactive"
 	EngagementClearanceConfirmed           = "Confirmed"
 	EngagementClearanceConfirmedVisaPend   = "Confirmed - Visa Pending"

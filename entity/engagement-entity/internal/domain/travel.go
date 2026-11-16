@@ -25,7 +25,6 @@ const (
 	TravelStatusExtended   = "Extended"
 	TravelStatusCompleted  = "Completed"
 	TravelStatusCancelled  = "Cancelled"
-	TravelStatusDeleted    = "Deleted"
 )
 
 // TravelStatuses are the statuses a travel request may be set to.

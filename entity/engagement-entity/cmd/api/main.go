@@ -71,7 +71,9 @@ func main() {
 	}
 	audit.SetEnabled(allocAudit && travelAudit)
 	if !audit.Enabled() {
-		log.Println("WARNING: audit_event is missing in allocation_db or travelapp (run the Resources/*_table_update_v1.0.0.sql scripts): audit events are not recorded")
+		log.Println("WARNING: audit_event is missing in allocation_db or travelapp (run " +
+			"allocation_db_table_update_v1.1.0.sql and travelapp_table_update_v1.0.0.sql): " +
+			"audit events are not recorded")
 	}
 	repository.SetEngagementCampaignColumn(hasCampaign)
 	if !hasCampaign {

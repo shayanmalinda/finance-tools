@@ -21,7 +21,6 @@ package domain
 const (
 	AllocationStatusActive   = "Active"
 	AllocationStatusInactive = "Inactive"
-	AllocationStatusDeleted  = "Deleted"
 
 	AllocationClearanceConfirmed            = "Confirmed"
 	AllocationClearanceConfirmedVisaPending = "Confirmed - Visa Pending"
