@@ -230,6 +230,8 @@ type TravelVisaFilter struct {
 	ExcludeIDs []int
 	Limit      int
 	Offset     int
+	// IncludeMarkedExpired also returns visas stored as Expired.
+	IncludeMarkedExpired bool
 }
 
 // TravelVisaPage is a page of visas.
@@ -416,6 +418,9 @@ func (c *HTTPClient) SearchVisas(ctx context.Context, f TravelVisaFilter) (Trave
 	travelAddString(q, "coversFrom", f.CoversFrom)
 	travelAddString(q, "coversTo", f.CoversTo)
 	travelAddString(q, "search", f.Search)
+	if f.IncludeMarkedExpired {
+		q.Set("includeMarkedExpired", "true")
+	}
 	for _, id := range f.ExcludeIDs {
 		q.Add("excludeId", strconv.Itoa(id))
 	}

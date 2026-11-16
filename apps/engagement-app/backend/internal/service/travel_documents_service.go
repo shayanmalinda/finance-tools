@@ -149,7 +149,9 @@ func travelIsOwner(p domain.Perms, owner *string) bool {
 // ── Visas ─────────────────────────────────────────────────────────────────
 
 // ListVisas ports visa-search / own-visa-search: stored status Active only
-// (legacy status "active"), the Active/Expired filter by end date.
+// (legacy status "active"), the Active/Expired filter by end date. The
+// Expired filter also lists the visas marked Expired by hand, which the
+// default and Active lists leave out.
 func (s *travelDocumentsService) ListVisas(ctx context.Context, p domain.Perms, q domain.TravelRecordQuery, own bool) (domain.TravelVisaPage, error) {
 	validity, err := travelValidityOf(q.Status)
 	if err != nil {
@@ -158,6 +160,7 @@ func (s *travelDocumentsService) ListVisas(ctx context.Context, p domain.Perms, 
 	f := engagemententity.TravelVisaFilter{
 		Emails: q.Travellers, Countries: q.Countries, Status: domain.TravelRecordActive, Validity: validity,
 		Today: s.today(), Search: q.Search, ExcludeIDs: s.hiddenVisas, Limit: q.Limit, Offset: q.Offset,
+		IncludeMarkedExpired: validity == engagemententity.TravelValidityExpired,
 	}
 	if own {
 		f.Emails, f.Limit, f.Offset = []string{p.Email}, travelOwnLimit, 0

@@ -1928,7 +1928,9 @@ paths:
     get:
       tags: [Visas & Documents]
       summary: All active visas (Travel 8). Rows open with Travel 9.
-      description: The placeholder visas (TRAVEL_VISA_NOT_APPLICABLE_ID, TRAVEL_NO_VALID_VISA_ID) are not listed.
+      description: >-
+        The placeholder visas (TRAVEL_VISA_NOT_APPLICABLE_ID, TRAVEL_NO_VALID_VISA_ID) are not listed.
+        Visas marked Expired are listed only with status=Expired.
       operationId: listVisas
       x-privileges: { travel: [8] }
       parameters:
