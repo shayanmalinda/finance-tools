@@ -157,6 +157,7 @@ func (h *TravelHandler) ListVisas(w http.ResponseWriter, r *http.Request) {
 		Status: q.Get("status"), Validity: q.Get("validity"), Today: q.Get("today"),
 		CoversFrom: q.Get("coversFrom"), CoversTo: q.Get("coversTo"), Search: q.Get("search"),
 		ExcludeIDs: exclude, Limit: limit, Offset: offset,
+		IncludeMarkedExpired: q.Get("includeMarkedExpired") == "true",
 	})
 	if err != nil {
 		writeServiceError(w, r, err)

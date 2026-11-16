@@ -266,7 +266,10 @@ type TravelVisaFilter struct {
 	// Validity is TravelValidityActive (end date today or later) or
 	// TravelValidityExpired.
 	Validity string
-	Today    string
+	// IncludeMarkedExpired also returns the visas whose stored status is
+	// Expired (marked expired by hand), whatever their end date.
+	IncludeMarkedExpired bool
+	Today                string
 	// CoversFrom and CoversTo keep visas valid for the whole period
 	// (start date on or before CoversFrom, end date on or after CoversTo).
 	CoversFrom string

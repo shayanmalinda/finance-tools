@@ -1070,6 +1070,12 @@ paths:
           - active
           - expired
         description: By end date against today.
+      - name: includeMarkedExpired
+        in: query
+        schema:
+          type: boolean
+          default: false
+        description: Also return visas whose stored status is Expired, ORed with the status and validity filters.
       - name: today
         in: query
         schema:

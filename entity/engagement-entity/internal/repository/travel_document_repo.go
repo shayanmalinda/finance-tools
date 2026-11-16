@@ -89,17 +89,28 @@ func travelVisaWhere(f domain.TravelVisaFilter) (string, []any) {
 		conds = append(conds, `v.id NOT IN (`+Placeholders(len(f.ExcludeIDs))+`)`)
 		args = append(args, Args(f.ExcludeIDs)...)
 	}
+	// The stored status and validity conditions; IncludeMarkedExpired ORs
+	// them with the visas whose stored status is Expired.
+	var state []string
+	var stateArgs []any
 	if f.Status != "" {
-		conds = append(conds, `v.status = ?`)
-		args = append(args, f.Status)
+		state = append(state, `v.status = ?`)
+		stateArgs = append(stateArgs, f.Status)
 	}
 	switch f.Validity {
 	case domain.TravelValidityActive:
-		conds = append(conds, `DATE(v.end_date) >= ?`)
-		args = append(args, f.Today)
+		state = append(state, `DATE(v.end_date) >= ?`)
+		stateArgs = append(stateArgs, f.Today)
 	case domain.TravelValidityExpired:
-		conds = append(conds, `DATE(v.end_date) < ?`)
-		args = append(args, f.Today)
+		state = append(state, `DATE(v.end_date) < ?`)
+		stateArgs = append(stateArgs, f.Today)
+	}
+	if f.IncludeMarkedExpired && len(state) > 0 {
+		conds = append(conds, `((`+strings.Join(state, ` AND `)+`) OR v.status = ?)`)
+		args = append(append(args, stateArgs...), domain.TravelRecordExpired)
+	} else {
+		conds = append(conds, state...)
+		args = append(args, stateArgs...)
 	}
 	if f.CoversFrom != "" {
 		conds = append(conds, `DATE(v.start_date) <= ?`)
