@@ -71,9 +71,11 @@ func (s *financeService) requireNetSuite() error {
 }
 
 // settleCtx is the context of the steps after a claim: detached from the
-// caller, bounded by the NetSuite timeout plus finalTimeout.
+// caller, bounded by two NetSuite calls (the lookup, then the push) plus
+// finalTimeout, so a slow NetSuite never leaves the writes that settle the
+// record with an expired context.
 func (s *financeService) settleCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), netsuite.Timeout+s.finalTimeout)
+	return context.WithTimeout(context.WithoutCancel(ctx), 2*netsuite.Timeout+s.finalTimeout)
 }
 
 func financeFunding(rows []domain.FinanceFundingSource) []netsuite.FundingSource {
@@ -481,6 +483,21 @@ func (s *financeService) PushPayment(ctx context.Context, perDiemNumber string, 
 	sctx, cancel := s.settleCtx(ctx)
 	defer cancel()
 	defer func() { s.auditPush(sctx, "per_diem_payment", strconv.Itoa(p.ID), req.UpdatedBy, "push", out, err) }()
+	// An edit can land between the load and the claim; the claim stops further
+	// edits, so the bill is built again from the claimed row.
+	rebuilt, perr := s.Payment(sctx, perDiemNumber)
+	if perr == nil {
+		vb, msg, perr = s.buildVendorBill(sctx, rebuilt, *req.Employee)
+	}
+	if perr != nil || msg != "" {
+		if rerr := s.repo.ReleasePaymentPush(sctx, p.ID, req.UpdatedBy); rerr != nil {
+			return domain.FinancePushResult{}, fmt.Errorf("release payment %s after a failed rebuild: %w", perDiemNumber, rerr)
+		}
+		if perr != nil {
+			return domain.FinancePushResult{}, perr
+		}
+		return financeSkip(res, msg), nil
+	}
 	found, err := s.ns.LookupVendorBills(sctx, perDiemNumber)
 	if err != nil {
 		slog.ErrorContext(sctx, "netsuite lookup before push failed", "perDiemNumber", perDiemNumber, "err", err)
