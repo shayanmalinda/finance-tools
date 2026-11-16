@@ -84,6 +84,26 @@ func TestTravelSearchVisas_ExpiredAndNoFilter(t *testing.T) {
 	travelCheck(t, mock)
 }
 
+func TestTravelSearchVisas_IncludeMarkedExpired(t *testing.T) {
+	db, mock := travelNewDB(t)
+	mock.ExpectQuery(travelRe(`SELECT COUNT(*) FROM visa_status AS v`+
+		` WHERE ((v.status = ? AND DATE(v.end_date) < ?) OR v.status = ?)`)).
+		WithArgs("Active", "2026-10-05", "Expired").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	// Without a status or validity filter the flag adds nothing.
+	mock.ExpectQuery(travelRe(`SELECT COUNT(*) FROM visa_status AS v`)).WithoutArgs().
+		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	repo := NewTravelDocumentRepository(db)
+	if _, _, err := repo.SearchVisas(context.Background(), domain.TravelVisaFilter{Status: "Active",
+		Validity: domain.TravelValidityExpired, IncludeMarkedExpired: true, Today: "2026-10-05", Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repo.SearchVisas(context.Background(),
+		domain.TravelVisaFilter{IncludeMarkedExpired: true, Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	travelCheck(t, mock)
+}
+
 func TestTravelCreateVisa_InactivatesThenInsertsInOneTx(t *testing.T) {
 	db, mock := travelNewDB(t)
 	passport := 201
