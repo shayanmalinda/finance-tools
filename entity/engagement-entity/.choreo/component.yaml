@@ -1,0 +1,16 @@
+schemaVersion: 1.2
+
+endpoints:
+  - name: engagement-entity-api
+    displayName: Engagement Entity API
+    service:
+      basePath: /
+      port: 8290
+    type: REST
+
+    # Project only: the Engagement App Backend (same Choreo project) is the
+    # one caller. The service has no auth middleware of its own, so it must
+    # not be reachable from other projects.
+    networkVisibilities:
+      - Project
+    schemaFilePath: openapi.yaml

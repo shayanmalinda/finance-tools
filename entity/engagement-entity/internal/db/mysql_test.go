@@ -1,0 +1,104 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package db
+
+import (
+	"testing"
+	"time"
+
+	"github.com/go-sql-driver/mysql"
+)
+
+const baseDSN = "user:pass@tcp(host:3306)/dbname"
+
+// reparse runs the DSN back through the driver's own parser so assertions are
+// against the resolved Config rather than a brittle formatted string.
+func reparse(t *testing.T, dsn string) *mysql.Config {
+	t.Helper()
+	cfg, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN(%q): %v", dsn, err)
+	}
+	return cfg
+}
+
+// normalizeDSN always pins the session to UTC regardless of the input DSN.
+func TestNormalizeDSNForcesUTC(t *testing.T) {
+	cfg := reparse(t, normalizeDSN(baseDSN, false))
+
+	if !cfg.ParseTime {
+		t.Error("ParseTime = false, want true")
+	}
+	if cfg.Loc != time.UTC {
+		t.Errorf("Loc = %v, want UTC", cfg.Loc)
+	}
+	if got := cfg.Params["time_zone"]; got != "'+00:00'" {
+		t.Errorf("time_zone = %q, want %q", got, "'+00:00'")
+	}
+}
+
+// Same cases as the GRC compliance entity's TestNormalizeDSNTLSHandling.
+func TestNormalizeDSNTLSHandling(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+		want string // expected resolved cfg.TLSConfig
+	}{
+		{"omitted tls defaults to verified TLS", baseDSN, "true"},
+		{"bare tls= defaults to verified TLS", baseDSN + "?tls=", "true"},
+		{"tls=false is preserved", baseDSN + "?tls=false", "false"},
+		{"tls=true is preserved", baseDSN + "?tls=true", "true"},
+		{"tls=skip-verify is preserved", baseDSN + "?tls=skip-verify", "skip-verify"},
+		{"tls=preferred is preserved", baseDSN + "?tls=preferred", "preferred"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := reparse(t, normalizeDSN(tc.dsn, false))
+			if cfg.TLSConfig != tc.want {
+				t.Errorf("TLSConfig = %q, want %q", cfg.TLSConfig, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeDSNReadOnly(t *testing.T) {
+	if got := reparse(t, normalizeDSN(baseDSN, true)).Params["transaction_read_only"]; got != "1" {
+		t.Errorf("read-only pool: transaction_read_only = %q, want 1", got)
+	}
+	if _, set := reparse(t, normalizeDSN(baseDSN, false)).Params["transaction_read_only"]; set {
+		t.Error("read/write pool must not set transaction_read_only")
+	}
+}
+
+// A DSN the driver cannot parse is returned untouched so sql.Open surfaces the
+// error rather than normalizeDSN masking it.
+func TestNormalizeDSNMalformedPassThrough(t *testing.T) {
+	const bad = "::::not a dsn"
+	if got := normalizeDSN(bad, false); got != bad {
+		t.Errorf("normalizeDSN(%q) = %q, want it returned unchanged", bad, got)
+	}
+}
+
+func TestNormalizeDSNCollation(t *testing.T) {
+	if got := reparse(t, normalizeDSN(baseDSN, false)).Collation; got != "utf8mb4_0900_ai_ci" {
+		t.Errorf("default collation = %q", got)
+	}
+	if got := reparse(t, normalizeDSN(baseDSN+"?collation=latin1_swedish_ci", false)).Collation; got != "latin1_swedish_ci" {
+		t.Errorf("explicit collation = %q", got)
+	}
+}
