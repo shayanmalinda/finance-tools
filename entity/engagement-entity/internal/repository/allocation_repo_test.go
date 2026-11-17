@@ -253,18 +253,43 @@ func TestAllocationBulk_DuplicateCandidatesInOnePayloadAreRefused(t *testing.T) 
 	m.verify(t)
 }
 
-func TestAllocationDuplicateKey_SeparatesStatuses(t *testing.T) {
+func TestAllocationBulk_InactiveAfterAnActiveTwinIsRefused(t *testing.T) {
+	m := newAllocationMocks(t)
 	a := domain.AllocationInput{Email: "jane@wso2.com", EngagementID: "E07201", StartDate: "2026-11-10",
 		EndDate: "2026-11-20", Status: "Active"}
-	twin, inactive := a, a
-	twin.Email, twin.Status = "Jane@wso2.com", "active"
+	inactive := a
 	inactive.Status = "Inactive"
-	if allocationDuplicateKey(a) != allocationDuplicateKey(twin) {
-		t.Error("the same candidate with a different case must share a key")
+	m.alloc.ExpectBegin()
+	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	m.alloc.ExpectRollback()
+
+	// In separate requests the Inactive one meets the saved Active row.
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
+		NewAllocations: []domain.AllocationInput{a, inactive}})
+	var ce *apierror.ConflictError
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %v, want ConflictError", err)
 	}
-	if allocationDuplicateKey(a) == allocationDuplicateKey(inactive) {
-		t.Error("an Active and an Inactive candidate must not share a key")
+	m.verify(t)
+}
+
+func TestAllocationBulk_InactiveTwinsAreLeftToTheSavedRowCheck(t *testing.T) {
+	m := newAllocationMocks(t)
+	a := domain.AllocationInput{Email: "jane@wso2.com", EngagementID: "E07201", StartDate: "2026-11-10",
+		EndDate: "2026-11-20", Status: "Inactive"}
+	m.alloc.ExpectBegin()
+	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	// The second twin reaches the saved-row check: the first set no in-payload key.
+	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
+	m.alloc.ExpectRollback()
+
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
+		NewAllocations: []domain.AllocationInput{a, a}})
+	var ce *apierror.ConflictError
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %v, want ConflictError", err)
 	}
+	m.verify(t)
 }
 
 func TestAllocationBulk_TravelBindsToTheFirstQualifyingAllocationID(t *testing.T) {

@@ -98,3 +98,15 @@ func TestCountry(t *testing.T) {
 		t.Errorf("Country = %q", got)
 	}
 }
+
+func TestTruncate(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		n    int
+		want string
+	}{{"abc", 3, "abc"}, {"abcd", 3, "abc"}, {"é→x", 2, "é→"}, {"", 0, ""}} {
+		if got := Truncate(c.in, c.n); got != c.want {
+			t.Errorf("Truncate(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
+	}
+}
