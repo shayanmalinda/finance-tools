@@ -41,8 +41,9 @@ const (
 // auditSchemas maps entity types to their schema.
 var auditSchemas = map[string]auditSchema{
 	"engagement": auditAllocationDB, "allocation": auditAllocationDB, "allocation_type": auditAllocationDB,
-	"travel_request": auditTravelApp, "visa": auditTravelApp, "travel_document": auditTravelApp, "per_diem": auditTravelApp,
-	"per_diem_payment": auditTravelApp, "invoice": auditTravelApp, "travel_card": auditTravelApp,
+	"travel_request": auditTravelApp, "visa": auditTravelApp, "travel_document": auditTravelApp,
+	"per_diem": auditTravelApp, "per_diem_payment": auditTravelApp, "invoice": auditTravelApp,
+	"travel_card": auditTravelApp,
 }
 
 type auditRepo struct{ alloc, travel *sql.DB }

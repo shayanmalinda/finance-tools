@@ -89,28 +89,9 @@ func travelVisaWhere(f domain.TravelVisaFilter) (string, []any) {
 		conds = append(conds, `v.id NOT IN (`+Placeholders(len(f.ExcludeIDs))+`)`)
 		args = append(args, Args(f.ExcludeIDs)...)
 	}
-	// The stored status and validity conditions; IncludeMarkedExpired ORs
-	// them with the visas whose stored status is Expired.
-	var state []string
-	var stateArgs []any
-	if f.Status != "" {
-		state = append(state, `v.status = ?`)
-		stateArgs = append(stateArgs, f.Status)
-	}
-	switch f.Validity {
-	case domain.TravelValidityActive:
-		state = append(state, `DATE(v.end_date) >= ?`)
-		stateArgs = append(stateArgs, f.Today)
-	case domain.TravelValidityExpired:
-		state = append(state, `DATE(v.end_date) < ?`)
-		stateArgs = append(stateArgs, f.Today)
-	}
-	if f.IncludeMarkedExpired && len(state) > 0 {
-		conds = append(conds, `((`+strings.Join(state, ` AND `)+`) OR v.status = ?)`)
-		args = append(append(args, stateArgs...), domain.TravelRecordExpired)
-	} else {
-		conds = append(conds, state...)
-		args = append(args, stateArgs...)
+	if c, a := travelVisaStateWhere(f); c != "" {
+		conds = append(conds, c)
+		args = append(args, a...)
 	}
 	if f.CoversFrom != "" {
 		conds = append(conds, `DATE(v.start_date) <= ?`)
@@ -129,6 +110,34 @@ func travelVisaWhere(f domain.TravelVisaFilter) (string, []any) {
 		return "", nil
 	}
 	return ` WHERE ` + strings.Join(conds, ` AND `), args
+}
+
+// travelVisaStateWhere is the stored status and validity condition of a
+// visa search; IncludeMarkedExpired ORs it with the visas whose stored
+// status is Expired.
+func travelVisaStateWhere(f domain.TravelVisaFilter) (string, []any) {
+	var conds []string
+	var args []any
+	if f.Status != "" {
+		conds = append(conds, `v.status = ?`)
+		args = append(args, f.Status)
+	}
+	switch f.Validity {
+	case domain.TravelValidityActive:
+		conds = append(conds, `DATE(v.end_date) >= ?`)
+		args = append(args, f.Today)
+	case domain.TravelValidityExpired:
+		conds = append(conds, `DATE(v.end_date) < ?`)
+		args = append(args, f.Today)
+	}
+	if len(conds) == 0 {
+		return "", nil
+	}
+	c := strings.Join(conds, ` AND `)
+	if f.IncludeMarkedExpired {
+		return `((` + c + `) OR v.status = ?)`, append(args, domain.TravelRecordExpired)
+	}
+	return c, args
 }
 
 func (r *travelDocumentRepo) SearchVisas(ctx context.Context, f domain.TravelVisaFilter) ([]domain.TravelVisa, int, error) {

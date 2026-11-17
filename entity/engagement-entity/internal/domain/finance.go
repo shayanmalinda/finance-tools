@@ -60,6 +60,10 @@ const (
 // accepted invoice with this prefix is unambiguous. A re-sync clears it.
 const InvoiceNSFailurePrefix = "NetSuite push failed: "
 
+// InvoiceMaxRejectReason is the length in characters of
+// invoice.reject_reason (varchar(255)).
+const InvoiceMaxRejectReason = 255
+
 // InvoiceNSPushingMarker is invoice.reject_reason on a Complete invoice
 // while its push is with NetSuite.
 const InvoiceNSPushingMarker = "NetSuite push in progress"
@@ -469,7 +473,3 @@ type FinancePushResult struct {
 type FinanceReference struct {
 	Reference *string `json:"reference"`
 }
-
-// InvoiceReasonMax is the length in characters of invoice.reject_reason
-// (varchar(255)).
-const InvoiceReasonMax = 255

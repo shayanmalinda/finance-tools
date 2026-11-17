@@ -152,12 +152,17 @@ func (h *TravelHandler) ListVisas(w http.ResponseWriter, r *http.Request) {
 		}
 		exclude = append(exclude, id)
 	}
+	includeMarkedExpired, err := dashboardBool(q, "includeMarkedExpired")
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
 	resp, err := h.documents.SearchVisas(r.Context(), domain.TravelVisaFilter{
 		Emails: travelQueryList(r, "email"), Countries: travelQueryList(r, "country"),
 		Status: q.Get("status"), Validity: q.Get("validity"), Today: q.Get("today"),
 		CoversFrom: q.Get("coversFrom"), CoversTo: q.Get("coversTo"), Search: q.Get("search"),
 		ExcludeIDs: exclude, Limit: limit, Offset: offset,
-		IncludeMarkedExpired: q.Get("includeMarkedExpired") == "true",
+		IncludeMarkedExpired: includeMarkedExpired,
 	})
 	if err != nil {
 		writeServiceError(w, r, err)

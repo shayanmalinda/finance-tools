@@ -37,8 +37,9 @@ import (
 //     finance' / ns_status = 'Pending'), so of two concurrent pushes only
 //     one wins and the other is told the record is already being pushed.
 //     While the push runs, an invoice carries InvoiceNSPushingMarker and a
-//     payment ns_status "Pushing"; a push stuck for 15 minutes is moved to
-//     NS Sync Failures (repository.ExpireStalePushes).
+//     payment ns_status "Pushing"; a push still in progress after the
+//     sweep's stale age (stalePushAge in cmd/api, 3 * netsuite.Timeout) is
+//     moved to NS Sync Failures (repository.ExpireStalePushes).
 //  2. Lookup before push: the winner looks the invoice number (purchase
 //     orders) or per diem number (vendor bills) up in NetSuite. Found: the
 //     record stays Complete and nothing is sent. A failed lookup releases

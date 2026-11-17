@@ -27,6 +27,7 @@ package textnorm
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -157,4 +158,12 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+// Truncate cuts s to at most n characters.
+func Truncate(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
