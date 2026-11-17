@@ -286,6 +286,22 @@ func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
 	}
 }
 
+// Available Consultants is gated on 9, 19 or 21 alone, not on 3 or 13.
+func TestDashboard_AvailableConsultantsWithoutEngagements(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("rm@wso2.com", []int{21}, []int{21}, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.engs == nil || !f.engs.Bench || f.engs.Trend || len(f.engs.EngagementTypes) != 0 {
+		t.Fatalf("engagements filter = %+v", f.engs)
+	}
+	if got.AvailableConsultants == nil || got.Engagements != nil {
+		t.Errorf("available = %+v engagements = %+v", got.AvailableConsultants, got.Engagements)
+	}
+}
+
 func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	p := dashboardPerms("agent@acorn.com", nil, nil, []int{3, 4, 6, 18, 26, 27, 28, 30, 31}, []int{3, 4, 6, 18, 26, 27, 28, 30, 31})

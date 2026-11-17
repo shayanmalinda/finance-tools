@@ -81,3 +81,41 @@ func TestReportsToAndOrgData(t *testing.T) {
 		t.Fatalf("org %+v err %v", org, err)
 	}
 }
+
+func TestEmployeesByOrg_ReadsUntilAnEmptyPage(t *testing.T) {
+	// HR caps the page at 2, below orgEmployeesPageSize: a short page is not the last.
+	all := []string{"a@wso2.com", "b@wso2.com", "c@wso2.com"}
+	var offsets []float64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req graphqlRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		off := req.Variables["offset"].(float64)
+		offsets = append(offsets, off)
+		var page []map[string]string
+		for i := int(off); i < len(all) && i < int(off)+2; i++ {
+			page = append(page, map[string]string{"workEmail": all[i]})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"employees": page}})
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, nil).EmployeesByOrg(context.Background(), OrgEmployeeFilter{})
+	if err != nil || len(got) != 3 || got[2].WorkEmail != "c@wso2.com" {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+	if len(offsets) != 3 || offsets[1] != 2 || offsets[2] != 3 {
+		t.Errorf("offsets = %v", offsets)
+	}
+}
+
+func TestEmployeesByOrg_RepeatedPageIsAnError(t *testing.T) {
+	// HR ignores the offset and keeps sending the same page.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"employees":[{"workEmail":"a@wso2.com"}]}}`))
+	}))
+	defer srv.Close()
+	_, err := New(srv.URL, nil).EmployeesByOrg(context.Background(), OrgEmployeeFilter{})
+	var ue *apierror.UpstreamError
+	if !errors.As(err, &ue) {
+		t.Fatalf("err = %v, want UpstreamError", err)
+	}
+}

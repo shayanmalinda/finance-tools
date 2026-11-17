@@ -25,8 +25,8 @@ import (
 
 func TestAuditEventBuilders(t *testing.T) {
 	r := httptest.NewRequest("GET", "/reports/invoices?from=2026-01-01&to=2026-01-31", nil)
-	if _, ok := auditExport("invoice", "invoices")(r); ok {
-		t.Error("a JSON report is not an export")
+	if e, ok := auditExport("invoice", "invoices")(r); !ok || e.Action != "View" || e.Metadata["report"] != "invoices" {
+		t.Errorf("a JSON report must be audited as a view: %+v, %v", e, ok)
 	}
 	r = httptest.NewRequest("GET", "/reports/invoices?from=2026-01-01&format=CSV", nil)
 	if e, ok := auditExport("invoice", "invoices")(r); !ok || e.Action != "Export" || e.Metadata["report"] != "invoices" ||

@@ -17,6 +17,8 @@
 package handler
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -61,5 +63,15 @@ func TestQueryHelpers(t *testing.T) {
 	}
 	if _, err := queryDate(httptest.NewRequest(http.MethodGet, "/x?d=05/11/2026", nil), "d"); err == nil {
 		t.Error("queryDate accepted 05/11/2026")
+	}
+}
+
+// A canceled request answers non-2xx, so Idempotency and Audit do not take
+// it for a success.
+func TestWriteServiceError_CanceledIsNot2xx(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeServiceError(rec, httptest.NewRequest(http.MethodPost, "/x", nil), fmt.Errorf("load: %w", context.Canceled))
+	if rec.Code != 499 || !strings.Contains(rec.Body.String(), `"code":499`) {
+		t.Errorf("canceled: %d %s", rec.Code, rec.Body)
 	}
 }

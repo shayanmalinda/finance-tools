@@ -146,3 +146,24 @@ func TestOpportunityLineItems(t *testing.T) {
 		t.Error("no base URL: want an error")
 	}
 }
+
+func TestOpportunities_FullLastPageAtTheCapIsAnError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		page := make([]map[string]any, searchPageSize)
+		for i := range page {
+			page[i] = map[string]any{"id": "006A"}
+		}
+		_ = json.NewEncoder(w).Encode(page)
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, nil).Opportunities(context.Background(), "001A", false)
+	if err == nil || got != nil {
+		t.Fatalf("got %d rows err %v, want an error", len(got), err)
+	}
+	if calls != searchMaxPages {
+		t.Errorf("calls = %d, want %d", calls, searchMaxPages)
+	}
+}

@@ -117,6 +117,40 @@ func TestTeamAllocationUpdateAndDelete(t *testing.T) {
 	}
 }
 
+func TestTeamAllocationBulk_RowsMeetTheCreateRules(t *testing.T) {
+	hr := allocTestHR()
+	hr.org = []hrentity.OrgEmployee{{WorkEmail: "jane@wso2.com"}, {WorkEmail: "bob@wso2.com"},
+		{WorkEmail: "carl@wso2.com"}, {WorkEmail: "dina@wso2.com"}, {WorkEmail: "eve@wso2.com"}}
+	types := append([]engagemententity.AllocationType{
+		{ID: 42, AllocationTypeName: "NoCode", Status: "Active", EngagementTypeID: 1, DefaultEngagementCode: sp(" ")}},
+		teamTypes...)
+	ent := &allocFakeEntity{types: types}
+	svc := NewTeamAllocationService(allocTestDeps(ent, hr, &allocFakeSender{}))
+
+	// Today is 2026-11-05, so 2026-10-06 is the earliest date allowed.
+	res, err := svc.ValidateBulk(context.Background(), `jane,Dev,2026-10-01,2026-11-10,Digital
+bob,Dev,2026-11-10,2026-11-12,Old
+carl,Dev,2026-11-10,2026-11-12,Consulting
+dina,Dev,2026-11-10,2026-11-12,NoCode
+eve,Dev,2026-10-06,2026-11-12,Digital
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"jane@wso2.com: " + teamAllocMsgPast30,
+		"The allocation type for allocation of bob@wso2.com is wrong",
+		"The allocation type for allocation of carl@wso2.com is wrong",
+		"The allocation type for allocation of dina@wso2.com has no default engagement code",
+	}
+	if !reflect.DeepEqual(res.Errors, want) {
+		t.Errorf("errors =\n%q\nwant\n%q", res.Errors, want)
+	}
+	if len(res.Valid) != 1 || res.Valid[0].Email != "eve@wso2.com" {
+		t.Errorf("valid = %+v", res.Valid)
+	}
+}
+
 const teamCSV = `jane,Dev,2026-11-10,2026-11-12,Digital
 jane,Dev,2026-11-11,2026-11-13,Digital
 ghost,Dev,2026-11-10,2026-11-12,Digital

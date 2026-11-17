@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,8 +72,13 @@ func TestAuth(t *testing.T) {
 		{"bearer without email asks userinfo", map[string]string{"Authorization": "Bearer tok"},
 			&fakeVerifier{claims: oidc.Claims{GroupsPresent: true, Groups: []string{"a"}}},
 			&fakeUserinfo{claims: oidc.Claims{Email: "jane@wso2.com"}}, http.StatusOK, 1, 1},
-		{"userinfo down still serves a token with email", map[string]string{"Authorization": "Bearer tok"},
-			&fakeVerifier{claims: oidc.Claims{Email: "jane@wso2.com"}}, &fakeUserinfo{err: errors.New("down")}, http.StatusOK, 1, 0},
+		// The groups are unknown, not empty: no access would be the wrong answer.
+		{"userinfo down is unavailable, not no access", map[string]string{"Authorization": "Bearer tok"},
+			&fakeVerifier{claims: oidc.Claims{Email: "jane@wso2.com"}}, &fakeUserinfo{err: errors.New("down")},
+			http.StatusServiceUnavailable, 1, 0},
+		{"signing keys unavailable is not sign in again", map[string]string{"X-Jwt-Assertion": "tok"},
+			&fakeVerifier{err: fmt.Errorf("oidc: validating token: %w", oidc.ErrKeysUnavailable)}, &fakeUserinfo{},
+			http.StatusServiceUnavailable, 0, 0},
 		{"gateway JWT never goes to userinfo", map[string]string{"X-Jwt-Assertion": "tok"},
 			&fakeVerifier{claims: oidc.Claims{Email: "jane@wso2.com"}}, &fakeUserinfo{}, http.StatusOK, 0, 0},
 		{"missing header", nil, &fakeVerifier{}, &fakeUserinfo{}, http.StatusUnauthorized, 0, 0},
@@ -105,7 +111,7 @@ func TestAuth(t *testing.T) {
 					Code    int    `json:"code"`
 					Message string `json:"message"`
 				}
-				if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Code != 401 || body.Message == "" {
+				if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Code != tc.wantStatus || body.Message == "" {
 					t.Errorf("body = %+v, %v", body, err)
 				}
 				return

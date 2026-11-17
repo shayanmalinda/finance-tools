@@ -51,6 +51,7 @@ type travelFakeEntity struct {
 	visaQuery engagemententity.TravelVisaFilter
 	audits    []engagemententity.TravelEmailAudit
 	perDiems  []engagemententity.TravelActivePerDiem
+	writeErr  error // returned by CreateVisa, UpdateVisa and CreateTravelDocument when set
 }
 
 func travelNotFoundErr() error {
@@ -128,12 +129,18 @@ func (f *travelFakeEntity) SearchVisas(_ context.Context, q engagemententity.Tra
 }
 
 func (f *travelFakeEntity) CreateVisa(_ context.Context, in engagemententity.TravelVisaCreate) (engagemententity.TravelVisaRecord, error) {
+	if f.writeErr != nil {
+		return engagemententity.TravelVisaRecord{}, f.writeErr
+	}
 	f.visaWrite = &in
 	return engagemententity.TravelVisaRecord{ID: 900, Email: &in.Email, Country: &in.Country, Status: travelP("Active"),
 		EndDate: &in.EndDate, ImageID: &in.ImageID}, nil
 }
 
 func (f *travelFakeEntity) UpdateVisa(_ context.Context, id int, in engagemententity.TravelVisaUpdate) (engagemententity.TravelVisaRecord, error) {
+	if f.writeErr != nil {
+		return engagemententity.TravelVisaRecord{}, f.writeErr
+	}
 	v := f.visas[id]
 	v.Status, v.EndDate = &in.Status, &in.EndDate
 	return v, nil
@@ -155,6 +162,9 @@ func (f *travelFakeEntity) SearchTravelDocuments(context.Context, engagemententi
 }
 
 func (f *travelFakeEntity) CreateTravelDocument(_ context.Context, in engagemententity.TravelDocumentCreate) (engagemententity.TravelDocumentRecord, error) {
+	if f.writeErr != nil {
+		return engagemententity.TravelDocumentRecord{}, f.writeErr
+	}
 	f.docWrite = &in
 	return engagemententity.TravelDocumentRecord{ID: 77, Email: &in.Email, DocumentNo: &in.DocumentNo, Status: "Active"}, nil
 }
@@ -204,6 +214,14 @@ func (s *travelMemStore) Put(_ context.Context, key, _ string, r io.Reader, _ in
 	}
 	b, _ := io.ReadAll(r)
 	s.blobs[key] = b
+	return nil
+}
+
+func (s *travelMemStore) Delete(_ context.Context, key string) error {
+	if s.off {
+		return filestore.ErrNotConfigured
+	}
+	delete(s.blobs, key)
 	return nil
 }
 
@@ -481,6 +499,32 @@ func TestTravelGet_Scopes(t *testing.T) {
 	}
 }
 
+func TestTravelGet_AgentWithEditAgentIsScopedToItsAgency(t *testing.T) {
+	classic, acorn := 1, 2
+	agent := travelAgent()
+	agent.Travel = domain.NewPrivilegeSet([]int{3, 4, 5, 6, 18})
+	ctx := context.Background()
+
+	f := newTravelFixture(travelTrip(domain.TravelStatusInProgress, &classic))
+	if _, err := f.svc.Get(ctx, agent, "TRV-2026-10-1246"); !travelIs[*apierror.ForbiddenError](err) {
+		t.Errorf("other agency's request: %v", err)
+	}
+	if _, err := f.svc.Update(ctx, agent, "TRV-2026-10-1246", domain.TravelRequestUpdate{Status: travelP("On Hold")}); !travelIs[*apierror.ForbiddenError](err) {
+		t.Errorf("update other agency's request: %v", err)
+	}
+	if _, err := f.svc.VisaOptions(ctx, agent, "TRV-2026-10-1246"); !travelIs[*apierror.ForbiddenError](err) {
+		t.Errorf("visa options of other agency's request: %v", err)
+	}
+	f = newTravelFixture(travelTrip(domain.TravelStatusInProgress, &acorn))
+	if d, err := f.svc.Get(ctx, agent, "TRV-2026-10-1246"); err != nil || d.Scope != "agency" {
+		t.Errorf("own agency's request: %+v %v", d.Scope, err)
+	}
+	// Travel 5 without an agency still sees every request.
+	if d, err := f.svc.Get(ctx, travelPerms("ops@wso2.com", 5), "TRV-2026-10-1246"); err != nil || d.Scope != "full" {
+		t.Errorf("travel 5: %+v %v", d.Scope, err)
+	}
+}
+
 func TestTravelGet_HRDownStillOpens(t *testing.T) {
 	f := newTravelFixture(travelTrip(domain.TravelStatusNew, nil))
 	svc := NewTravelService(f.entity, travelFakeHR{fail: true}, f.mail, TravelOptions{Now: travelNow})
@@ -672,6 +716,39 @@ func TestTravelUpdate_RulesAndEmails(t *testing.T) {
 	}
 }
 
+func TestTravelUpdate_VisaMustBeActiveAndCoverTheTrip(t *testing.T) {
+	acorn := 2
+	ctx := context.Background()
+	trip := travelTrip(domain.TravelStatusInProgress, &acorn)
+	trip.VisaID = travelP(303)
+	trip.Visa = &engagemententity.TravelVisaRef{ID: 303}
+	f := newTravelFixture(trip)
+	mine := func(id int, status, start, end string) engagemententity.TravelVisaRecord {
+		return engagemententity.TravelVisaRecord{ID: id, Email: travelP("chanuka@wso2.com"), Status: travelP(status),
+			StartDate: travelP(start), EndDate: travelP(end)}
+	}
+	f.entity.visas[303] = mine(303, "Inactive", "2026-01-01", "2026-12-31")
+	f.entity.visas[304] = mine(304, "Active", "2026-01-01", "2026-10-10 00:00:00")
+	f.entity.visas[305] = mine(305, "Active", "2026-10-07", "2026-12-31")
+	f.entity.visas[306] = mine(306, "Expired", "2026-01-01", "2026-12-31")
+
+	for _, id := range []string{"304", "305", "306"} {
+		if _, err := f.svc.Update(ctx, travelTeam, "TRV-2026-10-1246", domain.TravelRequestUpdate{Visa: travelP(id)}); !travelIs[*apierror.ValidationError](err) {
+			t.Errorf("visa %s: %v", id, err)
+		}
+	}
+	// The visa already on the request is accepted as it is.
+	if _, err := f.svc.Update(ctx, travelTeam, "TRV-2026-10-1246", domain.TravelRequestUpdate{Visa: travelP("303")}); err != nil {
+		t.Errorf("current visa: %v", err)
+	}
+	if _, err := f.svc.Update(ctx, travelTeam, "TRV-2026-10-1246", domain.TravelRequestUpdate{Visa: travelP("301")}); err != nil {
+		t.Errorf("covering visa: %v", err)
+	}
+	if got := f.entity.trips["TRV-2026-10-1246"].VisaID; got == nil || *got != 301 {
+		t.Errorf("visa = %v", got)
+	}
+}
+
 func TestTravelUpdate_RequiresAgentAndVisa(t *testing.T) {
 	trip := travelTrip(domain.TravelStatusOnHold, nil)
 	f := newTravelFixture(trip)
@@ -742,6 +819,69 @@ func TestTravelAddVisa_StoresLegacyBlobAndInserts(t *testing.T) {
 	f.files.off = true
 	if _, err := f.docs.AddVisa(ctx, travelTeam, form, false); !travelIs[*apierror.ServiceUnavailableError](err) {
 		t.Errorf("no file storage: %v", err)
+	}
+}
+
+func TestTravelAddVisa_OwnerMustBeAnAddress(t *testing.T) {
+	f := newTravelFixture(travelTrip(domain.TravelStatusNew, nil))
+	form := domain.TravelVisaForm{Country: "SG", VisaType: "Business/Visit", EntryType: "Single",
+		IssuedDate: "2026-01-01", StartDate: "2026-01-02", EndDate: "2026-12-31", PassportID: travelP(201),
+		Image: domain.TravelImage{Data: travelPNG, Present: true}}
+	for _, owner := range []string{"a/../b@wso2.com", "Jane <jane@wso2.com>", "x@y@wso2.com", "@wso2.com", "jane"} {
+		form.TravellerEmail = owner
+		if _, err := f.docs.AddVisa(context.Background(), travelTeam, form, false); !travelIs[*apierror.ValidationError](err) {
+			t.Errorf("%q: %v", owner, err)
+		}
+	}
+	if len(f.files.blobs) != 0 {
+		t.Errorf("blobs = %v", f.files.blobs)
+	}
+}
+
+func TestTravelImages_RefusedWriteRemovesTheNewImage(t *testing.T) {
+	ctx := context.Background()
+	visa := domain.TravelVisaForm{TravellerEmail: "chanuka@wso2.com", Country: "SG", VisaType: "Business/Visit",
+		EntryType: "Single", IssuedDate: "2026-01-01", StartDate: "2026-01-02", EndDate: "2026-12-31",
+		PassportID: travelP(201), Image: domain.TravelImage{Data: travelPNG, Present: true}}
+	doc := domain.TravelDocumentForm{TravellerEmail: "chanuka@wso2.com", DocumentType: "Passport", DocumentNumber: "N1",
+		Country: "LK", IssuedDate: "2026-01-01", ExpiryDate: "2030-01-01", Image: domain.TravelImage{Data: travelPNG, Present: true}}
+
+	f := newTravelFixture(travelTrip(domain.TravelStatusNew, nil))
+	f.entity.writeErr = &apierror.UpstreamError{Service: "engagement-entity", StatusCode: 400, Msg: "bad"}
+	if _, err := f.docs.AddVisa(ctx, travelTeam, visa, false); err == nil {
+		t.Fatal("visa: want error")
+	}
+	if _, err := f.docs.AddDocument(ctx, travelTeam, doc, false); err == nil {
+		t.Fatal("document: want error")
+	}
+	if _, err := f.docs.UpdateVisa(ctx, travelTeam, 301, domain.TravelVisaForm{PassportID: travelP(201), IssuedDate: "2026-01-05",
+		Image: domain.TravelImage{Data: travelPNG, Present: true}}); err == nil {
+		t.Fatal("visa replace: want error")
+	}
+	if len(f.files.blobs) != 0 {
+		t.Errorf("refused: blobs kept = %v", f.files.blobs)
+	}
+
+	// After a timeout or a 5xx the write may have landed: the image stays.
+	f.entity.writeErr = &apierror.UpstreamError{Service: "engagement-entity", StatusCode: 503, Msg: "down"}
+	if _, err := f.docs.AddVisa(ctx, travelTeam, visa, false); err == nil {
+		t.Fatal("visa 503: want error")
+	}
+	if len(f.files.blobs) != 1 {
+		t.Errorf("unknown outcome: blobs = %v", f.files.blobs)
+	}
+}
+
+func TestTravelUpdateVisa_ReplaceRemovesTheOldImage(t *testing.T) {
+	f := newTravelFixture(travelTrip(domain.TravelStatusNew, nil))
+	old := "visas/chanuka@wso2.com_u_SG.png"
+	f.files.blobs[old] = filestore.EncodeLegacy("image/png", travelPNG)
+	if _, err := f.docs.UpdateVisa(context.Background(), travelTeam, 301, domain.TravelVisaForm{PassportID: travelP(201),
+		IssuedDate: "2026-01-05", Image: domain.TravelImage{Data: travelPNG, Present: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.files.blobs[old]; ok || len(f.files.blobs) != 1 {
+		t.Errorf("blobs = %v", f.files.blobs)
 	}
 }
 

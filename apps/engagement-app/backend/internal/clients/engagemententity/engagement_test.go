@@ -87,3 +87,21 @@ func TestEngagementAPI_PathsMethodsAndBodies(t *testing.T) {
 		}
 	}
 }
+
+func TestEngagementPath_DotSegmentsStayIDs(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.EscapedPath())
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, nil)
+	for _, id := range []string{"..", "."} {
+		if _, err := c.EngagementGet(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []string{"/engagements/%2E%2E", "/engagements/%2E"}; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("paths = %v, want %v", got, want)
+	}
+}

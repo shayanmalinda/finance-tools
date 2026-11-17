@@ -39,6 +39,7 @@ type engagementFakeEntity struct {
 	created     engagemententity.EngagementCreateInput
 	updates     []engagemententity.EngagementUpdateInput
 	cancelled   []engagemententity.EngagementRosterAllocation
+	rosterErr   error
 }
 
 func engagementP(s string) *string { return &s }
@@ -111,6 +112,9 @@ func (f *engagementFakeEntity) EngagementGet(_ context.Context, id string) (enga
 }
 
 func (f *engagementFakeEntity) EngagementRoster(_ context.Context, id string, _ bool) ([]engagemententity.EngagementRosterAllocation, error) {
+	if f.rosterErr != nil {
+		return nil, f.rosterErr
+	}
 	return f.roster[id], nil
 }
 

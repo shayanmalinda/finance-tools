@@ -76,3 +76,28 @@ func TestHTTPSender_NoRecipientsIsNotAnError(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestFilterRecipients_DropsInvalidAddresses(t *testing.T) {
+	to, cc := FilterRecipients(
+		[]string{"a@wso2.com", "x@wso2.com\r\nBcc: evil@x.com", "b@wso2.com,c@wso2.com", "Jane <j@wso2.com>", "nope"},
+		[]string{"d@wso2.com", "e@wso2.com\nBcc: evil@x.com"}, nil)
+	if !reflect.DeepEqual(to, []string{"a@wso2.com"}) || !reflect.DeepEqual(cc, []string{"d@wso2.com"}) {
+		t.Errorf("to %v cc %v", to, cc)
+	}
+}
+
+func TestHTTPSender_SubjectHasNoLineBreaks(t *testing.T) {
+	var got payload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+	}))
+	defer srv.Close()
+	s := New(Config{ServiceURL: srv.URL}, rest.New("email", srv.URL, srv.Client()))
+	if err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"},
+		Subject: "[Allocations] x\r\nBcc: evil@x.com\tend"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Subject != "[Allocations] x  Bcc: evil@x.com end" {
+		t.Errorf("subject = %q", got.Subject)
+	}
+}

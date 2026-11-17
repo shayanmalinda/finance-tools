@@ -92,6 +92,29 @@ func TestValidateRejectsInsecureJWKS(t *testing.T) {
 	}
 }
 
+// URLs that carry the client secret or a bearer token must be https; http
+// is allowed only on localhost for local runs.
+func TestValidateRejectsInsecureOutboundURLs(t *testing.T) {
+	for _, key := range []string{"ENTITY_TOKEN_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL",
+		"CURRENCY_CONVERT_SERVICE_URL"} {
+		t.Run(key, func(t *testing.T) {
+			setMinimalEnv(t)
+			t.Setenv("ENTITY_CLIENT_ID", "id")
+			t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+			t.Setenv(key, "http://svc.example/x")
+			c, _ := Load()
+			if err := c.Validate(); err == nil || !strings.Contains(err.Error(), key+" must be an https URL") {
+				t.Errorf("Validate() = %v", err)
+			}
+			t.Setenv(key, "http://localhost:9090/x")
+			c, _ = Load()
+			if err := c.Validate(); err != nil {
+				t.Errorf("localhost: Validate() = %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateGatewayPair(t *testing.T) {
 	setMinimalEnv(t)
 	t.Setenv("GATEWAY_JWT_ISSUER", "https://gw.example/token")

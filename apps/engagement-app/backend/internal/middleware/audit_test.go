@@ -80,3 +80,30 @@ func TestAudit_RecordsSuccessOnlyAndNeverFailsTheResponse(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// A panicking recorder is recovered (the process lives on) and WaitAudits
+// waits for the background writes.
+func TestAudit_RecoversPanicsAndWaitAuditsDrains(t *testing.T) {
+	release := make(chan struct{})
+	rec := auditRecorderFunc(func(context.Context, domain.AuditEvent) error {
+		<-release
+		panic("recorder bug")
+	})
+	event := func(*http.Request) (domain.AuditEvent, bool) {
+		return domain.AuditEvent{Action: domain.AuditView, EntityType: "visa"}, true
+	}
+	h := Audit(rec, event)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/visas", nil))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := WaitAudits(ctx); err == nil {
+		t.Fatal("WaitAudits returned before the write finished")
+	}
+	close(release)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	if err := WaitAudits(ctx2); err != nil {
+		t.Errorf("WaitAudits = %v", err)
+	}
+}

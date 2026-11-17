@@ -119,3 +119,29 @@ func TestConsultantReport_LegacyComputation(t *testing.T) {
 		t.Errorf("order: %v", err)
 	}
 }
+
+func TestConsultantReport_UnreadableDatesAreSkipped(t *testing.T) {
+	jane := func(a engagemententity.ConsultantAllocation) engagemententity.ConsultantAllocation {
+		a.Email, a.BusinessUnit, a.Department, a.Team = "jane@wso2.com", sp("Eng"), sp("Dev"), sp("T1")
+		return a
+	}
+	ent := &allocFakeEntity{
+		consultant: []engagemententity.ConsultantAllocation{
+			jane(engagemententity.ConsultantAllocation{ID: "A1", StartDate: "2026-11-02T00:00:00Z", EndDate: "2026-11-04",
+				EngagementID: sp("E1"), InitialEngagementCode: sp("NWB-CO"), EngagementTypeName: sp("Paid Post Sale")}),
+		},
+		defaults: []engagemententity.ConsultantTeamDefault{
+			{BusinessUnit: sp("Eng"), Department: sp("Dev"), Team: sp("T1"), DefaultAllocTypeName: sp("Digital"),
+				EngagementTypeName: sp("Internal Engagement"), DefaultEngagementCode: sp("DIG-GEN")},
+		},
+	}
+	svc := NewConsultantReportService(allocTestDeps(ent, allocTestHR(), &allocFakeSender{}))
+	rows, err := svc.Report(context.Background(), domain.ConsultantReportFilter{From: "2026-11-02", To: "2026-11-08"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The whole week goes to the team default, not ~700k days of the bad row.
+	if len(rows) != 1 || rows[0].EngagementCode != "DIG-GEN" || rows[0].CalendarDays != 7 {
+		t.Errorf("rows = %+v", rows)
+	}
+}

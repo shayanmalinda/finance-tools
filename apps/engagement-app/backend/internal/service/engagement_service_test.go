@@ -19,12 +19,16 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/hrentity"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/salesentity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/config"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
 )
@@ -269,7 +273,7 @@ func TestEngagementCreate_CodesAndValidation(t *testing.T) {
 	if _, err := svc.Create(context.Background(), admin, pre); err != nil {
 		t.Fatal(err)
 	}
-	if entity.created.EngagementCode != "ACME-PR " {
+	if entity.created.EngagementCode != "ACME-PR" {
 		t.Errorf("pre sale code = %q", entity.created.EngagementCode)
 	}
 	post := base
@@ -463,5 +467,154 @@ func TestEngagementApprove(t *testing.T) {
 	var ce *apierror.ConflictError
 	if _, err := svc.Approve(ctx, engagementPerms("a@wso2.com", engagementAdmin, nil), "E1"); !errors.As(err, &ce) {
 		t.Errorf("customer: %v", err)
+	}
+}
+
+func TestEngagementCreate_RosterFailureAfterTheWriteStillAnswers(t *testing.T) {
+	entity := engagementTestEntity()
+	entity.rosterErr = &apierror.ServiceUnavailableError{Msg: "down"}
+	mail := &engagementFakeMail{}
+	svc := engagementTestService(entity, mail)
+	internal := domain.EngagementCreate{EngagementTypeID: 1, AllocationTypeID: 10, Title: "Offsite", Nature: "On-site",
+		Country: "Sri Lanka", Address: "Colombo", BusinessUnit: "Digital Operations", ProductUnit: "Digital",
+		SalesSubRegion: "LK", StartDate: "2026-12-01", EndDate: "2026-12-01"}
+	d, err := svc.Create(context.Background(), engagementPerms("a@wso2.com", engagementAdmin, nil), internal)
+	if err != nil || d.ID != "E09999" || len(d.Allocations) != 0 || len(mail.sent) != 1 {
+		t.Fatalf("detail %+v err %v mails %d", d, err, len(mail.sent))
+	}
+	// A read with no write still fails.
+	if _, err := svc.Get(context.Background(), engagementPerms("a@wso2.com", engagementAdmin, nil), "E1"); err == nil {
+		t.Error("Get: want the roster error")
+	}
+}
+
+func TestEngagementUpdate_NoScopeGetsConsultantsNotRoster(t *testing.T) {
+	svc := engagementTestService(engagementTestEntity(), &engagementFakeMail{})
+	// Edit (5) alone: may PATCH, has no view scope.
+	d, err := svc.Update(context.Background(), engagementPerms("e@wso2.com", []int{5}, nil), "E1", domain.EngagementUpdate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Scope != domain.EngagementScopeConsultants || len(d.Allocations) != 1 || d.Allocations[0].ID != "" ||
+		d.Allocations[0].ClearanceStatus != nil {
+		t.Fatalf("detail %+v", d)
+	}
+}
+
+// engagementBlankSales has an opportunity with no engagement codes.
+type engagementBlankSales struct{ engagementFakeSales }
+
+func (engagementBlankSales) Opportunities(context.Context, string, bool) ([]salesentity.SalesOpportunity, error) {
+	return []salesentity.SalesOpportunity{{ID: "006A", Name: "Acme - APIM PoC", PreSalesCode: engagementP(" (Open Banking)"),
+		PostSalesEngagementCode: engagementP("  "), IsWon: new(bool)}}, nil
+}
+
+// engagementExtraTypeEntity adds an active customer type 8 with an
+// allocation type, which needs no line item.
+type engagementExtraTypeEntity struct{ *engagementFakeEntity }
+
+func (engagementExtraTypeEntity) ReferenceData(context.Context) (engagemententity.ReferenceLists, error) {
+	ref := engagementTestRef()
+	ref.EngagementTypes = append(ref.EngagementTypes, engagemententity.EngagementType{ID: 8, Name: "Support", Type: "Customer",
+		IsActive: true})
+	ref.AllocationTypes = append(ref.AllocationTypes, engagemententity.AllocationType{ID: 80, AllocationTypeName: "Support",
+		Status: "Active", EngagementTypeID: 8})
+	return ref, nil
+}
+
+func TestEngagementCreate_EmptyCodeAndUnknownTypeAreRefused(t *testing.T) {
+	admin := engagementPerms("a@wso2.com", engagementAdmin, nil)
+	base := domain.EngagementCreate{AccountID: "001A", OpportunityID: "006A", Nature: "Off-site", Country: "Sri Lanka",
+		Address: "x", BusinessUnit: "Digital Operations", ProductUnit: "Digital", SalesSubRegion: "LK", CustomerContact: "c",
+		StartDate: "2026-12-01", EndDate: "2026-12-02"}
+	mailCfg := config.EmailConfig{AllocationsGroup: "allocations@wso2.com"}
+	now := func() time.Time { return time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC) }
+
+	entity := engagementTestEntity()
+	sales := engagementBlankSales{}
+	svc := NewEngagementService(entity, NewReferenceService(entity, sales, engagementFakeHR{}), sales, engagementFakeHR{},
+		&engagementFakeMail{}, mailCfg, now)
+	for _, tc := range []struct{ typeID, allocTypeID int }{{3, 30}, {4, 40}} {
+		in := base
+		in.EngagementTypeID, in.AllocationTypeID = tc.typeID, tc.allocTypeID
+		_, err := svc.Create(context.Background(), admin, in)
+		var ve *apierror.ValidationError
+		if !errors.As(err, &ve) || ve.Msg != "Engagement Code cannot be set. The selected opportunity has no engagement code." {
+			t.Errorf("type %d: err = %v", tc.typeID, err)
+		}
+	}
+
+	extra := engagementExtraTypeEntity{engagementTestEntity()}
+	svc = NewEngagementService(extra, NewReferenceService(extra, engagementFakeSales{}, engagementFakeHR{}),
+		engagementFakeSales{}, engagementFakeHR{}, &engagementFakeMail{}, mailCfg, now)
+	in := base
+	in.EngagementTypeID, in.AllocationTypeID = 8, 80
+	_, err := svc.Create(context.Background(), admin, in)
+	var ve *apierror.ValidationError
+	if !errors.As(err, &ve) || ve.Msg != "Select the opportunity line item." {
+		t.Errorf("type 8 without a line item: err = %v", err)
+	}
+}
+
+// engagementCountingHR knows nobody and counts its lookups.
+type engagementCountingHR struct {
+	engagementFakeHR
+	calls *atomic.Int32
+}
+
+func (h engagementCountingHR) Employee(context.Context, string) (*hrentity.Employee, error) {
+	h.calls.Add(1)
+	return nil, nil
+}
+
+func TestEngagementGet_UnknownPeopleAreNotLookedUpAgain(t *testing.T) {
+	entity := engagementTestEntity()
+	hr := engagementCountingHR{calls: &atomic.Int32{}}
+	svc := NewEngagementService(entity, NewReferenceService(entity, engagementFakeSales{}, hr), engagementFakeSales{}, hr,
+		&engagementFakeMail{}, config.EmailConfig{}, nil)
+	admin := engagementPerms("a@wso2.com", engagementAdmin, nil)
+	if _, err := svc.Get(context.Background(), admin, "E1"); err != nil {
+		t.Fatal(err)
+	}
+	first := hr.calls.Load()
+	if first == 0 {
+		t.Fatal("no HR lookups")
+	}
+	if _, err := svc.Get(context.Background(), admin, "E1"); err != nil {
+		t.Fatal(err)
+	}
+	if hr.calls.Load() != first {
+		t.Errorf("HR lookups = %d after the second view, want %d", hr.calls.Load(), first)
+	}
+}
+
+// engagementFailingLineItems has ten opportunities whose line items fail.
+type engagementFailingLineItems struct {
+	engagementFakeSales
+	calls *atomic.Int32
+}
+
+func (engagementFailingLineItems) Opportunities(context.Context, string, bool) ([]salesentity.SalesOpportunity, error) {
+	out := make([]salesentity.SalesOpportunity, 10)
+	for i := range out {
+		out[i] = salesentity.SalesOpportunity{ID: fmt.Sprintf("006%d", i)}
+	}
+	return out, nil
+}
+
+func (s engagementFailingLineItems) OpportunityLineItems(ctx context.Context, _ string) ([]salesentity.SalesLineItem, error) {
+	s.calls.Add(1)
+	return nil, &apierror.ServiceUnavailableError{Msg: "down"}
+}
+
+func TestReferenceOpportunities_FirstLineItemFailureStopsTheRest(t *testing.T) {
+	sales := engagementFailingLineItems{calls: &atomic.Int32{}}
+	refs := NewReferenceService(engagementTestEntity(), sales, engagementFakeHR{})
+	if _, err := refs.Opportunities(context.Background(), "001A", domain.EngagementTypePaidPostSale); err == nil {
+		t.Fatal("want the line item error")
+	}
+	// At most the four already running when the first failed.
+	if n := sales.calls.Load(); n > 4 {
+		t.Errorf("line item calls = %d, want at most 4", n)
 	}
 }

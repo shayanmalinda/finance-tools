@@ -148,3 +148,24 @@ func TestIdempotency_Expires(t *testing.T) {
 		t.Errorf("handler ran %d times, want 2", calls)
 	}
 }
+
+// A panicking handler releases its key: the retry runs instead of getting 409.
+func TestIdempotency_PanicReleasesTheKey(t *testing.T) {
+	var calls int32
+	h := Recovery(NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			panic("boom")
+		}
+		w.WriteHeader(http.StatusCreated)
+	})))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("first: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
+	if rec.Code != http.StatusCreated || calls != 2 {
+		t.Errorf("retry: %d after %d calls, want 201 after 2", rec.Code, calls)
+	}
+}

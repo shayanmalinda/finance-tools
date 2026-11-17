@@ -123,3 +123,34 @@ func TestUnknownRouteIsAuthenticatedFirst(t *testing.T) {
 		t.Errorf("valid token: status = %d, want 404", rec.Code)
 	}
 }
+
+// An unknown path or a wrong method answers with the same {code, message}
+// JSON as every other error, not ServeMux's plain text.
+func TestMuxErrorsAreJSON(t *testing.T) {
+	h := newRouter(fakeEntity{})
+	for _, tc := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodGet, "/no-such-screen", http.StatusNotFound},
+		{http.MethodDelete, "/user-info", http.StatusMethodNotAllowed},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set("X-Jwt-Assertion", "valid")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var body struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if rec.Code != tc.want || rec.Header().Get("Content-Type") != "application/json" {
+			t.Errorf("%s %s: status %d, content type %q", tc.method, tc.path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Code != tc.want || body.Message == "" {
+			t.Errorf("%s %s: body = %+v, %v", tc.method, tc.path, body, err)
+		}
+		if tc.want == http.StatusMethodNotAllowed && rec.Header().Get("Allow") == "" {
+			t.Error("405 lost the Allow header")
+		}
+	}
+}

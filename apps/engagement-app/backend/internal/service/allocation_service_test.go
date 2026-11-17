@@ -75,6 +75,37 @@ func TestAllocationRules(t *testing.T) {
 	}
 }
 
+func TestAllocAvailability_BackToBackHourlySlotsDoNotClash(t *testing.T) {
+	h := engagemententity.AllocationRecord{ID: "A1", StartDate: "2026-11-01", EndDate: "2026-11-30", IsRecurring: sp("Yes"),
+		StartTime: sp("10:00"), EndTime: sp("11:00"), TimeZone: sp("UTC")}
+	ex := []engagemententity.AllocationRecord{h}
+	for _, w := range [][2]string{{"09:00", "10:00"}, {"11:00", "12:00"}} {
+		if busy := allocAvailability(ex, "", "", "2026-11-10", "2026-11-12", true,
+			&domain.AllocationHourly{TimeZone: "UTC", StartTime: w[0], EndTime: w[1]}); len(busy) != 0 {
+			t.Errorf("%s-%s next to 10:00-11:00 should be allowed", w[0], w[1])
+		}
+	}
+	if busy := allocAvailability(ex, "", "", "2026-11-10", "2026-11-12", true,
+		&domain.AllocationHourly{TimeZone: "UTC", StartTime: "09:00", EndTime: "12:00"}); len(busy) != 1 {
+		t.Error("09:00-12:00 contains 10:00-11:00: should clash")
+	}
+}
+
+func TestAllocationCreate_HourlyTimesAreSavedAsHHMM(t *testing.T) {
+	ent := &allocFakeEntity{engagement: allocTestEngagement(1)}
+	svc := NewAllocationService(allocTestDeps(ent, allocTestHR(), &allocFakeSender{}))
+	req := domain.AllocationCreateRequest{ConsultantEmail: sp("jane@wso2.com"), StartDate: sp("2026-11-10"),
+		EndDate: sp("2026-11-20"), TravelRequired: bp(false),
+		Hourly: &domain.AllocationHourly{TimeZone: "UTC", StartTime: "9:00", EndTime: "17:00:00"}}
+	if _, err := svc.Create(context.Background(), allocPerms(16), "E07201", req); err != nil {
+		t.Fatalf("9:00-17:00 is a valid window (\"9:00\" sorts after \"17:00\" as text): %v", err)
+	}
+	m := ent.bulk[0].NewAllocations[0]
+	if *m.StartTime != "09:00" || *m.EndTime != "17:00" {
+		t.Errorf("saved %s-%s, want 09:00-17:00", *m.StartTime, *m.EndTime)
+	}
+}
+
 func TestAllocationCreate_CustomerReadyForClearanceAndRequestStatus(t *testing.T) {
 	ent := &allocFakeEntity{engagement: allocTestEngagement(4)}
 	snd := &allocFakeSender{}
@@ -127,6 +158,9 @@ func TestAllocationCreate_ValidationOrderAndTexts(t *testing.T) {
 		{func(r *domain.AllocationCreateRequest) {
 			r.Hourly = &domain.AllocationHourly{TimeZone: "UTC", StartTime: "11:00", EndTime: "09:00"}
 		}, "End Time should be higher than Start Time"},
+		{func(r *domain.AllocationCreateRequest) {
+			r.Hourly = &domain.AllocationHourly{TimeZone: "Mars/Olympus", StartTime: "09:00", EndTime: "11:00"}
+		}, allocMsgInvalidDates},
 		{func(r *domain.AllocationCreateRequest) { r.ClearanceStatus = sp("Ready for Clearance") }, ""},
 		{func(r *domain.AllocationCreateRequest) { r.PreparationStart = sp("2026-11-01") }, "Preparation and post engagement overheads are only for paid engagements."},
 		{func(r *domain.AllocationCreateRequest) { r.Comment = sp(strings.Repeat("x", 256)) }, allocMsgCommentLength},

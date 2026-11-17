@@ -17,8 +17,10 @@
 package rest
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,5 +108,26 @@ func TestDo_Unreachable(t *testing.T) {
 	var ue *apierror.UpstreamError
 	if !errors.As(err, &ue) || ue.StatusCode != 0 || ue.ClientError() {
 		t.Errorf("err = %v, want an UpstreamError with no status", err)
+	}
+}
+
+// Logged paths drop the query (it can carry emails or search text), also for
+// an unreachable dependency, whose *url.Error repeats the full URL.
+func TestDo_LogsNoQuery(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	_ = New("hr-entity", srv.URL, nil).Get(context.Background(), "/visas?email=jane%40wso2.com", nil)
+	srv.Close()
+	_ = New("hr-entity", srv.URL, nil).Get(context.Background(), "/visas?email=jane%40wso2.com", nil)
+
+	out := buf.String()
+	if strings.Count(out, "path=/visas") != 2 || strings.Contains(out, "jane") {
+		t.Errorf("logs = %s", out)
 	}
 }

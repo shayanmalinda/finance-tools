@@ -22,6 +22,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,16 @@ type fakeIssuer struct {
 	kid  string
 	key  *rsa.PrivateKey
 	hits int
+	// status, when set, is returned instead of the key set; empty serves a
+	// set with no keys.
+	status int
+	empty  bool
+}
+
+func (f *fakeIssuer) serve(status int, empty bool) {
+	f.mu.Lock()
+	f.status, f.empty = status, empty
+	f.mu.Unlock()
 }
 
 func newFakeIssuer(t *testing.T) *fakeIssuer {
@@ -57,6 +68,14 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.hits++
+		if f.status != 0 {
+			w.WriteHeader(f.status)
+			return
+		}
+		if f.empty {
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
 			"kty": "RSA", "kid": f.kid, "use": "sig", "alg": "RS256",
 			"n": base64.RawURLEncoding.EncodeToString(f.key.N.Bytes()),
@@ -280,6 +299,26 @@ func TestUserinfoClient(t *testing.T) {
 	}
 }
 
+// A failing endpoint is not called again for a few seconds: requests fail
+// fast instead of each waiting for the timeout.
+func TestUserinfoClient_DownEndpointFailsFast(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	u := NewUserinfoClient(srv.URL, srv.Client())
+	for _, tok := range []string{"a", "b"} {
+		if _, err := u.Fetch(context.Background(), tok); err == nil {
+			t.Fatalf("token %s: want an error", tok)
+		}
+	}
+	if hits != 1 {
+		t.Errorf("userinfo called %d times, want 1", hits)
+	}
+}
+
 func TestVerify_RejectsForgedSignatureAndOtherAlgorithms(t *testing.T) {
 	f := newFakeIssuer(t)
 	v := f.verifier()
@@ -345,6 +384,80 @@ func TestVerify_UnknownKidIsRateLimited(t *testing.T) {
 	}
 	if n := f.fetches(); n != 1 {
 		t.Errorf("JWKS fetched %d times, want 1", n)
+	}
+}
+
+// A JWKS that cannot be fetched makes the token's validity unknown
+// (ErrKeysUnavailable, a 503 in Auth), and the failure is reused for a while
+// instead of being retried on every request.
+func TestVerify_KeyFetchFailureIsUnavailable(t *testing.T) {
+	f := newFakeIssuer(t)
+	f.serve(http.StatusBadGateway, false)
+	v := f.verifier()
+	for i := 0; i < 3; i++ {
+		if _, err := v.Verify(context.Background(), f.sign(validClaims())); !errors.Is(err, ErrKeysUnavailable) {
+			t.Fatalf("err = %v, want ErrKeysUnavailable", err)
+		}
+	}
+	if n := f.fetches(); n != 1 {
+		t.Errorf("JWKS fetched %d times, want 1 (backoff)", n)
+	}
+
+	// Once the endpoint recovers and the backoff passes, the key is fetched.
+	f.serve(0, false)
+	v.keys.backoff = 0
+	if _, err := v.Verify(context.Background(), f.sign(validClaims())); err != nil {
+		t.Fatalf("Verify after recovery: %v", err)
+	}
+}
+
+// The fetch is detached from the request that triggered it: a cancelled
+// request does not fail the fetch for everyone else.
+func TestVerify_CancelledRequestStillFetchesKeys(t *testing.T) {
+	f := newFakeIssuer(t)
+	v := f.verifier()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = v.Verify(ctx, f.sign(validClaims()))
+	if _, err := v.Verify(context.Background(), f.sign(validClaims())); err != nil {
+		t.Fatalf("Verify after a cancelled first request: %v", err)
+	}
+	if n := f.fetches(); n != 1 {
+		t.Errorf("JWKS fetched %d times, want 1", n)
+	}
+}
+
+// A fetch with no usable key keeps the previous good set.
+func TestVerify_EmptyKeySetKeepsTheOldKeys(t *testing.T) {
+	f := newFakeIssuer(t)
+	v := f.verifier()
+	tok := f.sign(validClaims())
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	f.serve(0, true)
+	v.keys.minGap, v.keys.maxAge = 0, 0 // the next lookup re-fetches
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("Verify after an empty JWKS: %v", err)
+	}
+	if n := f.fetches(); n != 2 {
+		t.Errorf("JWKS fetched %d times, want 2", n)
+	}
+}
+
+// Keys older than maxAge are re-fetched, so a key the issuer dropped stops
+// being trusted without a restart.
+func TestVerify_MaxAgeDropsARemovedKey(t *testing.T) {
+	f := newFakeIssuer(t)
+	v := f.verifier()
+	old := f.sign(validClaims())
+	if _, err := v.Verify(context.Background(), old); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	f.rotate("key-2")
+	v.keys.minGap, v.keys.maxAge = 0, 0
+	if _, err := v.Verify(context.Background(), old); err == nil {
+		t.Error("accepted a token signed with a key the issuer no longer publishes")
 	}
 }
 

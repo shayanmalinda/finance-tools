@@ -60,6 +60,10 @@ func TestBlobName(t *testing.T) {
 	if !strings.HasPrefix(n, "jane@wso2.com_") || !strings.HasSuffix(n, "_LK.png") {
 		t.Errorf("name = %s", n)
 	}
+	// The owner cannot add path segments.
+	if n := BlobName("a/../b@wso2.com", "LK", "png"); strings.Contains(n, "/") || !strings.HasPrefix(n, "a..b@wso2.com_") {
+		t.Errorf("owner name = %s", n)
+	}
 }
 
 func TestAzure_PutGetSigned(t *testing.T) {
@@ -88,6 +92,13 @@ func TestAzure_PutGetSigned(t *testing.T) {
 				return
 			}
 			_, _ = w.Write(b)
+		case http.MethodDelete:
+			if _, ok := blobs[r.URL.Path]; !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			delete(blobs, r.URL.Path)
+			w.WriteHeader(http.StatusAccepted)
 		}
 	}))
 	defer srv.Close()
@@ -115,6 +126,16 @@ func TestAzure_PutGetSigned(t *testing.T) {
 	if err := a.Put(ctx, "no-container", "", bytes.NewReader(nil), 0); err == nil {
 		t.Error("accepted a key without a container")
 	}
+	if err := a.Delete(ctx, "visas/jane@wso2.com_x_LK.png"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Get(ctx, "visas/jane@wso2.com_x_LK.png"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("after delete: %v", err)
+	}
+	// Deleting a missing blob is not an error.
+	if err := a.Delete(ctx, "visas/jane@wso2.com_x_LK.png"); err != nil {
+		t.Errorf("delete missing: %v", err)
+	}
 }
 
 // The signature follows the documented Shared Key string-to-sign; a fixed
@@ -132,6 +153,9 @@ func TestAzure_SignatureIsDeterministic(t *testing.T) {
 
 func TestUnconfigured(t *testing.T) {
 	if err := (Unconfigured{}).Put(context.Background(), "a/b", "", nil, 0); !errors.Is(err, ErrNotConfigured) {
+		t.Error(err)
+	}
+	if err := (Unconfigured{}).Delete(context.Background(), "a/b"); !errors.Is(err, ErrNotConfigured) {
 		t.Error(err)
 	}
 }

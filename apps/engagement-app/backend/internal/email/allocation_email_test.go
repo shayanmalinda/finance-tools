@@ -78,6 +78,18 @@ func TestAllocationMessage_ConfirmedListsVisasAndCopiesTravel(t *testing.T) {
 	}
 }
 
+func TestAllocVisaData_LabelsEachVisaWithItsOwnCountry(t *testing.T) {
+	data, _ := allocVisaData(AllocationEmailData{Country: "Sri Lanka", Now: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+		Visas: []AllocationEmailVisa{
+			{Country: "India", VisaType: "Business", EntryType: "Single", Status: "Approved", StartDate: "2026-01-01", EndDate: "2027-01-01"},
+			{VisaType: "Work", EntryType: "Multiple", Status: "Approved", StartDate: "2026-01-01", EndDate: "2027-01-01"},
+		}})
+	if !strings.Contains(data, "India: Business Single Entry") || !strings.Contains(data, "Sri Lanka: Work Multiple Entry") ||
+		strings.Contains(data, "Sri Lanka: Business") {
+		t.Errorf("visa_data = %s", data)
+	}
+}
+
 func TestAllocationMessage_BranchesAndPartner(t *testing.T) {
 	base := AllocationEmailData{EngagementTypeID: 5, EngagementID: "EVT00001", ConsultantEmail: "jane@wso2.com", Actor: "mgr@wso2.com"}
 
