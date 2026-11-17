@@ -163,12 +163,16 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 			if domain.AllocationIsDefault(a.EngagementID) {
 				continue
 			}
-			// The same candidate twice in one payload is a duplicate as well.
+			// An earlier Active candidate in the payload counts as a saved
+			// Active row, so a payload gets the result its rows would get
+			// in separate requests.
 			k := allocationDuplicateKey(a)
 			if seen[k] {
 				return &apierror.ConflictError{Msg: AllocationDuplicateMsg}
 			}
-			seen[k] = true
+			if strings.EqualFold(a.Status, domain.AllocationStatusActive) {
+				seen[k] = true
+			}
 			var n int
 			// Same times too: hourly allocations whose windows differ are allowed.
 			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM allocation
@@ -260,8 +264,7 @@ func (r *allocationRepo) Bulk(ctx context.Context, req domain.AllocationBulkRequ
 }
 
 // allocationDuplicateKey identifies a Bulk candidate by the fields the
-// duplicate check compares, plus its status, so an Active and an Inactive
-// candidate with the same details are not refused as a pair.
+// duplicate check compares.
 func allocationDuplicateKey(a domain.AllocationInput) string {
 	opt := func(s *string) string {
 		if s == nil {
@@ -270,7 +273,7 @@ func allocationDuplicateKey(a domain.AllocationInput) string {
 		return *s
 	}
 	return strings.Join([]string{strings.ToLower(a.Email), a.EngagementID, a.StartDate, a.EndDate, opt(a.StartTime),
-		opt(a.EndTime), strings.ToLower(a.Status)}, "|")
+		opt(a.EndTime)}, "|")
 }
 
 // allocationNeedsTravel reports whether a new allocation gets a travel row:

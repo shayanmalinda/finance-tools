@@ -564,8 +564,8 @@ func (s *financeService) DecideInvoices(ctx context.Context, d domain.FinanceInv
 		if reason == "" {
 			return nil, financeBad("Please enter a reject reason")
 		}
-		if utf8.RuneCountInString(reason) > domain.InvoiceReasonMax {
-			return nil, financeBad("The reject reason must be 255 characters or fewer.")
+		if utf8.RuneCountInString(reason) > domain.InvoiceMaxRejectReason {
+			return nil, financeBad("The reject reason must be %d characters or fewer.", domain.InvoiceMaxRejectReason)
 		}
 		t.Reason = &reason
 		t.To = map[string]string{domain.FinanceStepTravel: domain.InvoiceStatusRejectedByTravel,

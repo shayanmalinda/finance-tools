@@ -320,24 +320,15 @@ func (r *travelRequestRepo) InsertEmailAudit(ctx context.Context, in domain.Trav
 	_, err := r.db.ExecContext(ctx, `INSERT INTO email_auditlog
 		(subject, templateId, contentKeyValPairs, recipients, cc_recipients, datetime)
 		VALUES (?, ?, ?, ?, ?, NOW())`,
-		travelCut(textnorm.Latin1(in.Subject), travelAuditShort),
-		travelCut(textnorm.Latin1(in.TemplateID), travelAuditShort),
-		travelCut(textnorm.Latin1(in.ContentKeyValPairs), travelAuditContent),
-		travelCut(textnorm.Latin1(in.Recipients), travelAuditShort),
-		travelCut(textnorm.Latin1(in.CCRecipients), travelAuditShort))
+		textnorm.Truncate(textnorm.Latin1(in.Subject), travelAuditShort),
+		textnorm.Truncate(textnorm.Latin1(in.TemplateID), travelAuditShort),
+		textnorm.Truncate(textnorm.Latin1(in.ContentKeyValPairs), travelAuditContent),
+		textnorm.Truncate(textnorm.Latin1(in.Recipients), travelAuditShort),
+		textnorm.Truncate(textnorm.Latin1(in.CCRecipients), travelAuditShort))
 	if err != nil {
 		return fmt.Errorf("emailAuditlog.Insert: %w", err)
 	}
 	return nil
-}
-
-// travelCut cuts s to at most n characters.
-func travelCut(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }
 
 // travelScanner is a *sql.Row or *sql.Rows.
