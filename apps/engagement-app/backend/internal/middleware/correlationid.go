@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/reqcontext"
 )
@@ -29,17 +30,34 @@ import (
 const correlationIDHeader = "X-Correlation-ID"
 
 // CorrelationID reads the X-Correlation-ID request header (sent by the
-// caller) or generates a UUID v4 if absent. The ID is stored in the
+// caller) or generates a UUID v4 if it is absent or not a safe ID. The ID is stored in the
 // request context and echoed in the response header for end-to-end tracing.
 func CorrelationID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(correlationIDHeader)
-		if id == "" {
+		if !validCorrelationID(id) {
 			id = newCorrelationID()
 		}
 		w.Header().Set(correlationIDHeader, id)
 		next.ServeHTTP(w, r.WithContext(reqcontext.WithCorrelationID(r.Context(), id)))
 	})
+}
+
+// maxCorrelationID caps a caller's correlation ID.
+const maxCorrelationID = 128
+
+// validCorrelationID reports whether a caller's ID is safe to log and echo:
+// 1-128 letters, digits, '-', '_', '.' or ':'.
+func validCorrelationID(id string) bool {
+	if id == "" || len(id) > maxCorrelationID {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-_.:", c)) {
+			return false
+		}
+	}
+	return true
 }
 
 // CorrelationIDFromContext returns the correlation ID stored in ctx, or "".

@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"math"
 	"sort"
 	"strconv"
@@ -230,8 +231,14 @@ func (s *consultantReportService) Report(ctx context.Context, f domain.Consultan
 				d := defaultFor(a.BusinessUnit, a.Department, a.Team)
 				code, typeName, engType = d.code, d.allocType, d.engType
 			}
-			aStart, _ := allocParseDate(a.StartDate)
-			aEnd, _ := allocParseDate(a.EndDate)
+			aStart, okStart := allocParseDate(a.StartDate)
+			aEnd, okEnd := allocParseDate(a.EndDate)
+			if !okStart || !okEnd {
+				// A zero date would add hundreds of thousands of days.
+				slog.WarnContext(ctx, "consultant report: allocation skipped, unreadable dates", "allocation", a.ID,
+					"startDate", a.StartDate, "endDate", a.EndDate)
+				continue
+			}
 			if aStart.Before(start) {
 				aStart = start
 			}

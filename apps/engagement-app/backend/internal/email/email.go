@@ -21,9 +21,11 @@ package email
 import (
 	"context"
 	"log/slog"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
 )
@@ -126,7 +128,7 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	testing := s.cfg.TestRecipient != ""
 	p := payload{
 		AppUUID: s.cfg.AppUUID[m.App], To: to, CC: cc, From: s.cfg.From[m.App],
-		Subject: m.Subject, TemplateID: m.TemplateID, ContentKeyValPairs: content,
+		Subject: subjectLine(m.Subject), TemplateID: m.TemplateID, ContentKeyValPairs: content,
 	}
 	if testing {
 		p.To, p.CC = []string{s.cfg.TestRecipient}, []string{}
@@ -140,15 +142,37 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	return nil
 }
 
+// subjectLine replaces control characters (CR, LF, tab, ...) in a subject
+// with spaces: the subject embeds free text such as project names, and a line
+// break in it could add a mail header.
+func subjectLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// validAddress reports whether a is one plain email address: no display
+// name, list or line break.
+func validAddress(a string) bool {
+	if strings.ContainsAny(a, "\r\n,") {
+		return false
+	}
+	addr, err := mail.ParseAddress(a)
+	return err == nil && addr.Address == a
+}
+
 // FilterRecipients ports the legacy filterRecipients: trim each address,
-// drop empty and suppressed ones (compared lower-case), de-duplicate To,
-// and drop CC entries already in To or already in CC. Never nil.
+// drop empty, invalid and suppressed ones (compared lower-case), de-duplicate
+// To, and drop CC entries already in To or already in CC. Never nil.
 func FilterRecipients(toIn, ccIn, suppressed []string) (to, cc []string) {
 	sup := make(map[string]bool, len(suppressed))
 	for _, a := range suppressed {
 		sup[strings.ToLower(strings.TrimSpace(a))] = true
 	}
-	allowed := func(a string) bool { return a != "" && !sup[strings.ToLower(a)] }
+	allowed := func(a string) bool { return a != "" && !sup[strings.ToLower(a)] && validAddress(a) }
 	to, cc = []string{}, []string{}
 	inTo := map[string]bool{}
 	for _, a := range toIn {
@@ -177,6 +201,6 @@ type LogSender struct{}
 func (LogSender) Send(ctx context.Context, m Message) error {
 	to, cc := FilterRecipients(m.To, m.CC, nil)
 	slog.InfoContext(ctx, "email not configured; not sent", "type", m.NotificationType, "ref", m.ReferenceID,
-		"template", m.TemplateID, "subject", m.Subject, "to", to, "cc", cc)
+		"template", m.TemplateID, "subject", subjectLine(m.Subject), "to", to, "cc", cc)
 	return nil
 }

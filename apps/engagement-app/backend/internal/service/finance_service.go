@@ -121,6 +121,13 @@ func financeDate(p *string) *string {
 
 func financeRound2(f float64) float64 { return math.Round(f*100) / 100 }
 
+// FinancePaymentCentsMsg refuses a payment amount finer than a cent.
+const FinancePaymentCentsMsg = "Payment Amount can have at most two decimal places."
+
+// financeCents reports whether f has at most two decimal places (within
+// float noise, so 100.1 passes and 100.004 does not).
+func financeCents(f float64) bool { return math.Abs(f*100-math.Round(f*100)) < 1e-6 }
+
 // financeOpen is the legacy UI's OPEN: In Progress or Extended.
 func financeOpen(status *string) bool {
 	s := financeDeref(status)
@@ -173,7 +180,9 @@ const (
 // others only their own (the legacy getTravels({jobNumber, email}) check:
 // the caller is the traveller). Release 1 scopes agents to their own
 // agency's trips, and agentsAllowed false hides the tab from agents
-// (payments and travel cards).
+// (payments and travel cards). The agent page (18) gives no full view on
+// its own: a holder of 18 who is not an agent (no agency row) and does not
+// see every request (Travel 1 or 2) is scoped as travelScope does.
 func viewScope(p domain.Perms, trip engagemententity.FinanceTrip, agentsAllowed bool, anyPrivs []int, ownPriv int) (financeScope, error) {
 	if p.IsAgent() {
 		if !agentsAllowed || !p.Travel.Any(anyPrivs...) || trip.AgencyID == nil || *trip.AgencyID != p.Agency.ID {
@@ -181,13 +190,27 @@ func viewScope(p domain.Perms, trip engagemententity.FinanceTrip, agentsAllowed 
 		}
 		return financeScopeAgency, nil
 	}
-	if p.Travel.Any(anyPrivs...) {
+	if financeFullPrivs(p, anyPrivs) {
 		return financeScopeFull, nil
 	}
 	if p.Travel.Has(ownPriv) && strings.EqualFold(trip.TravellerEmail, p.Email) {
 		return financeScopeOwn, nil
 	}
 	return "", financeForbidden()
+}
+
+// financeFullPrivs reports whether a non-agent holds one of anyPrivs, the
+// agent page (18) counting only for those who see every request.
+func financeFullPrivs(p domain.Perms, anyPrivs []int) bool {
+	for _, id := range anyPrivs {
+		if id == domain.TravelPrivAgentTravelRequests && !p.Travel.Any(travelPrivNewRequests, travelPrivAllRequests) {
+			continue
+		}
+		if p.Travel.Has(id) {
+			return true
+		}
+	}
+	return false
 }
 
 // writeScope refuses an agent acting on another agency's trip (Release 1
@@ -200,20 +223,13 @@ func writeScope(p domain.Perms, trip engagemententity.FinanceTrip) error {
 }
 
 // travellerCompany is the traveller's HR company (legacy employeeCompany),
-// "" when HR has none or cannot be reached.
+// "" when HR has none or cannot be reached. It is read through the cached
+// people lookup, so a batch of emails for one traveller costs one HR call.
 func (s *FinanceService) travellerCompany(ctx context.Context, traveller string) string {
 	if traveller == "" {
 		return ""
 	}
-	e, err := s.hr.Employee(ctx, traveller)
-	if err != nil {
-		slog.WarnContext(ctx, "traveller company not found; finance group used", "traveller", traveller, "err", err)
-		return ""
-	}
-	if e == nil || e.Company == nil {
-		return ""
-	}
-	return strings.TrimSpace(*e.Company)
+	return strings.TrimSpace(financeDeref(s.people.get(ctx, traveller).Company))
 }
 
 // notify sends a travel finance email; a failure is logged, never returned
@@ -412,7 +428,7 @@ func (s *FinanceService) DeletePerDiem(ctx context.Context, p domain.Perms, jobN
 				used += v
 			}
 		}
-		if pd.Total > basis.PerDiemTotals[0].TotalAmount-used {
+		if financeRound2(pd.Total) > financeRound2(basis.PerDiemTotals[0].TotalAmount-used) {
 			return financeBad(FinanceDeleteProcessedMsg)
 		}
 	}

@@ -362,8 +362,9 @@ func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segme
 
 // ── Engagement page ──────────────────────────────────────────────────────────
 
-// lookupNames resolves HR display names, eight at a time; a failed lookup
-// leaves the name empty.
+// lookupNames resolves HR display names, eight at a time. A failed lookup is
+// logged and leaves the name empty; a person HR does not know is cached as ""
+// so each page view does not ask again.
 func (s *engagementService) lookupNames(ctx context.Context, emails []string) map[string]string {
 	out := map[string]string{}
 	var (
@@ -383,7 +384,9 @@ func (s *engagementService) lookupNames(ctx context.Context, emails []string) ma
 			continue
 		}
 		if n, ok := s.names.Get(k); ok {
-			out[k] = n
+			if n != "" {
+				out[k] = n
+			}
 			continue
 		}
 		todo = append(todo, e)
@@ -395,14 +398,18 @@ func (s *engagementService) lookupNames(ctx context.Context, emails []string) ma
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			emp, err := s.hr.Employee(ctx, e)
-			if err != nil || emp == nil {
+			if err != nil {
+				slog.WarnContext(ctx, "engagement: HR name lookup failed", "err", err)
 				return
 			}
-			n := strings.TrimSpace(emp.FirstName + " " + emp.LastName)
+			n := ""
+			if emp != nil {
+				n = strings.TrimSpace(emp.FirstName + " " + emp.LastName)
+			}
+			s.names.Set(strings.ToLower(e), n)
 			if n == "" {
 				return
 			}
-			s.names.Set(strings.ToLower(e), n)
 			mu.Lock()
 			out[strings.ToLower(e)] = n
 			mu.Unlock()
@@ -439,16 +446,23 @@ func engagementTerminal(clearance string) bool {
 	return strings.Contains(clearance, "Rejected") || strings.Contains(clearance, "Cancelled")
 }
 
-// detail assembles the engagement page for the caller.
-func (s *engagementService) detail(ctx context.Context, p domain.Perms, r engagemententity.EngagementRecord, requireScope bool) (domain.EngagementDetail, error) {
-	st := engagementState0(r)
+// detailScope is the caller's view scope. Without requireScope (the answer to
+// a write) a caller with no view scope gets the minimal Consultants scope,
+// never the roster.
+func detailScope(p domain.Perms, st engagementState, requireScope bool) (string, error) {
 	scope := engagementScopeFor(p, st)
 	if scope == "" {
 		if requireScope {
-			return domain.EngagementDetail{}, engagementForbidden()
+			return "", engagementForbidden()
 		}
-		scope = domain.EngagementScopeRoster
+		scope = domain.EngagementScopeConsultants
 	}
+	return scope, nil
+}
+
+// detailBase is the engagement page without its allocations.
+func (s *engagementService) detailBase(p domain.Perms, r engagemententity.EngagementRecord, st engagementState,
+	scope string) domain.EngagementDetail {
 	d := domain.EngagementDetail{
 		EngagementSummary: s.summary(p, r, false), Scope: scope,
 		AccountID: r.CustomerCode, OpportunityID: r.OpportunityID, OpportunityLineItemID: r.OpportunityLineItemID,
@@ -461,6 +475,37 @@ func (s *engagementService) detail(ctx context.Context, p domain.Perms, r engage
 		d.ProductUnit = referencePtr(r.FundingSources[0].ProductUnit)
 		d.SalesSubRegion = referencePtr(r.FundingSources[0].SubRegion)
 	}
+	return d
+}
+
+// written answers a write that has already been saved. A failed read here
+// must not turn the saved write into an error the client retries (the retry
+// would repeat the write and its email), so it logs a warning and answers
+// with the page without its allocations.
+func (s *engagementService) written(ctx context.Context, p domain.Perms,
+	r engagemententity.EngagementRecord) domain.EngagementDetail {
+	d, err := s.detail(ctx, p, r, false)
+	if err == nil {
+		return d
+	}
+	slog.WarnContext(ctx, "engagement saved but its page could not be read, answering without allocations",
+		"engagement", r.ID, "err", err)
+	st := engagementState0(r)
+	scope, _ := detailScope(p, st, false)
+	d = s.detailBase(p, r, st, scope)
+	s.campaigns.Fill(ctx, d.Campaign)
+	return d
+}
+
+// detail assembles the engagement page for the caller.
+func (s *engagementService) detail(ctx context.Context, p domain.Perms, r engagemententity.EngagementRecord,
+	requireScope bool) (domain.EngagementDetail, error) {
+	st := engagementState0(r)
+	scope, err := detailScope(p, st, requireScope)
+	if err != nil {
+		return domain.EngagementDetail{}, err
+	}
+	d := s.detailBase(p, r, st, scope)
 	roster, err := s.entity.EngagementRoster(ctx, r.ID, true)
 	if err != nil {
 		return domain.EngagementDetail{}, err
@@ -799,7 +844,7 @@ func (s *engagementService) Create(ctx context.Context, p domain.Perms, in domai
 		return domain.EngagementDetail{}, err
 	}
 	s.sendEmail(ctx, p.Email, email.EngagementCreated, rec, at, nil)
-	return s.detail(ctx, p, rec, false)
+	return s.written(ctx, p, rec), nil
 }
 
 func (s *engagementService) refsCampaign(ctx context.Context, id, name string) (*domain.ReferenceCampaign, error) {
@@ -869,15 +914,25 @@ func (s *engagementService) createCustomer(ctx context.Context, ref domain.Refer
 
 	switch in.EngagementTypeID {
 	case domain.EngagementTypeNonPaidPre:
-		c.EngagementCode = strings.Split(referenceStr(opp.PreSalesCode), "(")[0]
+		c.EngagementCode = strings.TrimSpace(strings.Split(referenceStr(opp.PreSalesCode), "(")[0])
 	case domain.EngagementTypeNonPaidPost:
 		suffix := engagementVal(at.EngagementCodeSuffix)
 		if suffix == "" {
 			return engagementValidation("Engagement Code cannot be set. Engagement Code Suffix is not available for the selected Allocation Type.")
 		}
-		c.EngagementCode = strings.Split(referenceStr(opp.PostSalesEngagementCode), "-")[0] + "-" + suffix
+		if base := strings.TrimSpace(strings.Split(referenceStr(opp.PostSalesEngagementCode), "-")[0]); base != "" {
+			c.EngagementCode = base + "-" + strings.TrimSpace(suffix)
+		}
 	default:
-		c.EngagementCode = referenceStr(item.EngagementCodeAuto)
+		// Only types 2, 6 and 7 require a line item; another customer type
+		// without one has no code to take.
+		if item == nil {
+			return engagementValidation("Select the opportunity line item.")
+		}
+		c.EngagementCode = strings.TrimSpace(referenceStr(item.EngagementCodeAuto))
+	}
+	if c.EngagementCode == "" {
+		return engagementValidation("Engagement Code cannot be set. The selected opportunity has no engagement code.")
 	}
 	bu, pu := in.BusinessUnit, in.ProductUnit
 	if engagementPaid(in.EngagementTypeID) && item != nil {
@@ -1237,7 +1292,7 @@ func (s *engagementService) Update(ctx context.Context, p domain.Perms, id strin
 	case changed:
 		s.sendEmail(ctx, p.Email, email.EngagementUpdated, res.Engagement, nil, nil)
 	}
-	return s.detail(ctx, p, res.Engagement, false)
+	return s.written(ctx, p, res.Engagement), nil
 }
 
 // SetRequestStatus is Mark as Completed / Reopen (no email, as legacy).
@@ -1263,7 +1318,7 @@ func (s *engagementService) SetRequestStatus(ctx context.Context, p domain.Perms
 	if err != nil {
 		return domain.EngagementDetail{}, err
 	}
-	return s.detail(ctx, p, res.Engagement, false)
+	return s.written(ctx, p, res.Engagement), nil
 }
 
 // SetEngagementStatus is Change Engagement Status. Cancelled also sets the
@@ -1299,7 +1354,7 @@ func (s *engagementService) SetEngagementStatus(ctx context.Context, p domain.Pe
 	if cancel {
 		s.sendEmail(ctx, p.Email, email.EngagementCancelled, res.Engagement, nil, res.CancelledAllocations)
 	}
-	return s.detail(ctx, p, res.Engagement, false)
+	return s.written(ctx, p, res.Engagement), nil
 }
 
 // Approve sets request status Approved (Allocations 28 plus the legacy
@@ -1323,5 +1378,5 @@ func (s *engagementService) Approve(ctx context.Context, p domain.Perms, id stri
 		return domain.EngagementDetail{}, err
 	}
 	s.sendEmail(ctx, p.Email, email.EngagementApproved, res.Engagement, nil, nil)
-	return s.detail(ctx, p, res.Engagement, false)
+	return s.written(ctx, p, res.Engagement), nil
 }

@@ -286,6 +286,10 @@ type EmployeeRecord struct {
 
 const orgEmployeesPageSize = 1000
 
+// orgEmployeesMaxPages stops a listing that never reaches an empty page
+// (100,000 employees, far above the head count).
+const orgEmployeesMaxPages = 100
+
 const orgEmployeesQuery = `query employeesQuery($filter: EmployeeFilter!, $limit: Int!, $offset: Int!) {
 	employees(filter: $filter, limit: $limit, offset: $offset) {
 		workEmail firstName lastName jobRole team businessUnit department company location
@@ -313,8 +317,11 @@ func (c *HTTPClient) EmployeesByOrg(ctx context.Context, f OrgEmployeeFilter) ([
 			filter[k] = v
 		}
 	}
+	// Read until an empty page, as the legacy did: HR may cap the limit
+	// below orgEmployeesPageSize, so a short page is not the last one.
 	out := []OrgEmployee{}
-	for {
+	var prev []OrgEmployee
+	for page := 0; page < orgEmployeesMaxPages; page++ {
 		var data struct {
 			Employees []OrgEmployee `json:"employees"`
 		}
@@ -322,11 +329,31 @@ func (c *HTTPClient) EmployeesByOrg(ctx context.Context, f OrgEmployeeFilter) ([
 		if err := c.query(ctx, orgEmployeesQuery, vars, &data); err != nil {
 			return nil, err
 		}
-		out = append(out, data.Employees...)
-		if len(data.Employees) < orgEmployeesPageSize {
+		if len(data.Employees) == 0 {
 			return out, nil
 		}
+		if orgSamePage(prev, data.Employees) {
+			return nil, &apierror.UpstreamError{Service: serviceName, StatusCode: http.StatusBadGateway,
+				Msg: "employee listing returned the same page twice (offset ignored)"}
+		}
+		out = append(out, data.Employees...)
+		prev = data.Employees
 	}
+	return nil, &apierror.UpstreamError{Service: serviceName, StatusCode: http.StatusBadGateway,
+		Msg: "employee listing did not end within the page limit"}
+}
+
+// orgSamePage reports whether two pages list the same employees in order.
+func orgSamePage(a, b []OrgEmployee) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !strings.EqualFold(a[i].WorkEmail, b[i].WorkEmail) {
+			return false
+		}
+	}
+	return true
 }
 
 // EmployeeRecord implements OrgClient.

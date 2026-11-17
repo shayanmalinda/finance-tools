@@ -37,12 +37,14 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
   `X-Jwt-Assertion` (Choreo gateway) or, when absent, `Authorization: Bearer`
   (One WSO2 calling directly, e.g. locally), and verifies it in
   `internal/oidc`: RS256 signature against the issuer's JWKS (cached;
-  refetched on an unknown key id at most every 30 s), issuer, expiry
+  refetched on an unknown key id at most every 30 s, and after 30 minutes;
+  a failed fetch is 503, not 401), issuer, expiry
   (required), issued-at, and audience (`JWT_AUDIENCES`, required). Trusted
   issuers: the WSO2 Asgardeo organisation (default) and, when
   `GATEWAY_JWT_ISSUER` is set, the gateway's issuer. Missing email or groups
   in a Bearer token are read from the userinfo endpoint (cached 5 minutes per
-  token hash). The caller's email and groups go into the request context.
+  token hash; when it fails the request is 503, since the caller's access is
+  unknown). The caller's email and groups go into the request context.
 - Authorization: the legacy apps have no user-to-role table; a role is an
   Asgardeo group. `internal/service/access_service.go` reads each app's
   role-privilege map from the Engagement Entity (cached one minute), and
@@ -88,8 +90,9 @@ gofmt -l .           # must print nothing
 Settings come from environment variables; locally from a git-ignored `.env`
 (copy `.env.local`). Only `ENGAGEMENT_ENTITY_BASE_URL` is required to start.
 Every other service is optional: unset, the backend starts and the screens
-that need it answer 503 (email is logged instead of sent). Never put real
-values in committed files.
+that need it answer 503 (email is logged instead of sent). Service and token
+URLs must be https (http only on localhost). Never put real values in
+committed files.
 
 | Variable | Required? | Default | Where to get it (legacy key) |
 |---|---|---|---|

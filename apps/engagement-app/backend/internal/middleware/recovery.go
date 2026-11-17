@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"runtime/debug"
 )
 
 type recoveryWriter struct {
@@ -47,7 +48,12 @@ func Recovery(next http.Handler) http.Handler {
 		rw := &recoveryWriter{ResponseWriter: w}
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("panic recovered correlationID=%s value=%v", CorrelationIDFromContext(r.Context()), rec)
+				if rec == http.ErrAbortHandler { //nolint:errorlint // recover() value, not a wrapped error
+					// net/http's own signal to abort the response silently.
+					panic(rec)
+				}
+				log.Printf("panic recovered correlationID=%s method=%s path=%q value=%v\n%s",
+					CorrelationIDFromContext(r.Context()), r.Method, r.URL.Path, rec, debug.Stack())
 				if !rw.headerWritten {
 					rw.ResponseWriter.Header().Set("Content-Type", "application/json")
 					rw.ResponseWriter.WriteHeader(http.StatusInternalServerError)

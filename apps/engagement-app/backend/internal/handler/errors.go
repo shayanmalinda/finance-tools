@@ -27,6 +27,10 @@ import (
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 )
 
+// statusClientClosedRequest is the non-standard 499 for a request the client
+// abandoned.
+const statusClientClosedRequest = 499
+
 // writeJSON writes v as a 200 JSON response.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -74,7 +78,10 @@ func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		slog.WarnContext(ctx, "request timed out", "method", r.Method, "path", r.URL.Path)
 		apierror.WriteJSON(w, http.StatusGatewayTimeout, "The request timed out. Please try again.")
 	case errors.Is(err, context.Canceled):
+		// No one reads this, but a non-2xx status keeps Idempotency from
+		// replaying it and Audit from recording it as a success.
 		slog.InfoContext(ctx, "request canceled by the client", "method", r.Method, "path", r.URL.Path)
+		apierror.WriteJSON(w, statusClientClosedRequest, "The request was canceled.")
 	default:
 		slog.ErrorContext(ctx, "internal error", "method", r.Method, "path", r.URL.Path, "err", err)
 		apierror.WriteJSON(w, http.StatusInternalServerError, "Something went wrong. Please try again.")

@@ -44,10 +44,12 @@ var ErrUnsupportedImage = errors.New("the file must be a JPEG or PNG image")
 var unsafeName = regexp.MustCompile(`[^\p{L}\p{N}_.\-@]`)
 
 // BlobName builds the legacy blob name "{ownerEmail}_{uuid}_{imageName}"; the
-// legacy UI's imageName is "{countryCode}.{extension}".
+// legacy UI's imageName is "{countryCode}.{extension}". The owner and the
+// country lose any character outside letters, digits and _ . - @, so the
+// name stays one path segment.
 func BlobName(ownerEmail, countryCode, ext string) string {
 	img := unsafeName.ReplaceAllString(countryCode, "") + "." + ext
-	return ownerEmail + "_" + uuid.NewString() + "_" + img
+	return unsafeName.ReplaceAllString(ownerEmail, "") + "_" + uuid.NewString() + "_" + img
 }
 
 // CheckImage sniffs data and returns its content type and file extension,

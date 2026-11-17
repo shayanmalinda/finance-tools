@@ -434,6 +434,14 @@ func (s *FinanceService) financeOutOfTime(ctx context.Context) bool {
 
 const financeOutOfTimeMsg = "Not started: the request ran out of time. Push it again."
 
+// financeOutcomeUnknownMsg is a record whose call was in flight when the
+// request's context ended.
+const financeOutcomeUnknownMsg = "Outcome unknown: the request ended during this record. Re-sync it to check NetSuite."
+
+// financeNetSuiteOffMsg is a record not started because NetSuite push was
+// switched off during the batch.
+const financeNetSuiteOffMsg = "Not started: NetSuite push is not enabled."
+
 // pushItem maps an entity push or re-sync outcome.
 func pushItem(id string, r engagemententity.FinancePushResult) domain.BatchItem {
 	return domain.BatchItem{ID: id, OK: r.OK, Message: r.Message, NetSuiteReference: r.Reference}
@@ -490,7 +498,8 @@ func (s *FinanceService) invoiceBatch(ctx context.Context, p domain.Perms, ids [
 		return domain.BatchResult{}, financeBad("Select 1 to 200 invoices.")
 	}
 	out := domain.BatchResult{Results: []domain.BatchItem{}}
-	for _, id := range ids {
+	sent := false
+	for i, id := range ids {
 		sid := strconv.Itoa(id)
 		if s.financeOutOfTime(ctx) {
 			out.Results = append(out.Results, domain.BatchItem{ID: sid, Message: financeStr(financeOutOfTimeMsg)})
@@ -500,12 +509,43 @@ func (s *FinanceService) invoiceBatch(ctx context.Context, p domain.Perms, ids [
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return domain.BatchResult{}, stop
+				rest := make([]string, 0, len(ids)-i-1)
+				for _, n := range ids[i+1:] {
+					rest = append(rest, strconv.Itoa(n))
+				}
+				return financeBatchStop(out, sent, sid, true, rest, stop)
 			}
 			out.Results = append(out.Results, domain.BatchItem{ID: sid, Message: msg})
+			sent = true
 			continue
 		}
 		out.Results = append(out.Results, pushItem(sid, r))
+		sent = true
+	}
+	return out, nil
+}
+
+// financeBatchStop ends a push or re-sync batch on a stop error (NetSuite
+// off, or the request's context ended). Before any record reached the
+// entity the error is the batch's answer. After, the records already done
+// keep their results, so the caller knows what was pushed: current is
+// reported (outcome unknown when its call was in flight as the context
+// ended) and the rest as not started.
+func financeBatchStop(out domain.BatchResult, sent bool, current string, inFlight bool, rest []string,
+	stop error) (domain.BatchResult, error) {
+	if !sent {
+		return domain.BatchResult{}, stop
+	}
+	cur, next := financeStr(financeNetSuiteOffMsg), financeStr(financeNetSuiteOffMsg)
+	if errors.Is(stop, context.Canceled) || errors.Is(stop, context.DeadlineExceeded) {
+		cur, next = financeStr(financeOutOfTimeMsg), financeStr(financeOutOfTimeMsg)
+		if inFlight {
+			cur = financeStr(financeOutcomeUnknownMsg)
+		}
+	}
+	out.Results = append(out.Results, domain.BatchItem{ID: current, Message: cur})
+	for _, id := range rest {
+		out.Results = append(out.Results, domain.BatchItem{ID: id, Message: next})
 	}
 	return out, nil
 }

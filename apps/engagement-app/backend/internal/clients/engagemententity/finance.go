@@ -356,7 +356,7 @@ type FinanceSubsidiary struct {
 }
 
 func financeTripPath(jobNumber string, rest ...string) string {
-	p := "/finance/travel-requests/" + url.PathEscape(jobNumber)
+	p := "/finance/travel-requests/" + pathSegment(jobNumber)
 	for _, r := range rest {
 		p += "/" + r
 	}
@@ -573,7 +573,7 @@ func (c *HTTPClient) FinancePayments(ctx context.Context, f FinancePaymentFilter
 }
 
 func financePaymentPath(perDiemNumber string, rest ...string) string {
-	p := "/finance/per-diem-payments/" + url.PathEscape(perDiemNumber)
+	p := "/finance/per-diem-payments/" + pathSegment(perDiemNumber)
 	for _, r := range rest {
 		p += "/" + r
 	}
@@ -634,6 +634,6 @@ func (c *HTTPClient) FinancePaymentReference(ctx context.Context, perDiemNumber 
 // FinanceSubsidiary calls GET /finance/subsidiaries/{company}.
 func (c *HTTPClient) FinanceSubsidiary(ctx context.Context, company string) (FinanceSubsidiary, error) {
 	var out FinanceSubsidiary
-	err := c.rest.Get(ctx, "/finance/subsidiaries/"+url.PathEscape(company), &out)
+	err := c.rest.Get(ctx, "/finance/subsidiaries/"+pathSegment(company), &out)
 	return out, err
 }

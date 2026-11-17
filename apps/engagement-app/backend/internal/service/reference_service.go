@@ -283,7 +283,10 @@ func (s *referenceService) Opportunities(ctx context.Context, accountID string, 
 	if !referenceNeedsLineItems(engagementTypeID) || len(out) == 0 {
 		return out, nil
 	}
-	// Line items per opportunity, four at a time.
+	// Line items per opportunity, four at a time; the first failure cancels
+	// the calls still running and skips those not started.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var (
 		wg       sync.WaitGroup
 		mu       sync.Mutex
@@ -296,12 +299,16 @@ func (s *referenceService) Opportunities(ctx context.Context, accountID string, 
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
 			items, err := s.sales.OpportunityLineItems(ctx, out[i].ID)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
 				if firstErr == nil {
 					firstErr = err
+					cancel()
 				}
 				return
 			}

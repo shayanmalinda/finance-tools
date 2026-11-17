@@ -330,14 +330,14 @@ type ConsultantEngagementCode struct {
 // AllocationEngagement calls GET /allocations/engagements/{id}.
 func (c *HTTPClient) AllocationEngagement(ctx context.Context, id string) (AllocationEngagement, error) {
 	var out AllocationEngagement
-	err := c.rest.Get(ctx, "/allocations/engagements/"+url.PathEscape(id), &out)
+	err := c.rest.Get(ctx, "/allocations/engagements/"+pathSegment(id), &out)
 	return out, err
 }
 
 // Allocation calls GET /allocations/{id}.
 func (c *HTTPClient) Allocation(ctx context.Context, id string) (AllocationRecord, error) {
 	var out AllocationRecord
-	err := c.rest.Get(ctx, "/allocations/"+url.PathEscape(id), &out)
+	err := c.rest.Get(ctx, "/allocations/"+pathSegment(id), &out)
 	return out, err
 }
 
@@ -369,13 +369,13 @@ func (c *HTTPClient) BulkAllocations(ctx context.Context, req AllocationBulkRequ
 // UpdateAllocation calls PATCH /allocations/{id}.
 func (c *HTTPClient) UpdateAllocation(ctx context.Context, id string, req AllocationUpdateRequest) (AllocationUpdateResult, error) {
 	var out AllocationUpdateResult
-	err := c.rest.Do(ctx, http.MethodPatch, "/allocations/"+url.PathEscape(id), req, &out)
+	err := c.rest.Do(ctx, http.MethodPatch, "/allocations/"+pathSegment(id), req, &out)
 	return out, err
 }
 
 // DeleteAllocation calls DELETE /allocations/{id}.
 func (c *HTTPClient) DeleteAllocation(ctx context.Context, id string) error {
-	return c.rest.Do(ctx, http.MethodDelete, "/allocations/"+url.PathEscape(id), nil, nil)
+	return c.rest.Do(ctx, http.MethodDelete, "/allocations/"+pathSegment(id), nil, nil)
 }
 
 // AllocationVisas calls GET /allocations/visas.

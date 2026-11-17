@@ -21,6 +21,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -33,6 +34,22 @@ import (
 // triggers at most one fetch per gap, so a flood of bogus tokens cannot turn
 // into a flood of requests to the identity provider.
 const minRefreshGap = 30 * time.Second
+
+// failureBackoff is how long a failed fetch is reused before the next try;
+// it rate limits a failing endpoint without holding a good key set back.
+const failureBackoff = 5 * time.Second
+
+// maxKeyAge re-fetches the key set when it is older than this, so a key the
+// identity provider rotated out or revoked stops being trusted.
+const maxKeyAge = 30 * time.Minute
+
+// fetchTimeout bounds one JWKS fetch. The fetch is detached from the request
+// that triggered it, so one cancelled request cannot fail it for everyone.
+const fetchTimeout = 10 * time.Second
+
+// ErrKeysUnavailable reports that the signing keys could not be fetched: the
+// token's validity is unknown, not refused.
+var ErrKeysUnavailable = errors.New("oidc: signing keys unavailable")
 
 type jwk struct {
 	Kty string `json:"kty"`
@@ -49,19 +66,23 @@ type keySet struct {
 	url        string
 	httpClient *http.Client
 
-	minGap time.Duration
+	minGap  time.Duration
+	backoff time.Duration
+	maxAge  time.Duration
 
-	// refreshMu serialises refreshes; mu guards only the key map and
-	// lastRefresh, so a slow JWKS fetch never blocks cached-key lookups.
+	// refreshMu serialises refreshes; mu guards only the key map and the
+	// fetch state, so a slow JWKS fetch never blocks cached-key lookups.
 	refreshMu   sync.Mutex
 	mu          sync.RWMutex
 	keys        map[string]*rsa.PublicKey
-	lastRefresh time.Time
+	lastRefresh time.Time // last successful fetch
+	lastFailure time.Time
+	lastErr     error
 	fetches     int
 }
 
 func newKeySet(url string, httpClient *http.Client) *keySet {
-	return &keySet{url: url, httpClient: httpClient, minGap: minRefreshGap}
+	return &keySet{url: url, httpClient: httpClient, minGap: minRefreshGap, backoff: failureBackoff, maxAge: maxKeyAge}
 }
 
 func (k *keySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error) {
@@ -70,13 +91,16 @@ func (k *keySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error)
 	}
 	k.mu.RLock()
 	key, ok := k.keys[kid]
+	stale := !k.lastRefresh.IsZero() && time.Since(k.lastRefresh) > k.maxAge
 	k.mu.RUnlock()
-	if ok {
+	if ok && !stale {
 		return key, nil
 	}
-	if err := k.refreshIfDue(ctx); err != nil {
+	if err := k.refreshIfDue(ctx); err != nil && !ok {
 		return nil, err
 	}
+	// A failed max-age refresh keeps the cached set: the key was good at the
+	// last successful fetch.
 	k.mu.RLock()
 	key, ok = k.keys[kid]
 	k.mu.RUnlock()
@@ -94,28 +118,50 @@ func (k *keySet) refreshIfDue(ctx context.Context) error {
 		k.mu.Unlock()
 		return nil
 	}
-	// Counted before the request, so a failing endpoint is also rate limited.
-	k.lastRefresh = time.Now()
+	// A failing endpoint is rate limited too: its error is reused for a while.
+	if k.lastErr != nil && time.Since(k.lastFailure) < k.backoff {
+		err := k.lastErr
+		k.mu.Unlock()
+		return err
+	}
 	k.fetches++
 	k.mu.Unlock()
 
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+	defer cancel()
+	keys, err := k.fetch(fctx)
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if err != nil {
+		k.lastErr = fmt.Errorf("%w: %w", ErrKeysUnavailable, err)
+		k.lastFailure = time.Now()
+		return k.lastErr
+	}
+	k.keys, k.lastRefresh, k.lastErr = keys, time.Now(), nil
+	return nil
+}
+
+// fetch reads the JWKS. A set with no usable RSA key is an error, so the
+// previous good set is kept.
+func (k *keySet) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url, nil)
 	if err != nil {
-		return fmt.Errorf("oidc: building JWKS request: %w", err)
+		return nil, fmt.Errorf("building JWKS request: %w", err)
 	}
 	resp, err := k.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("oidc: fetching JWKS: %w", err)
+		return nil, fmt.Errorf("fetching JWKS: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("oidc: JWKS endpoint returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("JWKS endpoint returned %d", resp.StatusCode)
 	}
 	var doc struct {
 		Keys []jwk `json:"keys"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
-		return fmt.Errorf("oidc: decoding JWKS: %w", err)
+		return nil, fmt.Errorf("decoding JWKS: %w", err)
 	}
 	keys := make(map[string]*rsa.PublicKey, len(doc.Keys))
 	for _, key := range doc.Keys {
@@ -128,10 +174,10 @@ func (k *keySet) refreshIfDue(ctx context.Context) error {
 		}
 		keys[key.Kid] = pub
 	}
-	k.mu.Lock()
-	k.keys = keys
-	k.mu.Unlock()
-	return nil
+	if len(keys) == 0 {
+		return nil, errors.New("JWKS has no usable RSA key")
+	}
+	return keys, nil
 }
 
 func rsaPublicKey(nB64, eB64 string) (*rsa.PublicKey, error) {

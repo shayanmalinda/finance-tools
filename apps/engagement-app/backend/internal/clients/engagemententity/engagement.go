@@ -350,7 +350,7 @@ func (c *HTTPClient) EngagementFacets(ctx context.Context, engagementTypeIDs []i
 	return out, c.rest.Get(ctx, withQuery("/engagements/facets", q), &out)
 }
 
-func engagementPath(id string) string { return "/engagements/" + url.PathEscape(id) }
+func engagementPath(id string) string { return "/engagements/" + pathSegment(id) }
 
 // EngagementGet implements EngagementAPI.
 func (c *HTTPClient) EngagementGet(ctx context.Context, id string) (EngagementRecord, error) {
@@ -379,7 +379,7 @@ func (c *HTTPClient) EngagementUpdate(ctx context.Context, id string, in Engagem
 	return out, c.rest.Do(ctx, http.MethodPatch, engagementPath(id), in, &out)
 }
 
-func roleSettingsPath(app domain.App) string { return "/role-settings/" + url.PathEscape(string(app)) }
+func roleSettingsPath(app domain.App) string { return "/role-settings/" + pathSegment(string(app)) }
 
 // RoleSettings implements EngagementAPI.
 func (c *HTTPClient) RoleSettings(ctx context.Context, app domain.App) (RoleSettingsLists, error) {

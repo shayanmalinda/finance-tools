@@ -41,6 +41,9 @@ func Logger(next http.Handler) http.Handler {
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		log.Printf("%s %s correlationID=%s status=%d elapsed=%s", r.Method, r.URL.Path, CorrelationIDFromContext(r.Context()), rw.status, time.Since(start)) // #nosec G706
+		// %q: the path is decoded, so it can hold a newline that would
+		// forge a log line. The correlation ID is checked in CorrelationID.
+		log.Printf("%s %q correlationID=%s status=%d elapsed=%s", r.Method, r.URL.Path,
+			CorrelationIDFromContext(r.Context()), rw.status, time.Since(start))
 	})
 }

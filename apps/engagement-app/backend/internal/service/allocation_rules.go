@@ -241,13 +241,15 @@ func allocMinDate(a, b string) string {
 // allocToday is the current date (YYYY-MM-DD) of now.
 func allocToday(now time.Time) string { return now.Format(allocDateLayout) }
 
-// allocValidTime reports whether s is HH:MM (or HH:MM:SS).
-func allocValidTime(s string) bool {
-	if _, err := time.Parse("15:04", s); err == nil {
-		return true
+// allocNormTime returns a time of day (H:MM, HH:MM or HH:MM:SS) as HH:MM,
+// so that times compare as strings; ok is false when s is not a time.
+func allocNormTime(s string) (string, bool) {
+	for _, layout := range []string{"15:04", "15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Format("15:04"), true
+		}
 	}
-	_, err := time.Parse("15:04:05", s)
-	return err == nil
+	return "", false
 }
 
 // allocBaseMinutes is a time of day in minutes after UTC midnight: legacy
@@ -310,7 +312,8 @@ func allocAvailability(existing []engagemententity.AllocationRecord, engStart, e
 			aE := allocBaseMinutes(h.EndTime, h.TimeZone, start)
 			nS := allocBaseMinutes(newHourly.StartTime, newHourly.TimeZone, start)
 			nE := allocBaseMinutes(newHourly.EndTime, newHourly.TimeZone, start)
-			if (aS <= nS && nS < aE) || (aS >= nS && aS <= nE) {
+			// Half-open windows: back-to-back slots do not intersect.
+			if aS < nE && nS < aE {
 				out = append(out, a)
 			}
 			continue

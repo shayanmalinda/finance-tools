@@ -305,11 +305,11 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 				ef.EngagementTypes = append(ef.EngagementTypes, t)
 			}
 		}
-		ef.Bench = p.Alloc.Any(9, 19, 21)
 	}
+	ef.Bench = p.Alloc.Any(9, 19, 21)
 	ef.Trend = p.Alloc.Has(1) && (p.Alloc.Any(9, 19, 21, 22, 26, 29) ||
 		dashboardCanAllocateType(p.Alloc, 1) || dashboardCanAllocateType(p.Alloc, 3) || dashboardCanAllocateType(p.Alloc, 4))
-	if showEngs || ef.Trend {
+	if showEngs || ef.Bench || ef.Trend {
 		var sections []string
 		if showEngs {
 			sections = append(sections, "engagements")

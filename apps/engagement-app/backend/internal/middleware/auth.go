@@ -18,6 +18,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -48,6 +49,11 @@ type UserinfoFetcher interface {
 
 const unauthorizedMsg = "You are not authorized to perform this action. Please sign in again."
 
+// unavailableMsg answers a request whose access cannot be checked right now
+// (the identity provider or the role tables are unreachable): the caller's
+// access is unknown, not denied, so it is 503 rather than 401 or 403.
+const unavailableMsg = "Unable to verify your access right now. Please try again shortly."
+
 // Auth verifies the token from X-Jwt-Assertion or Authorization: Bearer and
 // puts the caller in the context; a Bearer token lacking email or groups is
 // completed from userinfo. No bypass: anything else is 401.
@@ -60,6 +66,11 @@ func Auth(v Verifier, userinfo UserinfoFetcher) func(http.Handler) http.Handler 
 				return
 			}
 			claims, err := v.Verify(r.Context(), raw)
+			if errors.Is(err, oidc.ErrKeysUnavailable) {
+				slog.ErrorContext(r.Context(), "auth: signing keys unavailable", "err", err)
+				apierror.WriteJSON(w, http.StatusServiceUnavailable, unavailableMsg)
+				return
+			}
 			if err != nil {
 				slog.WarnContext(r.Context(), "auth: token rejected", "err", err)
 				apierror.WriteJSON(w, http.StatusUnauthorized, unauthorizedMsg)
@@ -68,16 +79,17 @@ func Auth(v Verifier, userinfo UserinfoFetcher) func(http.Handler) http.Handler 
 			if bearer && userinfo != nil && (claims.Email == "" || !claims.GroupsPresent) {
 				extra, err := userinfo.Fetch(r.Context(), raw)
 				if err != nil {
-					// Not fatal on its own: the token may carry the email,
-					// and a caller without groups simply holds no privilege.
-					slog.WarnContext(r.Context(), "auth: userinfo lookup failed", "err", err)
-				} else {
-					if claims.Email == "" {
-						claims.Email = extra.Email
-					}
-					if !claims.GroupsPresent {
-						claims.Groups = extra.Groups
-					}
+					// The missing email or groups are unknown, not empty:
+					// answering with no privileges would show "no access".
+					slog.ErrorContext(r.Context(), "auth: userinfo lookup failed", "err", err)
+					apierror.WriteJSON(w, http.StatusServiceUnavailable, unavailableMsg)
+					return
+				}
+				if claims.Email == "" {
+					claims.Email = extra.Email
+				}
+				if !claims.GroupsPresent {
+					claims.Groups = extra.Groups
 				}
 			}
 			if strings.TrimSpace(claims.Email) == "" {
@@ -130,7 +142,7 @@ func RequireAnyPrivilege(pc PrivilegeChecker, app domain.App, ids ...int) func(h
 			allowed, err := pc.HasAnyPrivilege(r.Context(), app, caller.Groups, ids...)
 			if err != nil {
 				slog.ErrorContext(r.Context(), "privilege check failed", "app", app, "err", err)
-				apierror.WriteJSON(w, http.StatusServiceUnavailable, "Unable to verify your access right now. Please try again shortly.")
+				apierror.WriteJSON(w, http.StatusServiceUnavailable, unavailableMsg)
 				return
 			}
 			if !allowed {

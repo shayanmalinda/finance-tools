@@ -64,15 +64,17 @@ func auditPassports(own bool) auditEventFunc {
 	}
 }
 
-// auditExport is a report downloaded as CSV (format=csv).
+// auditExport is a report read: an export when downloaded as CSV
+// (format=csv), a view otherwise, since the JSON carries the same rows.
 func auditExport(entityType, report string) auditEventFunc {
 	return func(r *http.Request) (domain.AuditEvent, bool) {
-		if !strings.EqualFold(r.URL.Query().Get("format"), "csv") {
-			return domain.AuditEvent{}, false
+		action := domain.AuditView
+		if strings.EqualFold(r.URL.Query().Get("format"), "csv") {
+			action = domain.AuditExport
 		}
 		md := auditQuery(r)
 		md["report"] = report
-		return domain.AuditEvent{Action: domain.AuditExport, EntityType: entityType, Metadata: md}, true
+		return domain.AuditEvent{Action: action, EntityType: entityType, Metadata: md}, true
 	}
 }
 

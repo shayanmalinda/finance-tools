@@ -21,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
+	"net/mail"
 	"slices"
 	"strings"
 	"time"
@@ -287,7 +289,7 @@ func travelOwnerEmail(p domain.Perms, form string, own bool) (string, error) {
 		return p.Email, nil
 	}
 	e := strings.ToLower(strings.TrimSpace(form))
-	if e == "" || !strings.Contains(e, "@") {
+	if a, err := mail.ParseAddress(e); err != nil || a.Address != e || a.Name != "" {
 		return "", travelBadRequest("Please check the form again")
 	}
 	return e, nil
@@ -318,6 +320,9 @@ func (s *travelDocumentsService) AddVisa(ctx context.Context, p domain.Perms, f 
 		StartDate: in.start, EndDate: in.end, PassportID: in.passportID, ImageID: name, CreatedBy: p.Email,
 	})
 	if err != nil {
+		if travelWriteRefused(err) {
+			s.discard(ctx, filestore.VisasContainer, name)
+		}
 		return domain.TravelVisa{}, err
 	}
 	return s.visa(v, s.people.get(ctx, owner)), nil
@@ -370,6 +375,7 @@ func (s *travelDocumentsService) UpdateVisa(ctx context.Context, p domain.Perms,
 		write.ImageID = &name
 	}
 	v, err := s.entity.UpdateVisa(ctx, id, write)
+	s.replaced(ctx, filestore.VisasContainer, write.ImageID, cur.ImageID, err)
 	if err != nil {
 		return domain.TravelVisa{}, travelNotFound(err, "The visa was not found.")
 	}
@@ -521,6 +527,9 @@ func (s *travelDocumentsService) AddDocument(ctx context.Context, p domain.Perms
 		IssuedDate: in.issued, ExpiryDate: travelOptional(in.expiry), ImageID: name, CreatedBy: p.Email,
 	})
 	if err != nil {
+		if travelWriteRefused(err) {
+			s.discard(ctx, filestore.TravelDocumentsContainer, name)
+		}
 		return domain.TravelDocument{}, err
 	}
 	return s.document(d, s.people.get(ctx, owner)), nil
@@ -563,6 +572,7 @@ func (s *travelDocumentsService) UpdateDocument(ctx context.Context, p domain.Pe
 		write.ImageID = &name
 	}
 	d, err := s.entity.UpdateTravelDocument(ctx, id, write)
+	s.replaced(ctx, filestore.TravelDocumentsContainer, write.ImageID, cur.ImageID, err)
 	if err != nil {
 		return domain.TravelDocument{}, travelNotFound(err, "The travel document was not found.")
 	}
@@ -602,6 +612,42 @@ func (s *travelDocumentsService) store(ctx context.Context, container, owner, co
 		return "", travelImageError(err)
 	}
 	return name, nil
+}
+
+// discard removes a stored image, best-effort: a failure is logged.
+func (s *travelDocumentsService) discard(ctx context.Context, container, name string) {
+	if name == "" {
+		return
+	}
+	if err := s.files.Delete(context.WithoutCancel(ctx), container+"/"+name); err != nil {
+		slog.WarnContext(ctx, "travel image not deleted", "container", container, "image", name, "err", err)
+	}
+}
+
+// travelWriteRefused reports whether the entity answered a write with a 4xx,
+// so nothing was saved. After a timeout or a 5xx the write may have landed,
+// so the new image is kept rather than leave the record without it.
+func travelWriteRefused(err error) bool {
+	var up *apierror.UpstreamError
+	return errors.As(err, &up) && up.StatusCode >= 400 && up.StatusCode < 500
+}
+
+// replaced tidies up after an image replace: when the entity refused the
+// write (writeErr) the new image is removed; after a successful write the
+// old one is.
+func (s *travelDocumentsService) replaced(ctx context.Context, container string, newID, oldID *string, writeErr error) {
+	if newID == nil {
+		return
+	}
+	if writeErr != nil {
+		if travelWriteRefused(writeErr) {
+			s.discard(ctx, container, *newID)
+		}
+		return
+	}
+	if old := strings.TrimSpace(travelDeref(oldID)); old != *newID {
+		s.discard(ctx, container, old)
+	}
 }
 
 // image reads a stored image and decodes the legacy data-URL text.

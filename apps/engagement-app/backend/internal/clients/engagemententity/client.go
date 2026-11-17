@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
@@ -122,8 +123,19 @@ func New(baseURL string, httpClient *http.Client) *HTTPClient {
 
 var _ Client = (*HTTPClient)(nil)
 
+// pathSegment escapes one user-supplied path segment. url.PathEscape leaves
+// "." and ".." as they are, which would name a different entity route, so
+// their dots are percent-encoded: the entity then sees an id that matches
+// nothing.
+func pathSegment(s string) string {
+	if s == "." || s == ".." {
+		return strings.Repeat("%2E", len(s))
+	}
+	return url.PathEscape(s)
+}
+
 func accessPath(app domain.App, resource string) string {
-	return "/access/" + url.PathEscape(string(app)) + "/" + resource
+	return "/access/" + pathSegment(string(app)) + "/" + resource
 }
 
 // RolePrivileges calls GET /access/{app}/role-privileges.

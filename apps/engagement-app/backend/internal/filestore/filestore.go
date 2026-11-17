@@ -37,6 +37,8 @@ type Store interface {
 	Put(ctx context.Context, key, contentType string, r io.Reader, size int64) error
 	// Get opens the file at key. The caller closes the reader.
 	Get(ctx context.Context, key string) (io.ReadCloser, Object, error)
+	// Delete removes the file at key; a missing file is not an error.
+	Delete(ctx context.Context, key string) error
 }
 
 // ErrNotConfigured is returned by Unconfigured: uploads and downloads answer
@@ -57,4 +59,9 @@ func (Unconfigured) Put(context.Context, string, string, io.Reader, int64) error
 // Get implements Store.
 func (Unconfigured) Get(context.Context, string) (io.ReadCloser, Object, error) {
 	return nil, Object{}, ErrNotConfigured
+}
+
+// Delete implements Store.
+func (Unconfigured) Delete(context.Context, string) error {
+	return ErrNotConfigured
 }

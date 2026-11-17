@@ -24,10 +24,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -119,7 +121,13 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.ErrorContext(ctx, "dependency request failed", "service", c.service, "method", method, "path", path, "err", err)
+		// A *url.Error repeats the full URL; log only its cause.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		slog.ErrorContext(ctx, "dependency request failed", "service", c.service, "method", method,
+			"path", logPath(path), "err", err)
 		return &apierror.UpstreamError{Service: c.service, Msg: "unreachable"}
 	}
 	defer resp.Body.Close()
@@ -135,7 +143,8 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 				msg = e.Message
 			}
 		}
-		slog.WarnContext(ctx, "dependency returned an error", "service", c.service, "method", method, "path", path, "status", resp.StatusCode)
+		slog.WarnContext(ctx, "dependency returned an error", "service", c.service, "method", method,
+			"path", logPath(path), "status", resp.StatusCode)
 		return &apierror.UpstreamError{Service: c.service, StatusCode: resp.StatusCode, Msg: msg}
 	}
 
@@ -151,4 +160,11 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		return &apierror.UpstreamError{Service: c.service, StatusCode: resp.StatusCode, Msg: "malformed response: " + err.Error()}
 	}
 	return nil
+}
+
+// logPath is path without its query, which can carry personal data (emails,
+// search text).
+func logPath(path string) string {
+	p, _, _ := strings.Cut(path, "?")
+	return p
 }

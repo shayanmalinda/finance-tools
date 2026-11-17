@@ -19,10 +19,16 @@ package server
 import (
 	"log/slog"
 
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/handler"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/service"
 )
+
+// The production client must serve the engagements area: a missing method
+// fails the build, not the start-up (registerEngagementRoutes skips the area
+// only for a test double that lacks it).
+var _ service.EngagementEntityAPI = (*engagemententity.HTTPClient)(nil)
 
 // registerEngagementRoutes registers the engagements area: engagements,
 // approvals, reference data and lookups, Role Settings and

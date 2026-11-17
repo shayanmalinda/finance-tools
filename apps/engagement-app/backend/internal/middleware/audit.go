@@ -20,6 +20,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
@@ -31,6 +33,27 @@ type AuditRecorder interface {
 }
 
 const auditTimeout = 5 * time.Second
+
+// auditsInFlight counts the background audit writes so shutdown can wait for
+// them (WaitAudits).
+var auditsInFlight sync.WaitGroup
+
+// WaitAudits waits for the background audit writes to finish, or for ctx to
+// end. The server calls it on shutdown, after the listener has drained, so a
+// restart does not drop the audit row of a response already sent.
+func WaitAudits(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		auditsInFlight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // Audit records the event that event builds for a request that succeeded
 // (2xx), in the background: a failure is only logged and never holds up or
@@ -48,8 +71,17 @@ func Audit(rec AuditRecorder, event func(r *http.Request) (domain.AuditEvent, bo
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), auditTimeout)
+			auditsInFlight.Add(1)
 			go func() {
+				defer auditsInFlight.Done()
 				defer cancel()
+				// Outside Recovery: a panic here would end the process.
+				defer func() {
+					if p := recover(); p != nil {
+						slog.ErrorContext(ctx, "audit event panicked", "action", e.Action, "entityType", e.EntityType,
+							"entityId", e.EntityID, "panic", p, "stack", string(debug.Stack()))
+					}
+				}()
 				if err := rec.RecordAuditEvent(ctx, e); err != nil {
 					slog.ErrorContext(ctx, "audit event not recorded", "action", e.Action, "entityType", e.EntityType,
 						"entityId", e.EntityID, "err", err)

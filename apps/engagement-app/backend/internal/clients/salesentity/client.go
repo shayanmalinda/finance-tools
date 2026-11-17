@@ -27,6 +27,7 @@ package salesentity
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 
@@ -163,7 +164,8 @@ type SalesLineItem struct {
 }
 
 // searchPageSize is the service's largest page (and the legacy DEFAULT_LIMIT);
-// pages are read until a short one, with searchMaxPages as a safety stop.
+// pages are read until a short one; more than searchMaxPages full pages is an
+// error.
 const (
 	searchPageSize = 1000
 	searchMaxPages = 50
@@ -238,7 +240,9 @@ type lineItemSearch struct {
 	Offset        int    `json:"offset"`
 }
 
-// searchAll posts page after page of a search to path until a short page.
+// searchAll posts page after page of a search to path until a short page. A
+// last page still full after searchMaxPages is an error, not a silently
+// truncated list.
 func searchAll[T any](ctx context.Context, c *rest.Client, path string, page func(offset int) any) ([]T, error) {
 	if c == nil {
 		return nil, notConfigured()
@@ -251,10 +255,10 @@ func searchAll[T any](ctx context.Context, c *rest.Client, path string, page fun
 		}
 		out = append(out, batch...)
 		if len(batch) < searchPageSize {
-			break
+			return out, nil
 		}
 	}
-	return out, nil
+	return nil, fmt.Errorf("%s: %s returned more than %d rows", serviceName, path, searchMaxPages*searchPageSize)
 }
 
 // Opportunities implements Client.

@@ -120,6 +120,28 @@ func (a *Azure) Get(ctx context.Context, key string) (io.ReadCloser, Object, err
 	return resp.Body, Object{Key: key, ContentType: resp.Header.Get("Content-Type"), Size: resp.ContentLength}, nil
 }
 
+// Delete removes a blob; a missing blob is not an error.
+func (a *Azure) Delete(ctx context.Context, key string) error {
+	u, err := a.blobURL(key)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := a.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("filestore: delete %s: status %d", key, resp.StatusCode)
+	}
+	return nil
+}
+
 func (a *Azure) do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("x-ms-date", a.now().UTC().Format(http.TimeFormat))
 	req.Header.Set("x-ms-version", azureAPIVersion)

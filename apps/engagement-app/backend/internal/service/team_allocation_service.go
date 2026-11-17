@@ -348,10 +348,13 @@ func (s *teamAllocationService) validateBulk(ctx context.Context, data string) (
 	for _, e := range emps {
 		known[strings.ToLower(e.WorkEmail)] = true
 	}
-	types, err := s.a.d.Entity.AllocationTypes(ctx, engagemententity.AllocationTypeFilter{})
+	// The same types Create offers: Active internal ones.
+	types, err := s.a.d.Entity.AllocationTypes(ctx, engagemententity.AllocationTypeFilter{
+		EngagementTypeID: teamAllocInternalType, Status: "Active"})
 	if err != nil {
 		return res, nil, err
 	}
+	pastLimit := allocAddDays(allocToday(s.a.d.Now()), -allocPastDaysDefault)
 
 	// Existing allocations of every person over the CSV's date range.
 	minStart, maxEnd := "", ""
@@ -397,14 +400,20 @@ func (s *teamAllocationService) validateBulk(ctx context.Context, data string) (
 		}
 		r.typeID, r.code = 0, ""
 		for _, t := range types {
-			if t.AllocationTypeName == r.typeName {
-				r.typeID, r.code = t.ID, allocStr(t.DefaultEngagementCode)
+			if t.AllocationTypeName == r.typeName && t.EngagementTypeID == teamAllocInternalType &&
+				strings.EqualFold(t.Status, "Active") {
+				r.typeID, r.code = t.ID, strings.TrimSpace(allocStr(t.DefaultEngagementCode))
 				break
 			}
 		}
-		if r.typeID == 0 {
+		switch {
+		case r.typeID == 0:
 			ok = false
 			res.Errors = append(res.Errors, fmt.Sprintf("The allocation type for allocation of %s is wrong", r.email))
+		case r.code == "":
+			ok = false
+			res.Errors = append(res.Errors,
+				fmt.Sprintf("The allocation type for allocation of %s has no default engagement code", r.email))
 		}
 		switch {
 		case !r.validDates:
@@ -413,6 +422,9 @@ func (s *teamAllocationService) validateBulk(ctx context.Context, data string) (
 		case !r.ordered:
 			ok = false
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: Start Date [%s] is greater than End Date [%s]", r.email, r.start, r.end))
+		case r.start < pastLimit || r.end < pastLimit:
+			ok = false
+			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", r.email, teamAllocMsgPast30))
 		default:
 			if errs := teamExistingOverlaps(r, existing[r.email]); len(errs) > 0 {
 				ok = false

@@ -31,6 +31,10 @@ import (
 const (
 	userinfoTTL      = 5 * time.Minute
 	userinfoCapacity = 1000
+	// userinfoDownFor is how long an unreachable or failing endpoint (a
+	// transport error, 429 or 5xx) is not called again, so requests fail
+	// fast instead of each waiting for the client timeout.
+	userinfoDownFor = 5 * time.Second
 )
 
 // UserinfoClient reads email and groups missing from an access token from the
@@ -39,8 +43,10 @@ type UserinfoClient struct {
 	url  string
 	http *http.Client
 
-	mu    sync.Mutex
-	cache map[string]userinfoEntry
+	mu        sync.Mutex
+	cache     map[string]userinfoEntry
+	downUntil time.Time
+	downErr   error
 }
 
 type userinfoEntry struct {
@@ -67,6 +73,11 @@ func (u *UserinfoClient) Fetch(ctx context.Context, accessToken string) (Claims,
 		u.mu.Unlock()
 		return e.claims, nil
 	}
+	if now.Before(u.downUntil) {
+		err := u.downErr
+		u.mu.Unlock()
+		return Claims{}, err
+	}
 	u.mu.Unlock()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.url, nil)
@@ -77,9 +88,12 @@ func (u *UserinfoClient) Fetch(ctx context.Context, accessToken string) (Claims,
 	req.Header.Set("Accept", "application/json")
 	resp, err := u.http.Do(req)
 	if err != nil {
-		return Claims{}, fmt.Errorf("oidc: calling userinfo: %w", err)
+		return Claims{}, u.down(fmt.Errorf("oidc: calling userinfo: %w", err))
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return Claims{}, u.down(fmt.Errorf("oidc: userinfo returned %d", resp.StatusCode))
+	}
 	if resp.StatusCode != http.StatusOK {
 		return Claims{}, fmt.Errorf("oidc: userinfo returned %d", resp.StatusCode)
 	}
@@ -112,4 +126,13 @@ func (u *UserinfoClient) Fetch(ctx context.Context, accessToken string) (Claims,
 	u.cache[key] = userinfoEntry{claims: c, expires: now.Add(userinfoTTL)}
 	u.mu.Unlock()
 	return c, nil
+}
+
+// down records that the endpoint itself failed, so calls for the next
+// userinfoDownFor return err without waiting on it.
+func (u *UserinfoClient) down(err error) error {
+	u.mu.Lock()
+	u.downUntil, u.downErr = time.Now().Add(userinfoDownFor), err
+	u.mu.Unlock()
+	return err
 }

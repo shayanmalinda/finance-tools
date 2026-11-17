@@ -174,7 +174,7 @@ func (s *allocationService) Create(ctx context.Context, p domain.Perms, engageme
 			engagementAllocs = append(engagementAllocs, a)
 		}
 	}
-	if busy := allocAvailability(engagementAllocs, engStart, engEnd, in.start, in.end, true, req.Hourly); len(busy) > 0 {
+	if busy := allocAvailability(engagementAllocs, engStart, engEnd, in.start, in.end, true, in.hourly); len(busy) > 0 {
 		return none, s.overlapError(allocMsgBusy+allocMsgRefresh, busy, nil, today)
 	}
 	if in.prep != "" {
@@ -222,9 +222,9 @@ func (s *allocationService) Create(ctx context.Context, p domain.Perms, engageme
 		EngagementID: eng.ID, EngagementCode: allocStr(eng.EngagementCode), IsTravelRequired: travel,
 		IsRecurring: "No", Comment: req.Comment,
 	}
-	if req.Hourly != nil {
+	if in.hourly != nil {
 		main.IsRecurring = "Yes"
-		main.StartTime, main.EndTime, main.TimeZone = &req.Hourly.StartTime, &req.Hourly.EndTime, &req.Hourly.TimeZone
+		main.StartTime, main.EndTime, main.TimeZone = &in.hourly.StartTime, &in.hourly.EndTime, &in.hourly.TimeZone
 	}
 	news := []engagemententity.AllocationInput{main}
 	if in.prep != "" || in.post != "" {
@@ -285,6 +285,9 @@ func (s *allocationService) Create(ctx context.Context, p domain.Perms, engageme
 // allocCreateInput is the validated form.
 type allocCreateInput struct {
 	start, end, prep, post, clearance string
+	// hourly is the request's window with its times as HH:MM; nil for a
+	// daily allocation.
+	hourly *domain.AllocationHourly
 }
 
 // validateCreate ports isAllocationFormValid (legacy order and texts).
@@ -334,8 +337,13 @@ func (s *allocationService) validateCreate(eng engagemententity.AllocationEngage
 			return in, allocBad(allocMsgInvalidDates)
 		}
 	}
-	if req.Hourly != nil && (!allocValidTime(req.Hourly.StartTime) || !allocValidTime(req.Hourly.EndTime)) {
-		return in, allocBad(allocMsgInvalidDates)
+	if req.Hourly != nil {
+		startTime, okStart := allocNormTime(req.Hourly.StartTime)
+		endTime, okEnd := allocNormTime(req.Hourly.EndTime)
+		if _, err := time.LoadLocation(req.Hourly.TimeZone); !okStart || !okEnd || err != nil {
+			return in, allocBad(allocMsgInvalidDates)
+		}
+		in.hourly = &domain.AllocationHourly{TimeZone: req.Hourly.TimeZone, StartTime: startTime, EndTime: endTime}
 	}
 	pastLimit := allocAddDays(today, -allocPastDaysAlloc)
 	if in.start < pastLimit || in.end < pastLimit || (in.prep != "" && in.prep < pastLimit) || (in.post != "" && in.post < pastLimit) {
@@ -349,7 +357,7 @@ func (s *allocationService) validateCreate(eng engagemententity.AllocationEngage
 	if in.start > in.end {
 		return in, allocBad(allocMsgEndBeforeStart)
 	}
-	if req.Hourly != nil && allocTrimSeconds(req.Hourly.StartTime) >= allocTrimSeconds(req.Hourly.EndTime) {
+	if in.hourly != nil && in.hourly.StartTime >= in.hourly.EndTime {
 		return in, allocBad(allocMsgEndTime)
 	}
 	if in.prep != "" && in.prep >= in.start {
@@ -490,8 +498,9 @@ func (s *allocationService) sendAllocationEmail(ctx context.Context, eng engagem
 				return false
 			}
 			for _, v := range visas {
-				d.Visas = append(d.Visas, email.AllocationEmailVisa{VisaType: allocStr(v.VisaType), EntryType: allocStr(v.EntryType),
-					Status: allocStr(v.Status), StartDate: allocStr(v.StartDate), EndDate: allocStr(v.EndDate)})
+				d.Visas = append(d.Visas, email.AllocationEmailVisa{Country: allocStr(v.Country),
+					VisaType: allocStr(v.VisaType), EntryType: allocStr(v.EntryType), Status: allocStr(v.Status),
+					StartDate: allocStr(v.StartDate), EndDate: allocStr(v.EndDate)})
 			}
 		}
 	}

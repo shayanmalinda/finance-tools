@@ -618,7 +618,28 @@ func (s *travelService) resolveVisa(ctx context.Context, r engagemententity.Trav
 	if !strings.EqualFold(strings.TrimSpace(travelDeref(visa.Email)), strings.TrimSpace(r.TravellerEmail)) {
 		return 0, travelBadRequest("The selected visa is not one of the traveller's visas.")
 	}
+	// A new choice must be one VisaOptions offers: Active and covering the
+	// whole trip. The visa already on the request is kept as it is.
+	if !travelSameID(&id, r.VisaID) && !travelVisaCovers(visa, r.StartDate, r.EndDate) {
+		return 0, travelBadRequest("Please select an Active visa that covers the whole trip.")
+	}
 	return id, nil
+}
+
+// travelVisaCovers reports whether v is Active and valid from start to end
+// (dates compared by their YYYY-MM-DD part, as the entity's coversFrom and
+// coversTo filters do).
+func travelVisaCovers(v engagemententity.TravelVisaRecord, start, end string) bool {
+	day := func(s string) string {
+		s = strings.TrimSpace(s)
+		if len(s) > 10 {
+			s = s[:10]
+		}
+		return s
+	}
+	vs, ve := day(travelDeref(v.StartDate)), day(travelDeref(v.EndDate))
+	return strings.EqualFold(travelDeref(v.Status), domain.TravelRecordActive) && vs != "" && ve != "" &&
+		vs <= day(start) && ve >= day(end)
 }
 
 // ── Emails ────────────────────────────────────────────────────────────────

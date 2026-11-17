@@ -36,6 +36,7 @@ import (
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/config"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/email"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/filestore"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/middleware"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/oidc"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/server"
 )
@@ -133,10 +134,16 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Wait as long as the longest route may run, so a NetSuite push in
+	// progress finishes rather than stopping mid-batch. The platform's own
+	// termination grace period still caps this.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), server.PushTimeout+10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("graceful shutdown failed: %v", err)
+	}
+	if err := middleware.WaitAudits(shutdownCtx); err != nil {
+		log.Printf("audit writes still pending at shutdown: %v", err)
 	}
 	log.Println("server stopped")
 }

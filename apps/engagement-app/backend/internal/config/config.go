@@ -298,6 +298,27 @@ func (c *Config) Validate() error {
 			break
 		}
 	}
+	// These carry the client secret or the bearer tokens it buys, so they
+	// must not go out in clear text. Unset ones are optional.
+	currencyToken := c.Currency.Client.TokenURL
+	if currencyToken == c.Client.TokenURL {
+		currencyToken = "" // the shared one, checked as ENTITY_TOKEN_URL
+	}
+	for _, u := range []struct{ key, val string }{
+		{"ENTITY_TOKEN_URL", c.Client.TokenURL},
+		{"CURRENCY_CONVERT_TOKEN_URL", currencyToken},
+		{"SALES_ENTITY_BASE_URL", c.SalesEntityBaseURL},
+		{"HR_ENTITY_URL", c.HREntityURL},
+		{"EMAIL_SERVICE_URL", c.Email.ServiceURL},
+		{"CURRENCY_CONVERT_SERVICE_URL", c.Currency.URL},
+	} {
+		if u.val == "" {
+			continue
+		}
+		if err := requireHTTPS(u.key, u.val); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if c.Currency.URL != "" && !c.Currency.Client.Configured() {
 		errs = append(errs, errors.New("CURRENCY_CONVERT_SERVICE_URL needs ENTITY_CLIENT_ID/SECRET (or CURRENCY_CONVERT_CLIENT_ID/SECRET)"))
 	}

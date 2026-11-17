@@ -120,18 +120,23 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 		s.mu.Unlock()
 
 		rec := &recordingWriter{ResponseWriter: w, status: http.StatusOK}
+		finished := false
+		// Deferred so a panicking handler releases the key too: otherwise
+		// every retry would get 409 until the entry expires.
+		defer func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if finished && rec.status >= 200 && rec.status < 300 {
+				entry.done = true
+				entry.status = rec.status
+				entry.header = w.Header().Clone()
+				entry.body = rec.buf.Bytes()
+			} else if s.entries[id] == entry {
+				delete(s.entries, id)
+			}
+		}()
 		next.ServeHTTP(rec, r)
-
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if rec.status >= 200 && rec.status < 300 {
-			entry.done = true
-			entry.status = rec.status
-			entry.header = w.Header().Clone()
-			entry.body = rec.buf.Bytes()
-		} else {
-			delete(s.entries, id)
-		}
+		finished = true
 	})
 }
 

@@ -75,6 +75,7 @@ type AllocationEmailFunding struct {
 
 // AllocationEmailVisa is a visa of the consultant (travel readiness).
 type AllocationEmailVisa struct {
+	Country   string // the visa's own country; empty falls back to the engagement's
 	VisaType  string
 	EntryType string
 	Status    string
@@ -287,8 +288,12 @@ func allocVisaData(d AllocationEmailData) (string, string) {
 	var b strings.Builder
 	weekAhead := d.Now.Add(7 * 24 * time.Hour)
 	for _, v := range d.Visas {
+		country := v.Country
+		if country == "" {
+			country = d.Country
+		}
 		fmt.Fprintf(&b, `<p><span style="%s">%s: %s %s Entry, Visa %s from %s to %s</span></p>`, allocVisaParagraphStyle,
-			html.EscapeString(d.Country), html.EscapeString(v.VisaType), html.EscapeString(v.EntryType),
+			html.EscapeString(country), html.EscapeString(v.VisaType), html.EscapeString(v.EntryType),
 			html.EscapeString(v.Status), html.EscapeString(allocDateOnly(v.StartDate)), html.EscapeString(allocDateOnly(v.EndDate)))
 		if end, err := time.Parse("2006-01-02", allocDateOnly(v.EndDate)); err == nil && weekAhead.Sub(end) > 0 {
 			fmt.Fprintf(&b, `<span style="%s">(Above visa will be expiring within a week after the allocation end date)</span>`, allocVisaWarningStyle)

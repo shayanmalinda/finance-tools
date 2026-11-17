@@ -199,6 +199,9 @@ func (s *FinanceService) AddPayment(ctx context.Context, p domain.Perms, jobNumb
 	if amount <= 0 {
 		return domain.PerDiemPayment{}, financeBad("Please re-check the information. Payment Amount is mandatory.")
 	}
+	if !financeCents(amount) {
+		return domain.PerDiemPayment{}, financeBad(FinancePaymentCentsMsg)
+	}
 	basis, err := s.entity.FinancePaymentBasis(ctx, jobNumber)
 	if err != nil {
 		return domain.PerDiemPayment{}, err
@@ -293,6 +296,9 @@ func (s *FinanceService) UpdatePayment(ctx context.Context, p domain.Perms, numb
 	if amount <= 0 {
 		return domain.PerDiemPayment{}, financeBad("Please re-check the information. Payment Amount is mandatory.")
 	}
+	if !financeCents(amount) {
+		return domain.PerDiemPayment{}, financeBad(FinancePaymentCentsMsg)
+	}
 	pay, err := s.payment(ctx, number)
 	if err != nil {
 		return domain.PerDiemPayment{}, err
@@ -351,6 +357,9 @@ func paymentTabs(p domain.Perms) []string {
 	return tabs
 }
 
+// financePaymentAllStatuses is every payment ns_status the screens filter on.
+var financePaymentAllStatuses = []string{financeNSPending, financeNSPushing, financeNSComplete, financeNSFailed}
+
 // Payments is GET /per-diem-payments: Per Diem Payments to Push (own
 // Travel 40: Pending) or All Per Diem Payments (Travel 41).
 func (s *FinanceService) Payments(ctx context.Context, p domain.Perms, q domain.PaymentQuery) (domain.PerDiemPaymentPage, error) {
@@ -370,7 +379,7 @@ func (s *FinanceService) Payments(ctx context.Context, p domain.Perms, q domain.
 	if len(tabs) == 0 || p.IsAgent() {
 		return domain.PerDiemPaymentPage{}, financeForbidden()
 	}
-	statuses := []string{financeNSPending, financeNSPushing, financeNSComplete, financeNSFailed}
+	statuses := financePaymentAllStatuses
 	if q.Tab == FinancePaymentTabPush {
 		statuses = []string{financeNSPending}
 	}
@@ -389,7 +398,10 @@ func (s *FinanceService) Payments(ctx context.Context, p domain.Perms, q domain.
 	}
 	page := domain.PerDiemPaymentPage{Items: []domain.PerDiemPayment{}, TabCounts: map[string]int{}}
 	if allowed && len(statuses) > 0 {
-		if q.Tab == FinancePaymentTabAll && len(statuses) == 3 {
+		// The full set on All sends no filter, so a payment whose ns_status
+		// is NULL or unexpected (paymentOf maps it) still shows, as counts.All
+		// includes it.
+		if q.Tab == FinancePaymentTabAll && len(statuses) == len(financePaymentAllStatuses) {
 			statuses = nil
 		}
 		rows, total, err := s.entity.FinancePayments(ctx, engagemententity.FinancePaymentFilter{
@@ -433,7 +445,8 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 	}
 	employees := map[string]*engagemententity.FinanceEmployee{}
 	out := domain.BatchResult{Results: []domain.BatchItem{}}
-	for _, n := range numbers {
+	sent := false
+	for i, n := range numbers {
 		if s.financeOutOfTime(ctx) {
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr(financeOutOfTimeMsg)})
 			continue
@@ -442,7 +455,7 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return domain.BatchResult{}, stop
+				return financeBatchStop(out, sent, n, false, numbers[i+1:], stop)
 			}
 			var nf *apierror.NotFoundError
 			if asNotFound(err, &nf) {
@@ -461,7 +474,7 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 			emp, err = s.financeEmployee(ctx, traveller)
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return domain.BatchResult{}, err
+					return financeBatchStop(out, sent, n, false, numbers[i+1:], err)
 				}
 				out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr("Not pushed: the traveller's HR record could not be read. Try again.")})
 				continue
@@ -476,12 +489,14 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return domain.BatchResult{}, stop
+				return financeBatchStop(out, sent, n, true, numbers[i+1:], stop)
 			}
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: msg})
+			sent = true
 			continue
 		}
 		out.Results = append(out.Results, pushItem(n, r))
+		sent = true
 	}
 	return out, nil
 }
@@ -520,7 +535,8 @@ func (s *FinanceService) ResyncPayments(ctx context.Context, p domain.Perms, num
 		return domain.BatchResult{}, financeBad("Select 1 to 200 payments.")
 	}
 	out := domain.BatchResult{Results: []domain.BatchItem{}}
-	for _, n := range numbers {
+	sent := false
+	for i, n := range numbers {
 		if s.financeOutOfTime(ctx) {
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr(financeOutOfTimeMsg)})
 			continue
@@ -529,12 +545,14 @@ func (s *FinanceService) ResyncPayments(ctx context.Context, p domain.Perms, num
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return domain.BatchResult{}, stop
+				return financeBatchStop(out, sent, n, true, numbers[i+1:], stop)
 			}
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: msg})
+			sent = true
 			continue
 		}
 		out.Results = append(out.Results, pushItem(n, r))
+		sent = true
 	}
 	return out, nil
 }

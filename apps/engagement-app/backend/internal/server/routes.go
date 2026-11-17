@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/hrentity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/salesentity"
@@ -120,18 +121,64 @@ func NewRouter(d Deps) http.Handler {
 	// ── Root ─────────────────────────────────────────────────────────────────
 	root := http.NewServeMux()
 	root.HandleFunc("GET /health", handler.HealthCheck)
-	root.Handle("/", middleware.Auth(d.Verifier, d.Userinfo)(api))
+	root.Handle("/", middleware.Auth(d.Verifier, d.Userinfo)(jsonMuxErrors(api)))
 
 	return middleware.CorrelationID(
 		middleware.Recovery(
 			middleware.Logger(
 				middleware.CORS(d.CORSAllowedOrigins)(
-					middleware.Timeout(30*time.Second, 10*time.Minute, isPushRoute)(root),
+					middleware.Timeout(RequestTimeout, PushTimeout, isPushRoute)(root),
 				),
 			),
 		),
 	)
 }
+
+// jsonMuxErrors answers a path or method mux matches no route for with the
+// {code, message} JSON body every other error has, instead of ServeMux's
+// plain-text 404 and 405 (the Allow header is kept).
+func jsonMuxErrors(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pattern := mux.Handler(r); pattern == "" {
+			w = &muxErrorWriter{ResponseWriter: w}
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// muxErrorWriter rewrites ServeMux's own 404 or 405 as JSON and drops the
+// plain-text body that follows.
+type muxErrorWriter struct {
+	http.ResponseWriter
+	replaced bool
+}
+
+func (m *muxErrorWriter) WriteHeader(code int) {
+	switch code {
+	case http.StatusNotFound:
+		m.replaced = true
+		apierror.WriteJSON(m.ResponseWriter, code, "The requested resource was not found.")
+	case http.StatusMethodNotAllowed:
+		m.replaced = true
+		apierror.WriteJSON(m.ResponseWriter, code, "This method is not allowed on this resource.")
+	default:
+		m.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (m *muxErrorWriter) Write(b []byte) (int, error) {
+	if m.replaced {
+		return len(b), nil
+	}
+	return m.ResponseWriter.Write(b)
+}
+
+// RequestTimeout bounds an ordinary request; PushTimeout bounds the NetSuite
+// push and re-sync routes (isPushRoute), the longest a request can run.
+const (
+	RequestTimeout = 30 * time.Second
+	PushTimeout    = 10 * time.Minute
+)
 
 // isPushRoute picks the NetSuite push and re-sync routes: a bulk push may
 // wait on NetSuite (up to 300 s per record in the entity) several times.

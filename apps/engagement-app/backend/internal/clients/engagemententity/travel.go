@@ -325,7 +325,7 @@ type TravelDocumentUpdate struct {
 }
 
 func travelRequestPath(jobNumber string) string {
-	return "/travel-requests/" + url.PathEscape(jobNumber)
+	return "/travel-requests/" + pathSegment(jobNumber)
 }
 
 // SearchTravelRequests calls POST /travel-requests/search.
