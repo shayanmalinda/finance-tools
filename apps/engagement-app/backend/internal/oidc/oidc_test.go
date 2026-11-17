@@ -319,6 +319,34 @@ func TestUserinfoClient_DownEndpointFailsFast(t *testing.T) {
 	}
 }
 
+func TestUserinfoClient_OneCallersFailureDoesNotBlockOthers(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.Header.Get("Authorization") == "Bearer limited" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"email":"jane@wso2.com","groups":["g"]}`))
+	}))
+	defer srv.Close()
+	u := NewUserinfoClient(srv.URL, srv.Client())
+	if _, err := u.Fetch(context.Background(), "limited"); err == nil {
+		t.Fatal("429: want an error")
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := u.Fetch(cancelled, "aborted"); err == nil {
+		t.Fatal("cancelled call: want an error")
+	}
+	if c, err := u.Fetch(context.Background(), "other"); err != nil || c.Email != "jane@wso2.com" {
+		t.Errorf("another caller after a 429 and a cancel: %+v, %v", c, err)
+	}
+	if hits != 2 {
+		t.Errorf("userinfo called %d times, want 2 (the cancelled call never reaches it)", hits)
+	}
+}
+
 func TestVerify_RejectsForgedSignatureAndOtherAlgorithms(t *testing.T) {
 	f := newFakeIssuer(t)
 	v := f.verifier()
