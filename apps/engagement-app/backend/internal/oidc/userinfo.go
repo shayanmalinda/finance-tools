@@ -32,8 +32,10 @@ const (
 	userinfoTTL      = 5 * time.Minute
 	userinfoCapacity = 1000
 	// userinfoDownFor is how long an unreachable or failing endpoint (a
-	// transport error, 429 or 5xx) is not called again, so requests fail
-	// fast instead of each waiting for the client timeout.
+	// transport error or 5xx) is not called again, so requests fail fast
+	// instead of each waiting for the client timeout. A 429 or a request
+	// the caller cancelled says nothing about the endpoint for other users,
+	// so neither trips it.
 	userinfoDownFor = 5 * time.Second
 )
 
@@ -88,10 +90,14 @@ func (u *UserinfoClient) Fetch(ctx context.Context, accessToken string) (Claims,
 	req.Header.Set("Accept", "application/json")
 	resp, err := u.http.Do(req)
 	if err != nil {
-		return Claims{}, u.down(fmt.Errorf("oidc: calling userinfo: %w", err))
+		err = fmt.Errorf("oidc: calling userinfo: %w", err)
+		if ctx.Err() != nil {
+			return Claims{}, err
+		}
+		return Claims{}, u.down(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+	if resp.StatusCode >= 500 {
 		return Claims{}, u.down(fmt.Errorf("oidc: userinfo returned %d", resp.StatusCode))
 	}
 	if resp.StatusCode != http.StatusOK {
