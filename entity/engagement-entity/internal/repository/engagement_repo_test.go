@@ -157,8 +157,8 @@ func TestEngagementFundingSourcesAndConsultants(t *testing.T) {
 		t.Fatalf("cons %v err %v", cons, err)
 	}
 	// Empty id lists read nothing (legacy read the whole table).
-	if fs, _ := repo.FundingSources(context.Background(), nil); len(fs) != 0 {
-		t.Error("funding sources for no ids")
+	if fs, err := repo.FundingSources(context.Background(), nil); err != nil || len(fs) != 0 {
+		t.Errorf("funding sources for no ids: %v err %v", fs, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Error(err)
@@ -310,6 +310,9 @@ func TestEngagementUpdate_CancelTravelFailureRollsBack(t *testing.T) {
 		t.Fatal("want error")
 	}
 	if err := allocMock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+	if err := travelMock.ExpectationsWereMet(); err != nil {
 		t.Error(err)
 	}
 }

@@ -55,15 +55,33 @@ func TestAccessService_EmptyResultsAreNotNull(t *testing.T) {
 	svc := NewAccessService(map[domain.App]repository.AccessRepository{domain.AppTravel: &fakeAccessRepo{}}, nil)
 	ctx := context.Background()
 
-	roles, _ := svc.ListRoles(ctx, domain.AppTravel)
-	privs, _ := svc.ListPrivileges(ctx, domain.AppTravel)
-	m, _ := svc.RolePrivilegeMap(ctx, domain.AppTravel)
-	for name, v := range map[string]any{"roles": roles, "privileges": privs, "rolePrivileges": m} {
-		b, _ := json.Marshal(v)
+	roles, err := svc.ListRoles(ctx, domain.AppTravel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privs, err := svc.ListPrivileges(ctx, domain.AppTravel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := svc.RolePrivilegeMap(ctx, domain.AppTravel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, want string
+		v          any
+	}{{"roles", "[]", roles}, {"privileges", "[]", privs}, {"rolePrivileges", "{}", m}} {
+		b, err := json.Marshal(c.v)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
 		var raw map[string]json.RawMessage
-		_ = json.Unmarshal(b, &raw)
-		if string(raw[name]) == "null" {
-			t.Errorf("%s serialised as null: %s", name, b)
+		if err := json.Unmarshal(b, &raw); err != nil {
+			t.Fatalf("%s: %v (%s)", c.name, err, b)
+		}
+		got, ok := raw[c.name]
+		if !ok || string(got) != c.want {
+			t.Errorf("%s = %s (present %v), want %s: %s", c.name, got, ok, c.want, b)
 		}
 	}
 }

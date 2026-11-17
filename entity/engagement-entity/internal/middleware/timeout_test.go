@@ -25,17 +25,21 @@ import (
 
 func TestTimeout_LongRoutes(t *testing.T) {
 	var left time.Duration
+	var ok bool
 	h := Timeout(30*time.Second, 5*time.Minute, func(r *http.Request) bool { return r.URL.Path == "/push" })(
 		http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-			d, _ := r.Context().Deadline()
+			var d time.Time
+			d, ok = r.Context().Deadline()
 			left = time.Until(d)
 		}))
+	// Each deadline must exist and sit within a scheduling tolerance of its limit.
+	const tolerance = 5 * time.Second
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/push", nil))
-	if left < 4*time.Minute {
-		t.Errorf("push deadline in %v", left)
+	if !ok || left <= 5*time.Minute-tolerance || left > 5*time.Minute {
+		t.Errorf("push deadline set %v, in %v", ok, left)
 	}
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/other", nil))
-	if left > 30*time.Second {
-		t.Errorf("other deadline in %v", left)
+	if !ok || left <= 30*time.Second-tolerance || left > 30*time.Second {
+		t.Errorf("other deadline set %v, in %v", ok, left)
 	}
 }

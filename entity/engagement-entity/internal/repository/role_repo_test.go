@@ -107,4 +107,7 @@ func TestRoleReplacePrivileges_AuditFailureIgnored(t *testing.T) {
 	if err := repo.ReplacePrivileges(context.Background(), 4, []int{}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
 }
