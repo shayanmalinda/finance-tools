@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
@@ -139,5 +140,27 @@ func TestEmployeesByOrg_SmallPagesStillComplete(t *testing.T) {
 	got, err := New(srv.URL, nil).EmployeesByOrg(context.Background(), OrgEmployeeFilter{})
 	if err != nil || len(got) != total {
 		t.Fatalf("got %d rows, err %v", len(got), err)
+	}
+}
+
+// A listing that fills exactly the last permitted page still ends: one more
+// call finds the empty page.
+func TestEmployeesByOrg_EndsAtThePageLimit(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var req graphqlRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		off := int(req.Variables["offset"].(float64))
+		page := []map[string]string{}
+		if off < orgEmployeesMaxPages { // one row per page
+			page = append(page, map[string]string{"workEmail": "e" + strconv.Itoa(off) + "@wso2.com"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"employees": page}})
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, nil).EmployeesByOrg(context.Background(), OrgEmployeeFilter{})
+	if err != nil || len(got) != orgEmployeesMaxPages || int(calls.Load()) != orgEmployeesMaxPages+1 {
+		t.Fatalf("got %d rows in %d calls, err %v", len(got), calls.Load(), err)
 	}
 }

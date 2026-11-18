@@ -339,3 +339,70 @@ func TestIdempotency_CapReclaimsExpiredKeys(t *testing.T) {
 		t.Errorf("fresh key after expiry: %d, want 201", rec.Code)
 	}
 }
+
+// A replay answers the retry's own origin: CORS headers of the original
+// response are not replayed.
+func TestIdempotency_ReplayDoesNotCarryCORS(t *testing.T) {
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	first := httptest.NewRecorder()
+	first.Header().Set("Access-Control-Allow-Origin", "https://one.wso2.com") // as CORS sets it
+	first.Header().Set("Access-Control-Expose-Headers", "X-Correlation-ID")
+	h.ServeHTTP(first, idemRequest("k1", "a@wso2.com"))
+	retry := httptest.NewRecorder()
+	h.ServeHTTP(retry, idemRequest("k1", "a@wso2.com"))
+	if retry.Header().Get("Idempotent-Replayed") != "true" || retry.Header().Get("Access-Control-Allow-Origin") != "" ||
+		retry.Header().Get("Access-Control-Expose-Headers") != "" {
+		t.Errorf("replay headers = %v", retry.Header())
+	}
+}
+
+// The replay window starts when the response is ready: a push that ran for
+// most of the TTL is still replayed shortly after it finished.
+func TestIdempotency_TTLStartsWhenTheResponseIsReady(t *testing.T) {
+	s := NewIdempotency()
+	now := time.Unix(0, 0)
+	s.now = func() time.Time { return now }
+	var calls int32
+	h := s.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		now = now.Add(idempotencyTTL - time.Minute) // a long push
+		w.WriteHeader(http.StatusOK)
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), idemRequest("k1", "a@wso2.com"))
+	now = now.Add(2 * time.Minute) // past the TTL from the start, not from the end
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
+	if calls != 1 || rec.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("calls = %d, replayed = %q", calls, rec.Header().Get("Idempotent-Replayed"))
+	}
+}
+
+// A key still in flight never expires, even past the TTL: a retry gets 409,
+// not a second run.
+func TestIdempotency_InFlightKeyDoesNotExpire(t *testing.T) {
+	s := NewIdempotency()
+	now := time.Unix(0, 0)
+	var mu sync.Mutex
+	s.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	release, started := make(chan struct{}), make(chan struct{})
+	h := s.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	done := make(chan struct{})
+	go func() { h.ServeHTTP(httptest.NewRecorder(), idemRequest("k1", "a@wso2.com")); close(done) }()
+	<-started
+	mu.Lock()
+	now = now.Add(idempotencyTTL + sweepInterval)
+	mu.Unlock()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
+	close(release)
+	<-done
+	if rec.Code != http.StatusConflict {
+		t.Errorf("retry while in flight past the TTL: %d, want 409", rec.Code)
+	}
+}

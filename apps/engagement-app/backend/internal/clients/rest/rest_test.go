@@ -28,6 +28,7 @@ import (
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/reqcontext"
+	"golang.org/x/oauth2/clientcredentials"
 )
 
 func TestDo_ForwardsCorrelationIDAndDecodes(t *testing.T) {
@@ -128,6 +129,26 @@ func TestDo_LogsNoQuery(t *testing.T) {
 
 	out := buf.String()
 	if strings.Count(out, "path=/visas") != 2 || strings.Contains(out, "jane") {
+		t.Errorf("logs = %s", out)
+	}
+}
+
+// A failed token fetch nests the token endpoint's *url.Error inside the
+// resource one: neither URL reaches the log.
+func TestDo_LogsNoTokenURL(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	down := httptest.NewServer(http.NotFoundHandler())
+	tokenURL := down.URL + "/oauth2/token?tenant=secret-tenant"
+	down.Close()
+	cfg := clientcredentials.Config{ClientID: "id", ClientSecret: "secret", TokenURL: tokenURL}
+	_ = New("hr-entity", "https://hr.example", cfg.Client(context.Background())).Get(context.Background(), "/x", nil)
+
+	if out := buf.String(); strings.Contains(out, "secret-tenant") || strings.Contains(out, "/oauth2/token") ||
+		!strings.Contains(out, "dependency request failed") {
 		t.Errorf("logs = %s", out)
 	}
 }

@@ -117,7 +117,12 @@ func TestFinancePushInvoicesKeepsDoneResultsOnStop(t *testing.T) {
 		err       error
 		cur, rest string
 	}{
-		{"netsuite off", &apierror.UpstreamError{StatusCode: 503, Msg: "off"}, financeNetSuiteOffMsg, financeNetSuiteOffMsg},
+		{"netsuite off", &apierror.UpstreamError{StatusCode: 503, Msg: "NetSuite push is not enabled"},
+			financeNetSuiteOffMsg, financeNetSuiteOffMsg},
+		// Any other 503 is the entity being unavailable, not NetSuite off;
+		// the push was in flight, so its outcome is unknown.
+		{"entity down", &apierror.UpstreamError{StatusCode: 503, Msg: "Service Unavailable"},
+			financeOutcomeUnknownMsg, financeEntityDownMsg},
 		{"deadline", context.DeadlineExceeded, financeOutcomeUnknownMsg, financeOutOfTimeMsg},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -188,7 +193,7 @@ func TestFinanceAddInvoicesReadsTheCompanyOnce(t *testing.T) {
 
 // A positive amount must be at least one cent; it can't pass as 0.00.
 func TestFinanceCentsNeedsOneCent(t *testing.T) {
-	for f, want := range map[float64]bool{100.1: true, 0.01: true, 0: true, 0.000000001: false, 100.004: false} {
+	for f, want := range map[float64]bool{100.1: true, 0.01: true, 0: true, 0.000000001: false, 0.0099999999: false, 100.004: false} {
 		if got := financeCents(f); got != want {
 			t.Errorf("financeCents(%v) = %v, want %v", f, got, want)
 		}
@@ -212,5 +217,38 @@ func TestFinanceBatchStop(t *testing.T) {
 	out, err = financeBatchStop(done, "B", false, []string{"C"}, context.DeadlineExceeded)
 	if err != nil || len(out.Results) != 3 || out.Results[0].ID != "A" || *out.Results[1].Message != financeOutOfTimeMsg {
 		t.Errorf("after a checked record: %+v, %v", out, err)
+	}
+}
+
+// slowPayEntity reads a payment slowly and counts pushes.
+type slowPayEntity struct {
+	*finEntity
+	delay  time.Duration
+	pushes int
+}
+
+func (f *slowPayEntity) FinancePayment(context.Context, string) (engagemententity.FinancePayment, error) {
+	time.Sleep(f.delay)
+	return f.finEntity.payment, nil
+}
+
+func (f *slowPayEntity) FinancePushPayment(context.Context, string, string, engagemententity.FinanceEmployee) (
+	engagemententity.FinancePushResult, error) {
+	f.pushes++
+	return engagemententity.FinancePushResult{OK: true}, nil
+}
+
+// When the lookups use up the time reserve, the payment is not pushed: it is
+// reported as not started, never as an unknown outcome.
+func TestFinancePushPaymentsRechecksTheReserveBeforePushing(t *testing.T) {
+	e := &slowPayEntity{finEntity: &finEntity{payment: engagemententity.FinancePayment{PerDiemNumber: job + "-001",
+		JobNumber: job, TravelStatus: fsp("In Progress"), TravellerEmail: fsp("t@wso2.com")}}, delay: 300 * time.Millisecond}
+	s := NewFinanceService(e, finHR{}, &finMail{}, email.FinanceRecipients{}, nil, time.Now)
+	s.batchReserve = 300 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	res, err := s.PushPayments(ctx, perms("f@wso2.com", 40), []string{job + "-001"})
+	if err != nil || len(res.Results) != 1 || *res.Results[0].Message != financeOutOfTimeMsg || e.pushes != 0 {
+		t.Errorf("res = %+v, err = %v, pushes = %d", res, err, e.pushes)
 	}
 }

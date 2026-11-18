@@ -161,6 +161,13 @@ func TestAllocationCreate_ValidationOrderAndTexts(t *testing.T) {
 		{func(r *domain.AllocationCreateRequest) {
 			r.Hourly = &domain.AllocationHourly{TimeZone: "Mars/Olympus", StartTime: "09:00", EndTime: "11:00"}
 		}, allocMsgInvalidDates},
+		// Loads only where the host has that zone file: not a stored zone.
+		{func(r *domain.AllocationCreateRequest) {
+			r.Hourly = &domain.AllocationHourly{TimeZone: "localtime", StartTime: "09:00", EndTime: "11:00"}
+		}, allocMsgInvalidDates},
+		{func(r *domain.AllocationCreateRequest) {
+			r.Hourly = &domain.AllocationHourly{TimeZone: "Local", StartTime: "09:00", EndTime: "11:00"}
+		}, allocMsgInvalidDates},
 		{func(r *domain.AllocationCreateRequest) { r.ClearanceStatus = sp("Ready for Clearance") }, ""},
 		{func(r *domain.AllocationCreateRequest) { r.PreparationStart = sp("2026-11-01") }, "Preparation and post engagement overheads are only for paid engagements."},
 		{func(r *domain.AllocationCreateRequest) { r.Comment = sp(strings.Repeat("x", 256)) }, allocMsgCommentLength},
