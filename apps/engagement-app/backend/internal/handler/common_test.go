@@ -18,11 +18,14 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 )
 
 func TestPagination(t *testing.T) {
@@ -73,5 +76,62 @@ func TestWriteServiceError_CanceledIsNot2xx(t *testing.T) {
 	writeServiceError(rec, httptest.NewRequest(http.MethodPost, "/x", nil), fmt.Errorf("load: %w", context.Canceled))
 	if rec.Code != 499 || !strings.Contains(rec.Body.String(), `"code":499`) {
 		t.Errorf("canceled: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// writeServiceError decides what the browser sees for every failure: an
+// upstream 4xx passes its message through, but a dependency refusing our
+// credentials, a dependency outage and an unknown error never echo upstream
+// or internal detail, and never look like the user's permission problem.
+func TestWriteServiceError_Mapping(t *testing.T) {
+	const secret = "SELECT * FROM travel WHERE secret"
+	tests := []struct {
+		name     string
+		err      error
+		status   int
+		wantText string
+	}{
+		{"validation", &apierror.ValidationError{Msg: "Bad date"}, 400, "Bad date"},
+		{"unauthorized", &apierror.UnauthorizedError{Msg: "Sign in again"}, 401, "Sign in again"},
+		{"forbidden", &apierror.ForbiddenError{Msg: "No access"}, 403, "No access"},
+		{"not found", &apierror.NotFoundError{Msg: "No such trip"}, 404, "No such trip"},
+		{"conflict", &apierror.ConflictError{Msg: "Already exists"}, 409, "Already exists"},
+		{"upstream 4xx", &apierror.UpstreamError{Service: "entity", StatusCode: 422, Msg: "Invoice number taken"}, 422,
+			"Invoice number taken"},
+		{"upstream 401", &apierror.UpstreamError{Service: "entity", StatusCode: 401, Msg: secret}, 503,
+			"A connected service refused the request"},
+		{"upstream 403", &apierror.UpstreamError{Service: "entity", StatusCode: 403, Msg: secret}, 503,
+			"A connected service refused the request"},
+		{"upstream 5xx", &apierror.UpstreamError{Service: "entity", StatusCode: 500, Msg: secret}, 503,
+			"Service temporarily unavailable"},
+		{"unavailable", fmt.Errorf("wrap: %w", &apierror.ServiceUnavailableError{Msg: secret}), 503,
+			"Service temporarily unavailable"},
+		{"deadline", fmt.Errorf("load: %w", context.DeadlineExceeded), 504, "The request timed out"},
+		{"unknown", errors.New(secret), 500, "Something went wrong"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeServiceError(rec, httptest.NewRequest(http.MethodGet, "/x", nil), tc.err)
+			body := rec.Body.String()
+			if rec.Code != tc.status || !strings.Contains(body, tc.wantText) {
+				t.Errorf("got %d %s, want %d containing %q", rec.Code, body, tc.status, tc.wantText)
+			}
+			if strings.Contains(body, secret) {
+				t.Errorf("body echoes upstream or internal detail: %s", body)
+			}
+		})
+	}
+}
+
+// An image download is never sniffed, cached or offered as a page.
+func TestTravelWriteImage_Headers(t *testing.T) {
+	rec := httptest.NewRecorder()
+	travelWriteImage(rec, "application/octet-stream", []byte("<html>"))
+	h := rec.Header()
+	if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("Cache-Control") != "private, no-store" ||
+		h.Get("Content-Disposition") != "inline" || h.Get("Content-Type") != "application/octet-stream" ||
+		h.Get("Content-Length") != "6" {
+		t.Errorf("headers = %v", h)
 	}
 }

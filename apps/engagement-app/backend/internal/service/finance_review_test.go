@@ -139,12 +139,22 @@ func TestFinancePushInvoicesKeepsDoneResultsOnStop(t *testing.T) {
 			}
 		})
 	}
-	// Nothing pushed yet: the stop error is the answer.
-	e := &stopEntity{finEntity: &finEntity{}, failID: 1, err: &apierror.UpstreamError{StatusCode: 503, Msg: "off"}}
+	// NetSuite off on the first record: nothing ran, the stop error is the
+	// answer.
+	e := &stopEntity{finEntity: &finEntity{}, failID: 1,
+		err: &apierror.UpstreamError{StatusCode: 503, Msg: "NetSuite push is not enabled"}}
 	s := NewFinanceService(e, finHR{}, &finMail{}, email.FinanceRecipients{}, nil, time.Now)
 	if _, err := s.PushInvoices(context.Background(), perms("f@wso2.com", 34), []int{1, 2}); !errors.As(err,
 		new(*apierror.ServiceUnavailableError)) {
-		t.Errorf("first record: %v", err)
+		t.Errorf("first record, NetSuite off: %v", err)
+	}
+	// Any other 503 on the first record may have come after the push
+	// started: the first record is outcome unknown, the rest not started.
+	e.err = &apierror.UpstreamError{StatusCode: 503, Msg: "Service Unavailable"}
+	res, err := s.PushInvoices(context.Background(), perms("f@wso2.com", 34), []int{1, 2})
+	if err != nil || len(res.Results) != 2 || *res.Results[0].Message != financeOutcomeUnknownMsg ||
+		*res.Results[1].Message != financeEntityDownMsg {
+		t.Errorf("first record, entity down: %+v, %v", res, err)
 	}
 }
 
@@ -250,5 +260,30 @@ func TestFinancePushPaymentsRechecksTheReserveBeforePushing(t *testing.T) {
 	res, err := s.PushPayments(ctx, perms("f@wso2.com", 40), []string{job + "-001"})
 	if err != nil || len(res.Results) != 1 || *res.Results[0].Message != financeOutOfTimeMsg || e.pushes != 0 {
 		t.Errorf("res = %+v, err = %v, pushes = %d", res, err, e.pushes)
+	}
+}
+
+// cancelHR cancels the request while the traveller is looked up.
+type cancelHR struct {
+	countHR
+	cancel context.CancelFunc
+}
+
+func (h *cancelHR) Employee(ctx context.Context, e string) (*hrentity.Employee, error) {
+	h.cancel()
+	return h.countHR.Employee(ctx, e)
+}
+
+// A request canceled before the push, with time to spare, is not pushed and
+// is reported as not started, never as an unknown outcome.
+func TestFinancePushPaymentsStopsWhenCanceledBeforePush(t *testing.T) {
+	e := &slowPayEntity{finEntity: &finEntity{payment: engagemententity.FinancePayment{PerDiemNumber: job + "-001",
+		JobNumber: job, TravelStatus: fsp("In Progress"), TravellerEmail: fsp("t@wso2.com")}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	s := NewFinanceService(e, &cancelHR{cancel: cancel}, &finMail{}, email.FinanceRecipients{}, nil, time.Now)
+	_, err := s.PushPayments(ctx, perms("f@wso2.com", 40), []string{job + "-001", job + "-002"})
+	if !errors.Is(err, context.Canceled) || e.pushes != 0 {
+		t.Errorf("err = %v, pushes = %d", err, e.pushes)
 	}
 }

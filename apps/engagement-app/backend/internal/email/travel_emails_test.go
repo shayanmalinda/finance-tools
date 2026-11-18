@@ -55,11 +55,11 @@ func TestTravelFinanceRecipients(t *testing.T) {
 func TestTravelEmails_LegacyShape(t *testing.T) {
 	s := travelTestSettings()
 	s.CCTraveller = true
-	trip := TravelTrip{JobNumber: "TRV-2026-10-1246", TravellerEmail: "chanuka@wso2.com", Customer: "Acme & Sons",
+	trip := TravelTrip{JobNumber: "TRV-2026-10-1246", TravellerEmail: "traveller@wso2.com", Customer: "Acme & Sons",
 		Country: "United Kingdom", City: "<London>", StartDate: "2026-10-06", EndDate: "2026-10-16"}
 
 	m := TravelAssigned(s, trip, TravelVisa{}, "Acorn Travels")
-	if m.App != AppTravel || m.TemplateID != "assignRequests" || m.CC[0] != "chanuka@wso2.com" ||
+	if m.App != AppTravel || m.TemplateID != "assignRequests" || m.CC[0] != "traveller@wso2.com" ||
 		m.Content["customer"] != "Acme &amp; Sons" || m.Content["travel_location"] != "&lt;London&gt;" ||
 		m.Content["visa_type"] != "N/A" || m.Content["visa_start_date"] != "N/A" ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
@@ -72,7 +72,7 @@ func TestTravelEmails_LegacyShape(t *testing.T) {
 	c := TravelCompleted(s, trip, TravelVisa{VisaType: "Work Permit", StartDate: "2026-01-01 00:00:00"}, "Acorn", "WSO2 - UK", nil)
 	if c.Content["table_data"] != "No Perdiems" || c.Content["visa_start_date"] != "2026-01-01" ||
 		strings.Join(c.To, ",") != "logistics@wso2.com,uk1@wso2.com,uk2@wso2.com" ||
-		strings.Join(c.CC, ",") != "ukpay@wso2.com,chanuka@wso2.com" {
+		strings.Join(c.CC, ",") != "ukpay@wso2.com,traveller@wso2.com" {
 		t.Errorf("completed = %+v", c)
 	}
 	c = TravelCompleted(s, trip, TravelVisa{}, "Acorn", "", []TravelPerDiem{{StartDate: "2026-10-06 09:00:00", NoOfDays: "11", Total: "770.0"}})

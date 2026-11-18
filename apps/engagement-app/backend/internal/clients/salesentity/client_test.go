@@ -74,7 +74,7 @@ func TestOpportunities_PagesAndActiveFlag(t *testing.T) {
 		if body["offset"].(float64) == 0 {
 			page := make([]map[string]any, searchPageSize)
 			for i := range page {
-				page[i] = map[string]any{"id": "006A", "name": "PoC", "owner": map[string]any{"name": "Kevin"}, "isWon": true}
+				page[i] = map[string]any{"id": "006A", "name": "PoC", "owner": map[string]any{"name": "Alex"}, "isWon": true}
 			}
 			_ = json.NewEncoder(w).Encode(page)
 			return
@@ -84,7 +84,7 @@ func TestOpportunities_PagesAndActiveFlag(t *testing.T) {
 	defer srv.Close()
 
 	got, err := New(srv.URL, nil).Opportunities(context.Background(), "001A", false)
-	if err != nil || len(got) != searchPageSize+1 || *got[0].Owner.Name != "Kevin" || *got[searchPageSize].PreSalesCode != "B-PR" {
+	if err != nil || len(got) != searchPageSize+1 || *got[0].Owner.Name != "Alex" || *got[searchPageSize].PreSalesCode != "B-PR" {
 		t.Fatalf("got %d err %v", len(got), err)
 	}
 	if len(bodies) != 2 || bodies[1]["offset"].(float64) != searchPageSize {

@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -357,6 +358,19 @@ func TestVerify_RejectsForgedSignatureAndOtherAlgorithms(t *testing.T) {
 		t.Error("accepted an HS256 token")
 	}
 
+	// alg "none", and a valid RS256 token with its signature cut off.
+	none := jwt.NewWithClaims(jwt.SigningMethodNone, validClaims())
+	none.Header["kid"] = f.kid
+	s, _ = none.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	if _, err := v.Verify(context.Background(), s); err == nil {
+		t.Error("accepted an alg none token")
+	}
+	signed := f.sign(validClaims())
+	unsigned := signed[:strings.LastIndex(signed, ".")+1]
+	if _, err := v.Verify(context.Background(), unsigned); err == nil {
+		t.Error("accepted a token with an empty signature")
+	}
+
 	if _, err := v.Verify(context.Background(), "not-a-jwt"); err == nil {
 		t.Error("accepted garbage")
 	}
@@ -383,6 +397,59 @@ func TestVerify_CachesKeysAndRefetchesOnRotation(t *testing.T) {
 	}
 	if n := f.fetches(); n != 2 {
 		t.Errorf("JWKS fetched %d times after rotation, want 2", n)
+	}
+}
+
+// Many requests verifying at once, across a key rotation, share the key
+// cache safely and all pass. Run with -race.
+func TestVerify_ConcurrentAcrossRotation(t *testing.T) {
+	f := newFakeIssuer(t)
+	v := f.verifier()
+	v.keys.minGap = 0
+	if _, err := v.Verify(context.Background(), f.sign(validClaims())); err != nil {
+		t.Fatal(err)
+	}
+	f.rotate("key-2")
+	token := f.sign(validClaims())
+	var wg sync.WaitGroup
+	var failed atomic.Int32
+	for range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := v.Verify(context.Background(), token); err != nil {
+				failed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := failed.Load(); n != 0 {
+		t.Errorf("%d of 50 concurrent verifies failed", n)
+	}
+}
+
+// Concurrent lookups of one token share the userinfo cache safely. Run with
+// -race.
+func TestUserinfoClient_Concurrent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"sub": "s", "email": "jane@wso2.com", "groups": []string{"g1"}})
+	}))
+	defer srv.Close()
+	u := NewUserinfoClient(srv.URL, srv.Client())
+	var wg sync.WaitGroup
+	var failed atomic.Int32
+	for range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if c, err := u.Fetch(context.Background(), "tok"); err != nil || c.Email != "jane@wso2.com" {
+				failed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := failed.Load(); n != 0 {
+		t.Errorf("%d of 50 concurrent fetches failed", n)
 	}
 }
 

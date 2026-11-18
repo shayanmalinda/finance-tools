@@ -170,7 +170,7 @@ func (engagementFakeSales) SearchCustomers(_ context.Context, f salesentity.Cust
 }
 
 func (engagementFakeSales) Opportunities(context.Context, string, bool) ([]salesentity.SalesOpportunity, error) {
-	return []salesentity.SalesOpportunity{{ID: "006A", Name: "Acme - APIM PoC", Owner: &salesentity.SalesUser{Name: engagementP("Kevin")},
+	return []salesentity.SalesOpportunity{{ID: "006A", Name: "Acme - APIM PoC", Owner: &salesentity.SalesUser{Name: engagementP("Alex")},
 		PreSalesCode: engagementP("ACME-PR (Open Banking)"), PostSalesEngagementCode: engagementP("ACME-PS-01"), IsWon: new(bool)}}, nil
 }
 

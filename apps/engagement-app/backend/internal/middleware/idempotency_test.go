@@ -406,3 +406,47 @@ func TestIdempotency_InFlightKeyDoesNotExpire(t *testing.T) {
 		t.Errorf("retry while in flight past the TTL: %d, want 409", rec.Code)
 	}
 }
+
+// Many submits of one key at once: the handler runs exactly once, and every
+// other request gets 409 (still in flight) or the replay. Run with -race.
+func TestIdempotency_ConcurrentDuplicatesRunOnce(t *testing.T) {
+	var calls int32
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		time.Sleep(5 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"E1"}`))
+	}))
+	const n = 50
+	start := make(chan struct{})
+	recs := make([]*httptest.ResponseRecorder, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			recs[i] = httptest.NewRecorder()
+			h.ServeHTTP(recs[i], idemRequest("k", "a@wso2.com"))
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if calls != 1 {
+		t.Fatalf("handler ran %d times, want 1", calls)
+	}
+	fresh := 0
+	for i, rec := range recs {
+		switch {
+		case rec.Code == http.StatusConflict:
+		case rec.Code == http.StatusCreated && rec.Header().Get("Idempotent-Replayed") == "true":
+		case rec.Code == http.StatusCreated:
+			fresh++
+		default:
+			t.Errorf("request %d: %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	if fresh != 1 {
+		t.Errorf("%d fresh responses, want 1", fresh)
+	}
+}

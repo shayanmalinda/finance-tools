@@ -75,10 +75,17 @@ func TestAudit_RecordsSuccessOnlyAndNeverFailsTheResponse(t *testing.T) {
 	if w := serve("/visas/404"); w.Code != http.StatusNotFound {
 		t.Errorf("missing: %d", w.Code)
 	}
+	// Wait for every background write to finish, then the channel must be
+	// empty: no fixed sleep for an event that must not arrive.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := WaitAudits(ctx); err != nil {
+		t.Fatalf("WaitAudits: %v", err)
+	}
 	select {
 	case s := <-got:
 		t.Errorf("a failed request recorded %q", s)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 }
 

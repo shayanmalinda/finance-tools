@@ -24,7 +24,7 @@ import (
 func engagementTestData(typeID int) EngagementEmailData {
 	return EngagementEmailData{ID: "EVT00509", EngagementTypeID: typeID, RequestStatus: "Pending Approval",
 		CustomerName: "WSO2", ProjectName: "WSO2Con <Asia>", Nature: "Physical", StartDate: "2026-11-20T00:00:00Z",
-		Requester: "kevin@wso2.com", SubRegion: "LK"}
+		Requester: "consultant@wso2.com", SubRegion: "LK"}
 }
 
 func TestEngagementMessage_CreatedEvent(t *testing.T) {
@@ -35,7 +35,7 @@ func TestEngagementMessage_CreatedEvent(t *testing.T) {
 		t.Errorf("subject %q template %q", m.Subject, m.TemplateID)
 	}
 	if !reflect.DeepEqual(m.To, []string{"me@wso2.com", "mkt@wso2.com", "allocations@wso2.com", "me@wso2.com"}) ||
-		!reflect.DeepEqual(m.CC, []string{"kevin@wso2.com"}) {
+		!reflect.DeepEqual(m.CC, []string{"consultant@wso2.com"}) {
 		t.Errorf("to %v cc %v", m.To, m.CC)
 	}
 	c := m.Content
@@ -57,7 +57,7 @@ func TestEngagementMessage_OtherEvents(t *testing.T) {
 	app := EngagementMessage(EngagementUpdatedAndApproved, engagementTestData(5), r, "me@wso2.com")
 	if app.Content["title"] != "Marketing Event Updated and Approved" ||
 		app.Content["description"] != "Please note that the following marketing event has been updated and approved." ||
-		!reflect.DeepEqual(app.CC, []string{"kevin@wso2.com", "travel@wso2.com"}) || app.NotificationType != "ENGAGEMENT_APPROVED" {
+		!reflect.DeepEqual(app.CC, []string{"consultant@wso2.com", "travel@wso2.com"}) || app.NotificationType != "ENGAGEMENT_APPROVED" {
 		t.Errorf("approved = %+v", app)
 	}
 	d := engagementTestData(6)
@@ -65,7 +65,7 @@ func TestEngagementMessage_OtherEvents(t *testing.T) {
 	r.TravelAffected = true
 	can := EngagementMessage(EngagementCancelled, d, r, "me@wso2.com")
 	if can.TemplateID != "customerEngagementCancelled" || can.Subject != "Re: [Allocations] Consultant request for EVT00509 : WSO2 - WSO2Con <Asia>" ||
-		!reflect.DeepEqual(can.To, []string{"jane@wso2.com", "me@wso2.com"}) || !reflect.DeepEqual(can.CC, []string{"travel@wso2.com", "kevin@wso2.com"}) {
+		!reflect.DeepEqual(can.To, []string{"jane@wso2.com", "me@wso2.com"}) || !reflect.DeepEqual(can.CC, []string{"travel@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("cancelled = %+v", can)
 	}
 }

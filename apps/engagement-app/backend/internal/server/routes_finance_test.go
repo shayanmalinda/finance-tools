@@ -64,7 +64,7 @@ func (finRouteEntity) FinanceInvoiceCounts(context.Context, int) (engagemententi
 
 func finRouter(groups ...string) http.Handler {
 	return NewRouter(Deps{
-		Verifier: fakeVerifier{claims: oidc.Claims{Email: "udanee@wso2.com", Groups: groups, GroupsPresent: true}},
+		Verifier: fakeVerifier{claims: oidc.Claims{Email: "analyst@wso2.com", Groups: groups, GroupsPresent: true}},
 		Entity:   finRouteEntity{},
 		Sales:    finRouteSales{},
 	})

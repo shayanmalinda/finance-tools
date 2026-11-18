@@ -366,9 +366,14 @@ func TestFinancePushInvoices(t *testing.T) {
 	if err != nil || len(res.Results) != 2 || !res.Results[0].OK || *res.Results[0].NetSuiteReference != "5501" {
 		t.Errorf("res = %+v, %v", res, err)
 	}
-	e.pushErr = &apierror.UpstreamError{StatusCode: 503, Msg: "service temporarily unavailable"}
+	e.pushErr = &apierror.UpstreamError{StatusCode: 503, Msg: "NetSuite push is not enabled"}
 	if _, err := s.PushInvoices(ctx, perms("f@wso2.com", 34), []int{1}); !errors.As(err, new(*apierror.ServiceUnavailableError)) {
 		t.Errorf("netsuite off: %v", err)
+	}
+	e.pushErr = &apierror.UpstreamError{StatusCode: 503, Msg: "service temporarily unavailable"}
+	if res, err := s.PushInvoices(ctx, perms("f@wso2.com", 34), []int{1}); err != nil || len(res.Results) != 1 ||
+		*res.Results[0].Message != financeOutcomeUnknownMsg {
+		t.Errorf("ambiguous 503: %+v, %v", res, err)
 	}
 	e.pushErr, e.pushed = nil, nil
 	short, cancel := context.WithTimeout(ctx, time.Second)

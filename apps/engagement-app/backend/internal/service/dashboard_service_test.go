@@ -159,7 +159,7 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{NewTravelRequests: 4, InvoicesPending: 2, InvoicesToPush: 9}}
 	poOwn := append(dashboardRange(1, 17), 25, 26, 27, 28, 30, 32, 41, 42, 45, 46)
 	svc := NewDashboardService(f, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("shivanga@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("employee@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestDashboard_FinanceQueuesAndCardSpend(t *testing.T) {
 		InvoicesAcceptedByTravel: 3, InvoicesToPush: 2, InvoicesFailed: 1, PaymentsToPush: 5, PaymentsFailed: 2,
 	}}
 	svc := NewDashboardService(f, nil, dashboardNow)
-	p := dashboardPerms("udanee@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, approverFinance, approverFinance, "App-Travel-Approver-Finance-stg")
+	p := dashboardPerms("analyst@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, approverFinance, approverFinance, "App-Travel-Approver-Finance-stg")
 	got, err := svc.Dashboard(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)

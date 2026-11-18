@@ -45,7 +45,7 @@ var (
 )
 
 func engagementStateOf(t int, status string) engagementState {
-	return engagementState{typeID: t, requestStatus: status, createdBy: "kevin@wso2.com"}
+	return engagementState{typeID: t, requestStatus: status, createdBy: "consultant@wso2.com"}
 }
 
 func TestEngagementRules_Actions(t *testing.T) {
@@ -57,7 +57,7 @@ func TestEngagementRules_Actions(t *testing.T) {
 	}{
 		{"admin on a new customer engagement", engagementPerms("a@wso2.com", engagementAdmin, nil), engagementStateOf(6, "New"),
 			domain.EngagementActions{Allocate: true, Edit: true, Complete: true, ChangeEngagementStatus: true, ChangeAllocationStatus: true}},
-		{"account manager: edit, no allocate, creator may change status", engagementPerms("kevin@wso2.com", engagementAccountMgr, nil),
+		{"account manager: edit, no allocate, creator may change status", engagementPerms("consultant@wso2.com", engagementAccountMgr, nil),
 			engagementStateOf(3, "New"), domain.EngagementActions{Edit: true, ChangeEngagementStatus: true}},
 		{"customer manager holds 6 but not 33: cannot allocate pre sale", engagementPerms("m@wso2.com", engagementCustMgr, nil),
 			engagementStateOf(3, "In Progress"), domain.EngagementActions{Edit: true, Complete: true, ChangeEngagementStatus: true}},
@@ -120,11 +120,11 @@ func engagementTestService(entity *engagementFakeEntity, mail *engagementFakeMai
 func engagementTestEntity() *engagementFakeEntity {
 	return &engagementFakeEntity{
 		engagements: map[string]engagemententity.EngagementRecord{
-			"E1": {ID: "E1", EngagementTypeID: 6, AllocationTypeID: 60, RequestStatus: engagementP("New"), CreatedBy: engagementP("kevin@wso2.com"),
+			"E1": {ID: "E1", EngagementTypeID: 6, AllocationTypeID: 60, RequestStatus: engagementP("New"), CreatedBy: engagementP("consultant@wso2.com"),
 				CustomerName: engagementP("Acme"), ProjectName: engagementP("Acme - PoC"), StartDate: engagementP("2026-12-01"),
 				EndDate: engagementP("2026-12-20"), OpportunityLineItemID: engagementP("00kA"), EngagementNature: engagementP("On-site"),
 				FundingSources: []engagemententity.EngagementFundingRow{{BusinessUnit: "Digital Operations", ProductUnit: "Digital", Region: "NA", SubRegion: "NA - EAST", Percentage: 100}}},
-			"EL1": {ID: "EL1", EngagementTypeID: 1, AllocationTypeID: 10, RequestStatus: engagementP("Pending Approval"), CreatedBy: engagementP("kevin@wso2.com"),
+			"EL1": {ID: "EL1", EngagementTypeID: 1, AllocationTypeID: 10, RequestStatus: engagementP("Pending Approval"), CreatedBy: engagementP("consultant@wso2.com"),
 				ProjectName: engagementP("Team offsite"), StartDate: engagementP("2026-12-01"), EndDate: engagementP("2026-12-02"),
 				EngagementNature: engagementP("On-site"), Country: engagementP("Sri Lanka")},
 		},
@@ -148,7 +148,7 @@ func TestEngagementList_SegmentGateRoleAndCounts(t *testing.T) {
 
 	// Account manager (1,2,3,5,8): customer rows with consultants; internal
 	// segment not offered.
-	page, err := svc.List(ctx, engagementPerms("kevin@wso2.com", engagementAccountMgr, nil), EngagementListFilter{Segment: "customer", Limit: 50})
+	page, err := svc.List(ctx, engagementPerms("consultant@wso2.com", engagementAccountMgr, nil), EngagementListFilter{Segment: "customer", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestEngagementList_SegmentGateRoleAndCounts(t *testing.T) {
 		t.Errorf("search = %+v", entity.search)
 	}
 	var fe *apierror.ForbiddenError
-	if _, err := svc.List(ctx, engagementPerms("kevin@wso2.com", engagementAccountMgr, nil), EngagementListFilter{Segment: "internal"}); !errors.As(err, &fe) {
+	if _, err := svc.List(ctx, engagementPerms("consultant@wso2.com", engagementAccountMgr, nil), EngagementListFilter{Segment: "internal"}); !errors.As(err, &fe) {
 		t.Fatalf("internal segment: err %v", err)
 	}
 	// Create-only (2): the segment shows, the rows need engRole.
@@ -236,14 +236,14 @@ func TestEngagementCreate_Customer(t *testing.T) {
 	in := domain.EngagementCreate{EngagementTypeID: 6, AccountID: "001A", OpportunityID: "006A", OpportunityLineItemID: "00kA",
 		AllocationTypeID: 60, Nature: "On-site", Country: "United States of America", Address: "1 Main St\nBoston",
 		BusinessUnit: "Marketing", ProductUnit: "Brand", SalesSubRegion: "LK", CustomerContact: "Dana", StartDate: "2026-01-01", EndDate: "2026-01-02"}
-	d, err := svc.Create(context.Background(), engagementPerms("kevin@wso2.com", engagementCustMgr, nil), in)
+	d, err := svc.Create(context.Background(), engagementPerms("consultant@wso2.com", engagementCustMgr, nil), in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := entity.created
 	if c.EngagementCode != "ACME-APIM-CO" || c.StartDate != "2026-12-01" || c.EndDate != "2026-12-20" || c.CustomerName != "Acme" ||
-		c.CustomerCode != "001A" || c.ProjectName != "Acme - APIM PoC" || c.OpportunityOwner != "Kevin" || c.RequestStatus != "New" ||
-		c.EngagementStatus != "Pending" || c.ProductName != "APIM Consulting" || c.UUID == "" || c.CreatedBy != "kevin@wso2.com" ||
+		c.CustomerCode != "001A" || c.ProjectName != "Acme - APIM PoC" || c.OpportunityOwner != "Alex" || c.RequestStatus != "New" ||
+		c.EngagementStatus != "Pending" || c.ProductName != "APIM Consulting" || c.UUID == "" || c.CreatedBy != "consultant@wso2.com" ||
 		!c.TentativeDates {
 		t.Errorf("created = %+v", c)
 	}
@@ -256,7 +256,7 @@ func TestEngagementCreate_Customer(t *testing.T) {
 	}
 	m := mail.sent[0]
 	if m.Subject != "[Allocations] Consultant request for E09999 : Acme - Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
-		!reflect.DeepEqual(m.To, []string{"kevin@wso2.com", "allocations@wso2.com", "kevin@wso2.com"}) {
+		!reflect.DeepEqual(m.To, []string{"consultant@wso2.com", "allocations@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("mail = %+v", m)
 	}
 }
@@ -400,7 +400,7 @@ func TestEngagementUpdate_LocksStatusAndEmail(t *testing.T) {
 	// AllocationTypeID equal to the current one is no change; the title is.
 	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Internal Engagement Updated and Approved" ||
 		!reflect.DeepEqual(mail.sent[0].To, []string{"lead@wso2.com", "a@wso2.com"}) ||
-		!reflect.DeepEqual(mail.sent[0].CC, []string{"kevin@wso2.com", "travel@wso2.com"}) {
+		!reflect.DeepEqual(mail.sent[0].CC, []string{"consultant@wso2.com", "travel@wso2.com"}) {
 		t.Errorf("mail = %+v", mail.sent)
 	}
 }
@@ -412,7 +412,7 @@ func TestEngagementStatusChanges(t *testing.T) {
 	ctx := context.Background()
 
 	// The creator with only 5 (account manager) may change the status.
-	if _, err := svc.SetEngagementStatus(ctx, engagementPerms("kevin@wso2.com", engagementAccountMgr, nil), "E1",
+	if _, err := svc.SetEngagementStatus(ctx, engagementPerms("consultant@wso2.com", engagementAccountMgr, nil), "E1",
 		domain.EngagementStatusChange{Status: "Confirmed"}); err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestEngagementStatusChanges(t *testing.T) {
 	}
 	m := mail.sent[0]
 	if m.TemplateID != "customerEngagementCancelled" || m.To[0] != "jane@wso2.com" ||
-		!reflect.DeepEqual(m.CC, []string{"travel@wso2.com", "kevin@wso2.com"}) {
+		!reflect.DeepEqual(m.CC, []string{"travel@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("cancel mail = %+v", m)
 	}
 	// Cancelled now: no further status changes.

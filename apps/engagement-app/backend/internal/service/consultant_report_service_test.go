@@ -45,7 +45,7 @@ func TestConsultantReport_LegacyComputation(t *testing.T) {
 				EngagementTypeName: sp("Non-Paid Post Sale"), EngagementNature: sp("Off-site"), Country: sp("India")},
 		},
 		nonAlloc: []engagemententity.ConsultantNonAllocatedEmployee{
-			{WorkEmail: sp("carl@wso2.com"), JobRole: sp("Software Engineer"), BusinessUnit: sp("eng"), Department: sp("dev"), Team: sp("t1")},
+			{WorkEmail: sp("engineer@wso2.com"), JobRole: sp("Software Engineer"), BusinessUnit: sp("eng"), Department: sp("dev"), Team: sp("t1")},
 			{WorkEmail: sp("dave@wso2.com"), JobRole: sp("HR Manager")},
 		},
 		defaults: []engagemententity.ConsultantTeamDefault{
@@ -74,7 +74,7 @@ func TestConsultantReport_LegacyComputation(t *testing.T) {
 		{"NOT_DEFINED", "bob@wso2.com", "NOT_DEFINED", 5.25, 3.75, nil, "NOT AVAILABLE", "NOT AVAILABLE/NOT AVAILABLE", "N/A", "N/A"},
 		{"Non-Paid Post Sale", "bob@wso2.com", "SAL01-PRX", 1.75, 1.25, &ten, "Sales", "NOT AVAILABLE/5000", "Off-site", "India"},
 		{"Internal Engagement", "jane@wso2.com", "DIG-GEN", 3, 1, nil, "NOT AVAILABLE", "NOT AVAILABLE/NOT AVAILABLE", "N/A", "United Kingdom"},
-		{"Internal Engagement", "carl@wso2.com", "DIG-GEN", 7, 5, nil, "NOT AVAILABLE", "NOT AVAILABLE/NOT AVAILABLE", "N/A", "N/A"},
+		{"Internal Engagement", "engineer@wso2.com", "DIG-GEN", 7, 5, nil, "NOT AVAILABLE", "NOT AVAILABLE/NOT AVAILABLE", "N/A", "N/A"},
 	}
 	if len(rows) != len(wants) {
 		t.Fatalf("rows = %+v", rows)

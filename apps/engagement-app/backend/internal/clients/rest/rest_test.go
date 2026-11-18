@@ -148,7 +148,28 @@ func TestDo_LogsNoTokenURL(t *testing.T) {
 	_ = New("hr-entity", "https://hr.example", cfg.Client(context.Background())).Get(context.Background(), "/x", nil)
 
 	if out := buf.String(); strings.Contains(out, "secret-tenant") || strings.Contains(out, "/oauth2/token") ||
-		!strings.Contains(out, "dependency request failed") {
+		!strings.Contains(out, "dependency request failed") || !strings.Contains(out, "cause=connection") {
+		t.Errorf("logs = %s", out)
+	}
+}
+
+// A redirect with a malformed Location puts that URL in Go's error text: the
+// log names only the failure's kind.
+func TestDo_LogsNoRedirectTarget(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "http://[::1%zz]/next?token=leaked-value")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+	if err := New("hr-entity", srv.URL, srv.Client()).Get(context.Background(), "/x", nil); err == nil {
+		t.Fatal("want an error")
+	}
+	if out := buf.String(); strings.Contains(out, "leaked-value") || !strings.Contains(out, "cause=transport") {
 		t.Errorf("logs = %s", out)
 	}
 }

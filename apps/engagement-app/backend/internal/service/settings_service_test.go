@@ -108,7 +108,7 @@ func TestReferenceLookups(t *testing.T) {
 		t.Fatalf("accounts %+v err %v", accts, err)
 	}
 	opps, err := refs.Opportunities(ctx, "001A", 6)
-	if err != nil || len(opps) != 1 || len(opps[0].LineItems) != 1 || *opps[0].Owner != "Kevin" {
+	if err != nil || len(opps) != 1 || len(opps[0].LineItems) != 1 || *opps[0].Owner != "Alex" {
 		t.Fatalf("opps %+v err %v", opps, err)
 	}
 	if opps, _ := refs.Opportunities(ctx, "001A", 3); len(opps[0].LineItems) != 0 {

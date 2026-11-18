@@ -120,7 +120,7 @@ func TestTeamAllocationUpdateAndDelete(t *testing.T) {
 func TestTeamAllocationBulk_RowsMeetTheCreateRules(t *testing.T) {
 	hr := allocTestHR()
 	hr.org = []hrentity.OrgEmployee{{WorkEmail: "jane@wso2.com"}, {WorkEmail: "bob@wso2.com"},
-		{WorkEmail: "carl@wso2.com"}, {WorkEmail: "dina@wso2.com"}, {WorkEmail: "eve@wso2.com"}}
+		{WorkEmail: "engineer@wso2.com"}, {WorkEmail: "member@wso2.com"}, {WorkEmail: "eve@wso2.com"}}
 	types := append([]engagemententity.AllocationType{
 		{ID: 42, AllocationTypeName: "NoCode", Status: "Active", EngagementTypeID: 1, DefaultEngagementCode: sp(" ")}},
 		teamTypes...)
@@ -130,8 +130,8 @@ func TestTeamAllocationBulk_RowsMeetTheCreateRules(t *testing.T) {
 	// Today is 2026-11-05, so 2026-10-06 is the earliest date allowed.
 	res, err := svc.ValidateBulk(context.Background(), `jane,Dev,2026-10-01,2026-11-10,Digital
 bob,Dev,2026-11-10,2026-11-12,Old
-carl,Dev,2026-11-10,2026-11-12,Consulting
-dina,Dev,2026-11-10,2026-11-12,NoCode
+engineer,Dev,2026-11-10,2026-11-12,Consulting
+member,Dev,2026-11-10,2026-11-12,NoCode
 eve,Dev,2026-10-06,2026-11-12,Digital
 `)
 	if err != nil {
@@ -140,8 +140,8 @@ eve,Dev,2026-10-06,2026-11-12,Digital
 	want := []string{
 		"jane@wso2.com: " + teamAllocMsgPast30,
 		"The allocation type for allocation of bob@wso2.com is wrong",
-		"The allocation type for allocation of carl@wso2.com is wrong",
-		"The allocation type for allocation of dina@wso2.com has no default engagement code",
+		"The allocation type for allocation of engineer@wso2.com is wrong",
+		"The allocation type for allocation of member@wso2.com has no default engagement code",
 	}
 	if !reflect.DeepEqual(res.Errors, want) {
 		t.Errorf("errors =\n%q\nwant\n%q", res.Errors, want)
@@ -158,12 +158,12 @@ bob,Dev,2026-11-20,2026-11-10,Digital
 bob,Dev,2026-11-01,2026-11-05,Nope
 only,three,cols
 
-carl,Dev,2026-12-01,2026-12-02,Digital
+engineer,Dev,2026-12-01,2026-12-02,Digital
 `
 
 func TestTeamAllocationBulk(t *testing.T) {
 	hr := allocTestHR()
-	hr.org = []hrentity.OrgEmployee{{WorkEmail: "jane@wso2.com"}, {WorkEmail: "bob@wso2.com"}, {WorkEmail: "carl@wso2.com"}}
+	hr.org = []hrentity.OrgEmployee{{WorkEmail: "jane@wso2.com"}, {WorkEmail: "bob@wso2.com"}, {WorkEmail: "engineer@wso2.com"}}
 	ent := &allocFakeEntity{types: teamTypes, timeline: []engagemententity.AllocationRecord{
 		{ID: "X", Email: "bob@wso2.com", StartDate: "2026-11-03", EndDate: "2026-11-04", AllocationTypeName: sp("Leave"), EngagementID: sp("-1")}}}
 	svc := NewTeamAllocationService(allocTestDeps(ent, hr, &allocFakeSender{}))
@@ -185,7 +185,7 @@ func TestTeamAllocationBulk(t *testing.T) {
 	if !reflect.DeepEqual(res.Errors, want) {
 		t.Errorf("errors =\n%q\nwant\n%q", res.Errors, want)
 	}
-	if len(res.Valid) != 1 || res.Valid[0].Email != "carl@wso2.com" || res.Valid[0].Line != 8 || len(ent.bulk) != 0 {
+	if len(res.Valid) != 1 || res.Valid[0].Email != "engineer@wso2.com" || res.Valid[0].Line != 8 || len(ent.bulk) != 0 {
 		t.Errorf("valid = %+v", res.Valid)
 	}
 	if hr.orgFilter.Statuses[1] != "Marked Leaver" {
