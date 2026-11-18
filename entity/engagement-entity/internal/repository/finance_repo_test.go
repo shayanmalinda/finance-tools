@@ -55,10 +55,10 @@ var financeInvoiceCols = []string{"id", "invoice_number", "month", "inv_cost_typ
 func financeInvoiceRow(status string, reason any) []driver.Value {
 	at := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
 	return []driver.Value{7, "INV-1", "October", 1, 3, "USD", "155100.00", "LKR", "46530000.00", status,
-		"agent@wso2.com", at, nil, nil, reason, "TRV-2026-11-0001",
-		"po@wso2.com", "fin@wso2.com", "6001", "Sales", "Air Ticket",
-		"agent@wso2.com", 2339, 4, "Classic Travels",
-		"jane@wso2.com", "In Progress", "London", "United Kingdom", at, at, "A0000000001"}
+		"agent@example.com", at, nil, nil, reason, "TRV-2026-11-0001",
+		"po@example.com", "fin@example.com", "6001", "Sales", "Air Ticket",
+		"agent@example.com", 9001, 4, "Birch Travels",
+		"jane@example.com", "In Progress", "London", "United Kingdom", at, at, "A0000000001"}
 }
 
 func TestFinanceInvoices_FiltersOrderAndFailureMarker(t *testing.T) {
@@ -86,7 +86,7 @@ func TestFinanceInvoices_FiltersOrderAndFailureMarker(t *testing.T) {
 	if !inv.NetSuiteFailed || inv.NetSuiteError == nil || *inv.NetSuiteError != "timeout" || inv.RejectReason != nil {
 		t.Errorf("failure marker not split: %+v", inv)
 	}
-	if inv.InvoiceAmountText != "155100.00" || inv.InvoiceAmount != 155100 || *inv.VendorID != 2339 || *inv.AddedDate != "2026-11-04 10:00:00" {
+	if inv.InvoiceAmountText != "155100.00" || inv.InvoiceAmount != 155100 || *inv.VendorID != 9001 || *inv.AddedDate != "2026-11-04 10:00:00" {
 		t.Errorf("invoice = %+v", inv)
 	}
 	financeDone(t, mock)
@@ -120,11 +120,11 @@ func TestFinanceDecideInvoice(t *testing.T) {
 	reason := "Wrong amount → fix"
 	mock.ExpectBegin()
 	mock.ExpectExec(re("UPDATE invoice SET updated_by = ?, updated_date = NOW(), status = ?, finance_approved_by = ?, reject_reason = ? WHERE id = ? AND status = ?")).
-		WithArgs("fin@wso2.com", "Rejected by finance", "fin@wso2.com", "Wrong amount -> fix", 7, "Accepted by travel").
+		WithArgs("fin@example.com", "Rejected by finance", "fin@example.com", "Wrong amount -> fix", 7, "Accepted by travel").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	ok, err := repo.DecideInvoice(context.Background(), 7, FinanceInvoiceTransition{
-		From: "Accepted by travel", To: "Rejected by finance", ApproverColumn: "finance_approved_by", Actor: "fin@wso2.com", Reason: &reason,
+		From: "Accepted by travel", To: "Rejected by finance", ApproverColumn: "finance_approved_by", Actor: "fin@example.com", Reason: &reason,
 	})
 	if err != nil || !ok {
 		t.Errorf("ok = %v, err = %v", ok, err)
@@ -140,35 +140,36 @@ func TestFinanceInvoicePushTransitions(t *testing.T) {
 	ctx := context.Background()
 	mock.ExpectBegin()
 	mock.ExpectExec(re("status = 'Complete', reject_reason = ? WHERE id = ? AND status = 'Accepted by finance' AND COALESCE(reject_reason, '') = ''")).
-		WithArgs("p@wso2.com", "NetSuite push in progress", 7).WillReturnResult(sqlmock.NewResult(0, 0))
+		WithArgs("p@example.com", "NetSuite push in progress", 7).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
-	won, err := repo.ClaimInvoicePush(ctx, 7, "p@wso2.com")
+	won, err := repo.ClaimInvoicePush(ctx, 7, "p@example.com")
 	if err != nil || won {
 		t.Errorf("claim = %v, %v; want lost", won, err)
 	}
 
 	mock.ExpectBegin()
 	mock.ExpectExec(re("status = 'Accepted by finance', reject_reason = NULL WHERE id = ? AND status = 'Complete' AND reject_reason = ?")).
-		WithArgs("p@wso2.com", 7, "NetSuite push in progress").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("p@example.com", 7, "NetSuite push in progress").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if err := repo.ReleaseInvoicePush(ctx, 7, "p@wso2.com"); err != nil {
+	if err := repo.ReleaseInvoicePush(ctx, 7, "p@example.com"); err != nil {
 		t.Error(err)
 	}
 
 	long := strings.Repeat("x", 400)
 	mock.ExpectBegin()
 	mock.ExpectExec(re("status = 'Accepted by finance', reject_reason = ? WHERE id = ? AND status = 'Complete'")).
-		WithArgs("p@wso2.com", sqlmock.AnyArg(), 7).WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("p@example.com", (domain.InvoiceNSFailurePrefix + long)[:domain.InvoiceMaxRejectReason], 7).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if err := repo.FailInvoicePush(ctx, 7, "p@wso2.com", long); err != nil {
+	if err := repo.FailInvoicePush(ctx, 7, "p@example.com", long); err != nil {
 		t.Error(err)
 	}
 
 	mock.ExpectBegin()
 	mock.ExpectExec(re("reject_reason = ? WHERE id = ? AND status = 'Accepted by finance' AND COALESCE(reject_reason, '') LIKE 'NetSuite push failed:%'")).
-		WithArgs("p@wso2.com", "Complete", "NetSuite PO: 4400", 7).WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("p@example.com", "Complete", "NetSuite PO: 4400", 7).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if ok, err := repo.ResolveInvoiceFailure(ctx, 7, "p@wso2.com", "4400"); err != nil || !ok {
+	if ok, err := repo.ResolveInvoiceFailure(ctx, 7, "p@example.com", "4400"); err != nil || !ok {
 		t.Errorf("resolve = %v, %v", ok, err)
 	}
 	mock.ExpectBegin()
@@ -187,23 +188,18 @@ func TestFinanceClassificationIDBranches(t *testing.T) {
 		code, suffix string
 		ct           *int
 		sql          string
-		args         []any
+		args         []driver.Value
 	}{
-		"code and type":    {"%E07201%", "", &ct, "AND engagement_code LIKE ? AND inv_cost_type_id=? ORDER BY id LIMIT 1", []any{"%E07201%", 1}},
-		"suffix and type":  {"", "%07201%", &ct, "AND engagement_code_suffix LIKE ? AND inv_cost_type_id=? ORDER BY id LIMIT 1", []any{"%07201%", 1}},
-		"travel insurance": {"ALL", "", nil, "WHERE status='active' AND engagement_code LIKE ? ORDER BY id LIMIT 1", []any{"ALL"}},
+		"code and type": {"%E07201%", "", &ct, "AND engagement_code LIKE ? AND inv_cost_type_id=? ORDER BY id LIMIT 1",
+			[]driver.Value{"%E07201%", 1}},
+		"suffix and type": {"", "%07201%", &ct, "AND engagement_code_suffix LIKE ? AND inv_cost_type_id=? ORDER BY id LIMIT 1",
+			[]driver.Value{"%07201%", 1}},
+		"travel insurance": {"ALL", "", nil, "WHERE status='active' AND engagement_code LIKE ? ORDER BY id LIMIT 1",
+			[]driver.Value{"ALL"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mock, repo, _, _ := financeMock(t)
-			args := tc.args
-			q := mock.ExpectQuery(re(tc.sql))
-			switch len(args) {
-			case 1:
-				q.WithArgs(args[0])
-			case 2:
-				q.WithArgs(args[0], args[1])
-			}
-			q.WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
+			mock.ExpectQuery(re(tc.sql)).WithArgs(tc.args...).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
 			id, err := repo.ClassificationID(context.Background(), tc.code, tc.suffix, tc.ct)
 			if err != nil || id == nil || *id != 9 {
 				t.Errorf("id = %v, err = %v", id, err)
@@ -220,12 +216,12 @@ func TestFinanceInsertPerDiemWritesAuditInOneTransaction(t *testing.T) {
 		WithArgs("E07201", "TRV-2026-11-0001", "GBP", 70.0, 770.0, "2026-11-06 09:00:00", "2026-11-16 18:00:00", 11, "Active").
 		WillReturnResult(sqlmock.NewResult(42, 1))
 	mock.ExpectExec(re("INSERT INTO perdiem_auditlog VALUES (?, ?, ?, ?, ?, NOW())")).
-		WithArgs("Perdiem Allocation", "po@wso2.com", "E07201", "TRV-2026-11-0001", sqlmock.AnyArg()).
+		WithArgs("Perdiem Allocation", "po@example.com", "E07201", "TRV-2026-11-0001", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	id, err := repo.InsertPerDiem(context.Background(), "TRV-2026-11-0001", "E07201", domain.FinancePerDiemCreate{
 		Currency: "GBP", PerDiemValue: 70, Total: 770, StartDate: "2026-11-06 09:00:00", EndDate: "2026-11-16 18:00:00",
-		NoOfDays: 11, CreatedBy: "po@wso2.com",
+		NoOfDays: 11, CreatedBy: "po@example.com",
 	})
 	if err != nil || id != 42 {
 		t.Errorf("id = %d, err = %v", id, err)
@@ -237,10 +233,10 @@ func TestFinanceInsertInvoicesTransaction(t *testing.T) {
 	mock, repo, _, _ := financeMock(t)
 	mock.ExpectBegin()
 	mock.ExpectExec(re("INSERT into invoice")).
-		WithArgs("INV-1", "October", 1, 3, "USD", "1850.5", "USD", "1850.5", "Pending", "agent@wso2.com", "TRV-2026-11-0001").
+		WithArgs("INV-1", "October", 1, 3, "USD", "1850.5", "USD", "1850.5", "Pending", "agent@example.com", "TRV-2026-11-0001").
 		WillReturnResult(sqlmock.NewResult(8, 1))
 	mock.ExpectCommit()
-	ids, err := repo.InsertInvoices(context.Background(), "TRV-2026-11-0001", "agent@wso2.com", []FinanceInvoiceInsert{{
+	ids, err := repo.InsertInvoices(context.Background(), "TRV-2026-11-0001", "agent@example.com", []FinanceInvoiceInsert{{
 		FinanceInvoiceCreate: domain.FinanceInvoiceCreate{InvoiceNumber: "INV-1", Month: "October", CostTypeID: 1,
 			InvoiceCurrency: "USD", InvoiceAmount: 1850.5, ConvertedCurrency: "USD", ConvertedAmount: 1850.5},
 		ClassificationID: 3,
@@ -278,48 +274,48 @@ func TestFinancePaymentsAndTransitions(t *testing.T) {
 	ctx := context.Background()
 	cols := []string{"id", "job", "num", "cur", "amt", "ns", "ccur", "camt", "by", "at", "uby", "uat", "trav", "ts", "alloc"}
 	mock.ExpectQuery(re("SELECT COUNT(*)"+financePaymentFrom+" WHERE 1 = 1 AND pp.ns_status IN (?, ?) AND t.traveller_email IN (?)")).
-		WithArgs("Pending", "Failed", "jane@wso2.com").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
+		WithArgs("Pending", "Failed", "jane@example.com").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	mock.ExpectQuery(re("ORDER BY pp.added_date DESC")).
 		WillReturnRows(sqlmock.NewRows(cols).AddRow(3, "TRV-2026-11-0001", "TRV-2026-11-0001-001", "GBP", 400.0, "Pending",
-			"LKR", "152000.50", "fin@wso2.com", time.Now(), nil, nil, "jane@wso2.com", "In Progress", "A1"))
-	items, total, err := repo.Payments(ctx, domain.FinancePaymentFilter{NSStatuses: []string{"Pending", "Failed"}, Travellers: []string{"jane@wso2.com"}})
+			"LKR", "152000.50", "fin@example.com", time.Now(), nil, nil, "jane@example.com", "In Progress", "A1"))
+	items, total, err := repo.Payments(ctx, domain.FinancePaymentFilter{NSStatuses: []string{"Pending", "Failed"}, Travellers: []string{"jane@example.com"}})
 	if err != nil || total != 1 || *items[0].ConvertedAmountText != "152000.50" {
 		t.Fatalf("items = %+v, %v", items, err)
 	}
 
 	mock.ExpectBegin()
 	mock.ExpectExec(re("SET ns_status = 'Pushing', last_updated_by = ?, last_updated_date = NOW() WHERE id = ? AND ns_status = 'Pending'")).
-		WithArgs("p@wso2.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("p@example.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if won, err := repo.ClaimPaymentPush(ctx, 3, "p@wso2.com"); err != nil || !won {
+	if won, err := repo.ClaimPaymentPush(ctx, 3, "p@example.com"); err != nil || !won {
 		t.Errorf("claim = %v, %v", won, err)
 	}
 	mock.ExpectBegin()
 	mock.ExpectExec(re("SET ns_status = 'Failed', last_updated_by = ?, last_updated_date = NOW() WHERE id = ? AND ns_status = 'Pushing'")).
-		WithArgs("p@wso2.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("p@example.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if err := repo.FailPaymentPush(ctx, 3, "p@wso2.com"); err != nil {
+	if err := repo.FailPaymentPush(ctx, 3, "p@example.com"); err != nil {
 		t.Error(err)
 	}
 	mock.ExpectBegin()
 	mock.ExpectExec(re("SET ns_status = 'Complete', last_updated_by = ?, last_updated_date = NOW() WHERE id = ? AND ns_status = 'Pushing'")).
-		WithArgs("p@wso2.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("p@example.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if err := repo.CompletePaymentPush(ctx, 3, "p@wso2.com"); err != nil {
+	if err := repo.CompletePaymentPush(ctx, 3, "p@example.com"); err != nil {
 		t.Error(err)
 	}
 	mock.ExpectBegin()
-	mock.ExpectExec(re("WHERE id = ? AND ns_status = 'Failed'")).WithArgs("Pending", "p@wso2.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(re("WHERE id = ? AND ns_status = 'Failed'")).WithArgs("Pending", "p@example.com", 3).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if ok, err := repo.ResolvePaymentFailure(ctx, 3, "p@wso2.com", false); err != nil || !ok {
+	if ok, err := repo.ResolvePaymentFailure(ctx, 3, "p@example.com", false); err != nil || !ok {
 		t.Errorf("resolve = %v, %v", ok, err)
 	}
 	mock.ExpectBegin()
 	mock.ExpectExec(re("WHERE id = ? AND ns_status = 'Pending'")).
-		WithArgs(3, 500.0, "LKR", "190000.25", "e@wso2.com", 3).WillReturnResult(sqlmock.NewResult(0, 0))
+		WithArgs(3, 500.0, "LKR", "190000.25", "e@example.com", 3).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 	if ok, err := repo.UpdatePayment(ctx, 3, domain.FinancePaymentUpdate{PaymentAmount: 500, ConvertedCurrency: "LKR",
-		ConvertedAmount: 190000.25, UpdatedBy: "e@wso2.com"}); err != nil || ok {
+		ConvertedAmount: 190000.25, UpdatedBy: "e@example.com"}); err != nil || ok {
 		t.Errorf("update = %v, %v; want not pending", ok, err)
 	}
 	financeDone(t, mock)
@@ -330,7 +326,7 @@ func TestFinanceTrip(t *testing.T) {
 	mock.ExpectQuery(re("FROM travel t LEFT JOIN travel_agents ta ON ta.id = t.travel_agent_id WHERE t.job_number = ?")).
 		WithArgs("TRV-2026-11-0001").
 		WillReturnRows(sqlmock.NewRows([]string{"j", "s", "e", "a", "n", "al", "c", "co", "sd", "ed", "cu", "ec"}).
-			AddRow("TRV-2026-11-0001", "In Progress", "jane@wso2.com", 4, "Classic Travels", "A1", "London", "UK", nil, nil, "Acme", "E1"))
+			AddRow("TRV-2026-11-0001", "In Progress", "jane@example.com", 4, "Birch Travels", "A1", "London", "UK", nil, nil, "Acme", "E1"))
 	trip, err := repo.Trip(context.Background(), "TRV-2026-11-0001")
 	if err != nil || trip == nil || *trip.AgencyID != 4 || *trip.Status != "In Progress" {
 		t.Fatalf("trip = %+v, %v", trip, err)
@@ -349,9 +345,9 @@ func TestFinanceAllocationQueries(t *testing.T) {
 		t.Errorf("empty campaigns = %v, %v", m, err)
 	}
 	mock.ExpectQuery(re("WHERE a.id IN (?, ?) AND e.campaign_id IS NOT NULL AND e.campaign_id <> ''")).WithArgs("A1", "A2").
-		WillReturnRows(sqlmock.NewRows([]string{"a", "c", "n"}).AddRow("A1", "7015g00000ApD26AAF", "Integration Summit"))
+		WillReturnRows(sqlmock.NewRows([]string{"a", "c", "n"}).AddRow("A1", "701000000000001AAA", "Integration Summit"))
 	m, err := alloc.Campaigns(ctx, []string{"A1", "A2"})
-	if err != nil || m["A1"].ID != "7015g00000ApD26AAF" || *m["A1"].Name != "Integration Summit" {
+	if err != nil || m["A1"].ID != "701000000000001AAA" || *m["A1"].Name != "Integration Summit" {
 		t.Errorf("campaigns = %v, %v", m, err)
 	}
 	mock.ExpectQuery(re("WHERE e.campaign_id IN (?)")).WithArgs("C1").WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A1"))

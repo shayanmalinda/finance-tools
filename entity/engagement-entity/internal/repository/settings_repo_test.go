@@ -31,7 +31,7 @@ func TestSettingsAllocationTypeWrites(t *testing.T) {
 	repo := &settingsRepo{db: er.alloc}
 	ctx := context.Background()
 	in := domain.SettingsAllocationTypeInput{EngagementTypeID: 1, AllocationTypeName: "Digital Operations",
-		DefaultEngagementCode: "DIG-GEN", Department: "DIGITAL", EmailToAllocations: "No", Actor: "me@wso2.com"}
+		DefaultEngagementCode: "DIG-GEN", Department: "DIGITAL", EmailToAllocations: "No", Actor: "me@example.com"}
 
 	mock.ExpectQuery(re(`SELECT COUNT(*) FROM engagement_type WHERE id = ?`)).WithArgs(1).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	if ok, err := repo.EngagementTypeExists(ctx, 1); err != nil || !ok {
@@ -48,7 +48,7 @@ func TestSettingsAllocationTypeWrites(t *testing.T) {
 		WithArgs(1, "DIGITAL", "Digital Operations", nil, "DIG-GEN", nil, "No").WillReturnResult(sqlmock.NewResult(77, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(re(`INSERT INTO audit_log`)).
-		WithArgs("ALLOCATION_TYPE", "INSERT", "me@wso2.com", "A new allocation type is added as Digital Operations by me@wso2.com").
+		WithArgs("ALLOCATION_TYPE", "INSERT", "me@example.com", "A new allocation type is added as Digital Operations by me@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	if id, err := repo.CreateAllocationType(ctx, in); err != nil || id != 77 {
 		t.Fatalf("id %d err %v", id, err)
@@ -57,7 +57,7 @@ func TestSettingsAllocationTypeWrites(t *testing.T) {
 	mock.ExpectExec(re(`UPDATE allocation_type SET engagement_type = ?`)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(re(`INSERT INTO audit_log`)).
-		WithArgs("ALLOCATION_TYPE", "UPDATE", "me@wso2.com", "Allocation type of ID 77 is updated by me@wso2.com").
+		WithArgs("ALLOCATION_TYPE", "UPDATE", "me@example.com", "Allocation type of ID 77 is updated by me@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	if err := repo.UpdateAllocationType(ctx, 77, in); err != nil {
 		t.Fatal(err)
@@ -67,15 +67,15 @@ func TestSettingsAllocationTypeWrites(t *testing.T) {
 		WithArgs(77).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(re(`INSERT INTO audit_log`)).
-		WithArgs("ALLOCATION_TYPE", "DELETE", "me@wso2.com", "Allocation type of ID 77 is deleted (status is updated to Deleted) by me@wso2.com").
+		WithArgs("ALLOCATION_TYPE", "DELETE", "me@example.com", "Allocation type of ID 77 is deleted (status is updated to Deleted) by me@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	if err := repo.DeleteAllocationType(ctx, 77, "me@wso2.com"); err != nil {
+	if err := repo.DeleteAllocationType(ctx, 77, "me@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	mock.ExpectBegin()
 	mock.ExpectExec(re(`UPDATE allocation_type SET status = 'Deleted'`)).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
-	if err := repo.DeleteAllocationType(ctx, 78, "me@wso2.com"); !errors.Is(err, ErrSettingsAllocationTypeNotFound) {
+	if err := repo.DeleteAllocationType(ctx, 78, "me@example.com"); !errors.Is(err, ErrSettingsAllocationTypeNotFound) {
 		t.Fatalf("err %v", err)
 	}
 	mock.ExpectQuery(re(`WHERE aT.id = ?`)).WithArgs(77).WillReturnRows(sqlmock.NewRows([]string{

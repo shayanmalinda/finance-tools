@@ -23,8 +23,20 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
+// clearEnv blanks every variable Load reads, so the shell can't leak in.
 func clearEnv(t *testing.T) {
-	for _, k := range []string{"SERVER_PORT", "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_TLS", "NETSUITE_PUSH_ENABLED", "NETSUITE_ACCOUNT_ID"} {
+	t.Helper()
+	for _, k := range []string{
+		"SERVER_PORT", "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_TLS",
+		"NETSUITE_PUSH_ENABLED", "NETSUITE_ACCOUNT_ID", "NETSUITE_RESTLETS_BASE_URL",
+		"NETSUITE_CONSUMER_KEY", "NETSUITE_CONSUMER_SECRET", "NETSUITE_TOKEN_ID", "NETSUITE_TOKEN_SECRET",
+		"NETSUITE_PURCHASE_ORDER_TAX_CODE",
+		"NETSUITE_CREATE_MARKETING_EVENT_SCRIPT_ID", "NETSUITE_CREATE_MARKETING_EVENT_DEPLOY_ID",
+		"NETSUITE_CREATE_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_CREATE_PURCHASE_ORDER_DEPLOY_ID",
+		"NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID", "NETSUITE_CREATE_VENDOR_BILL_DEPLOY_ID",
+		"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID",
+		"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", "NETSUITE_GET_VENDOR_BILL_DEPLOY_ID",
+	} {
 		t.Setenv(k, "")
 	}
 }
@@ -90,7 +102,10 @@ func TestDSN(t *testing.T) {
 		t.Errorf("parsed = %+v", cfg)
 	}
 	d.TLS = "false"
-	cfg, _ = mysql.ParseDSN(d.DSN(TravelSchema))
+	cfg, err = mysql.ParseDSN(d.DSN(TravelSchema))
+	if err != nil {
+		t.Fatalf("ParseDSN: %v", err)
+	}
 	if cfg.TLSConfig != "false" || cfg.DBName != "travelapp" {
 		t.Errorf("parsed with TLS = %+v", cfg)
 	}

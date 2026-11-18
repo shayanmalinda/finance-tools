@@ -74,8 +74,8 @@ func TestAllocationRoutes(t *testing.T) {
 	mock.ExpectExec("INSERT INTO allocation").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT id FROM allocation").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("A0000000001"))
 	mock.ExpectCommit()
-	rec := allocationServe(h, http.MethodPost, "/allocations/bulk", `{"createdBy":"m@wso2.com","newAllocations":[
-		{"email":"a@wso2.com","allocationTypeId":1,"status":"Active","startDate":"2026-11-01","endDate":"2026-11-02",
+	rec := allocationServe(h, http.MethodPost, "/allocations/bulk", `{"createdBy":"m@example.com","newAllocations":[
+		{"email":"a@example.com","allocationTypeId":1,"status":"Active","startDate":"2026-11-01","endDate":"2026-11-02",
 		 "engagementId":"-1","engagementCode":"DIG-GEN","isTravelRequired":"No","isRecurring":"No"}]}`)
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"firstAllocationId":"A0000000001"`) {
 		t.Errorf("bulk: %d %s", rec.Code, rec.Body)

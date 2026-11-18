@@ -33,7 +33,7 @@ func TestAuditEvents(t *testing.T) {
 	h, allocMock, travelMock := newTestRouter(t)
 	post := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/audit-events", strings.NewReader(body))
-		req.Header.Set("X-User-Email", "fin@wso2.com")
+		req.Header.Set("X-User-Email", "fin@example.com")
 		req.Header.Set("X-Correlation-ID", "req-9")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -41,13 +41,13 @@ func TestAuditEvents(t *testing.T) {
 	}
 
 	travelMock.ExpectExec(`INSERT INTO audit_event`).
-		WithArgs("fin@wso2.com", "user", "Download", "travel_document", "12", "employee", "c@wso2.com", "req-9",
+		WithArgs("fin@example.com", "user", "Download", "travel_document", "12", "employee", "c@example.com", "req-9",
 			"engagement-app", nil, nil).WillReturnResult(sqlmock.NewResult(1, 1))
-	if rec := post(`{"action":"Download","entityType":"travel_document","entityId":"12","parentType":"employee","parentId":"c@wso2.com"}`); rec.Code != http.StatusNoContent {
+	if rec := post(`{"action":"Download","entityType":"travel_document","entityId":"12","parentType":"employee","parentId":"c@example.com"}`); rec.Code != http.StatusNoContent {
 		t.Errorf("download: %d %s", rec.Code, rec.Body)
 	}
 	allocMock.ExpectExec(`INSERT INTO audit_event`).
-		WithArgs("fin@wso2.com", "user", "Export", "allocation", nil, nil, nil, "req-9", "engagement-app", nil,
+		WithArgs("fin@example.com", "user", "Export", "allocation", nil, nil, nil, "req-9", "engagement-app", nil,
 			`{"report":"consultant-allocations"}`).WillReturnResult(sqlmock.NewResult(1, 1))
 	if rec := post(`{"action":"Export","entityType":"allocation","metadata":{"report":"consultant-allocations"}}`); rec.Code != http.StatusNoContent {
 		t.Errorf("export: %d %s", rec.Code, rec.Body)

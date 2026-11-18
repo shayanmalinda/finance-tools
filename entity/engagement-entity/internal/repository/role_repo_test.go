@@ -62,10 +62,10 @@ func TestRoleReplacePrivileges_Allocations(t *testing.T) {
 		WithArgs(3, 1, 3, 23).WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 	mock.ExpectExec(re(`INSERT INTO audit_log (resource, action, user, description, timestamp)`)).
-		WithArgs("ROLE", "UPDATE", "me@wso2.com",
-			`The role with 3 as the ID is updated by me@wso2.com with the following privileges: ["1","23"]`).
+		WithArgs("ROLE", "UPDATE", "me@example.com",
+			`The role with 3 as the ID is updated by me@example.com with the following privileges: ["1","23"]`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	if err := repo.ReplacePrivileges(context.Background(), 3, []int{1, 23}, "me@wso2.com"); err != nil {
+	if err := repo.ReplacePrivileges(context.Background(), 3, []int{1, 23}, "me@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -81,9 +81,9 @@ func TestRoleReplacePrivileges_TravelEmpty(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec(re(`DELETE FROM role_privilege WHERE role_id = ?`)).WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(re(`INSERT INTO privilege_auditlog (role_id, privilege_ids, updated_by, date)`)).
-		WithArgs(4, "[]", "me@wso2.com").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs(4, "[]", "me@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if err := repo.ReplacePrivileges(context.Background(), 4, nil, "me@wso2.com"); err != nil {
+	if err := repo.ReplacePrivileges(context.Background(), 4, nil, "me@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

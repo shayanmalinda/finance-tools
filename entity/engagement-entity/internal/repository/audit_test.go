@@ -40,12 +40,12 @@ func TestAudit_AllocationUpdateAndTravelInsertInTheirTransactions(t *testing.T) 
 	cols := []string{"Id", "email", "clearance_status", "engagement_id"}
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectQuery(re("SELECT * FROM allocation WHERE Id = ? FOR UPDATE")).WithArgs("A0000000001").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow("A0000000001", "jane@wso2.com", "Ready for Clearance", "E07201"))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("A0000000001", "jane@example.com", "Ready for Clearance", "E07201"))
 	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectQuery(re("SELECT * FROM allocation WHERE id IN (?)")).WithArgs("A0000000001").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow("A0000000001", "jane@wso2.com", "Confirmed", "E07201"))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("A0000000001", "jane@example.com", "Confirmed", "E07201"))
 	m.alloc.ExpectExec(re("INSERT INTO audit_event")).
-		WithArgs("mgr@wso2.com", "user", "Status Change", "allocation", "A0000000001", "engagement", "E07201", nil, "engagement-app",
+		WithArgs("mgr@example.com", "user", "Status Change", "allocation", "A0000000001", "engagement", "E07201", nil, "engagement-app",
 			`{"clearance_status":{"before":"Ready for Clearance","after":"Confirmed"}}`, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	m.travel.ExpectBegin()
@@ -54,15 +54,15 @@ func TestAudit_AllocationUpdateAndTravelInsertInTheirTransactions(t *testing.T) 
 	m.travel.ExpectQuery(re("SELECT * FROM travel WHERE job_number IN (?)")).WithArgs("TRV-1").
 		WillReturnRows(sqlmock.NewRows([]string{"job_number", "status", "allocation_id"}).AddRow("TRV-1", "New", "A0000000001"))
 	m.travel.ExpectExec(re("INSERT INTO audit_event")).
-		WithArgs("adder@wso2.com", "user", "Create", "travel_request", "TRV-1", "allocation", "A0000000001", nil, "engagement-app",
+		WithArgs("adder@example.com", "user", "Create", "travel_request", "TRV-1", "allocation", "A0000000001", nil, "engagement-app",
 			`{"allocation_id":{"before":null,"after":"A0000000001"},"job_number":{"before":null,"after":"TRV-1"},"status":{"before":null,"after":"New"}}`, nil).
 		WillReturnResult(sqlmock.NewResult(2, 1))
 	m.travel.ExpectCommit()
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow("Confirmed", "Yes")...))
 
-	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &next, UpdatedBy: "mgr@wso2.com"}); err != nil {
+	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &next, UpdatedBy: "mgr@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	m.verify(t)

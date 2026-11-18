@@ -43,13 +43,13 @@ func TestAgencyOf(t *testing.T) {
 	defer db.Close()
 	r := NewAgencyRepository(db)
 	mock.ExpectQuery(re("WHERE tae.wso2_email = ? AND tae.status = 'Active'")).WithArgs("agent@classic.example").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(2, "Classic Travels"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(2, "Birch Travels"))
 	a, err := r.AgencyOf(context.Background(), "agent@classic.example")
-	if err != nil || a == nil || a.ID != 2 || a.Name != "Classic Travels" {
+	if err != nil || a == nil || a.ID != 2 || a.Name != "Birch Travels" {
 		t.Fatalf("AgencyOf = %+v, %v", a, err)
 	}
-	mock.ExpectQuery(re("FROM travel_agent_employee")).WithArgs("x@wso2.com").WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
-	if a, err := r.AgencyOf(context.Background(), "x@wso2.com"); err != nil || a != nil {
+	mock.ExpectQuery(re("FROM travel_agent_employee")).WithArgs("x@example.com").WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
+	if a, err := r.AgencyOf(context.Background(), "x@example.com"); err != nil || a != nil {
 		t.Errorf("not an agent: %+v, %v", a, err)
 	}
 }

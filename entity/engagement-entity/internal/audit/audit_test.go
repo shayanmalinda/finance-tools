@@ -53,13 +53,13 @@ func TestRecord_ActorAndRequestFromTheRequest(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectExec(regexp.QuoteMeta(insertSQL)).
-		WithArgs("jane@wso2.com", "user", "View", "visa", "5", nil, nil, "req-1", "engagement-app", nil, `{"own":true}`).
+		WithArgs("jane@example.com", "user", "View", "visa", "5", nil, nil, "req-1", "engagement-app", nil, `{"own":true}`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(insertSQL)).
 		WithArgs(nil, "system", "Update", "invoice", "7", nil, nil, sqlmock.AnyArg(), "engagement-app", nil, nil).
 		WillReturnResult(sqlmock.NewResult(2, 1))
-	requestCtx(t, " Jane@WSO2.com ", "req-1", func(ctx context.Context) {
-		if err := Record(ctx, db, Event{Action: View, EntityType: "visa", EntityID: "5", Actor: "body@wso2.com",
+	requestCtx(t, " Jane@Example.com ", "req-1", func(ctx context.Context) {
+		if err := Record(ctx, db, Event{Action: View, EntityType: "visa", EntityID: "5", Actor: "body@example.com",
 			Metadata: map[string]any{"own": true}}); err != nil {
 			t.Error(err)
 		}
@@ -82,11 +82,11 @@ func TestTracker_ChangedFieldsMaskedAndStatusChange(t *testing.T) {
 	defer db.Close()
 	cols := []string{"id", "email", "document_no", "status"}
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM employee_travel_document WHERE id = ? FOR UPDATE`)).WithArgs(9).
-		WillReturnRows(sqlmock.NewRows(cols).AddRow(9, "c@wso2.com", []byte("N1234567"), "Active"))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(9, "c@example.com", []byte("N1234567"), "Active"))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM employee_travel_document WHERE id IN (?)`)).WithArgs("9").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow(9, "c@wso2.com", []byte("N7654321"), "Inactive"))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(9, "c@example.com", []byte("N7654321"), "Inactive"))
 	mock.ExpectExec(regexp.QuoteMeta(insertSQL)).
-		WithArgs("c@wso2.com", "user", "Update", "travel_document", "9", "employee", "c@wso2.com", nil, "engagement-app",
+		WithArgs("c@example.com", "user", "Update", "travel_document", "9", "employee", "c@example.com", nil, "engagement-app",
 			`{"document_no":{"before":"****4567","after":"****4321"},"status":{"before":"Active","after":"Inactive"}}`, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	ctx := context.Background()
@@ -95,7 +95,7 @@ func TestTracker_ChangedFieldsMaskedAndStatusChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := tr.Record(ctx, db, Event{Action: Update, EntityType: "travel_document", ParentType: "employee",
-		ParentColumn: "email", Actor: "c@wso2.com"}); err != nil {
+		ParentColumn: "email", Actor: "c@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -111,16 +111,16 @@ func TestTracker_FundingOnlyEventWithMetadataIsRecordedWithoutRowChanges(t *test
 	defer db.Close()
 	cols := []string{"id", "updated_by"}
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM engagement WHERE id = ? FOR UPDATE`)).WithArgs("E1").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@wso2.com"))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@example.com"))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM engagement WHERE id IN (?)`)).WithArgs("E1").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@wso2.com"))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@example.com"))
 	mock.ExpectExec(regexp.QuoteMeta(insertSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
 	ctx := context.Background()
 	tr, err := Track(ctx, db, "engagement", "id", `id = ?`, "E1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := Event{Action: Update, EntityType: "engagement", Actor: "mgr@wso2.com", Metadata: map[string]any{"fundingSources": 1}}
+	e := Event{Action: Update, EntityType: "engagement", Actor: "mgr@example.com", Metadata: map[string]any{"fundingSources": 1}}
 	if err := tr.Record(ctx, db, e); err != nil {
 		t.Fatal(err)
 	}

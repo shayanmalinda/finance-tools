@@ -80,7 +80,7 @@ func (f *fakeDashboardRepo) TravelKPIs(_ context.Context, w repository.Dashboard
 }
 func (f *fakeDashboardRepo) TravelCells(context.Context, repository.DashboardWindow) ([]repository.DashboardTravelCell, error) {
 	f.call("TravelCells")
-	classic, empty := "Classic Travels", ""
+	classic, empty := "Birch Travels", ""
 	return []repository.DashboardTravelCell{
 		{Month: "2026-10", Country: "France", Agency: &classic, Count: 2},
 		{Month: "2026-11", Country: "France", Agency: &empty, Count: 1},
@@ -120,16 +120,16 @@ func TestDashboardMyWork(t *testing.T) {
 	if _, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{}); !dashboardIsValidation(err) {
 		t.Errorf("no email: err = %v", err)
 	}
-	if _, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{Email: "a@wso2.com", Today: "05/11/2026"}); !dashboardIsValidation(err) {
+	if _, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{Email: "a@example.com", Today: "05/11/2026"}); !dashboardIsValidation(err) {
 		t.Errorf("bad date: err = %v", err)
 	}
 
-	got, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{Email: "jane@wso2.com"})
+	got, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{Email: "jane@example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Without trips, travelapp is not read; today defaults to the UTC date.
-	if strings.Join(repo.calls, "|") != "OwnAllocations jane@wso2.com 2026-11-05|TeamAllocationOn 2026-11-05 2026-11-06" {
+	if strings.Join(repo.calls, "|") != "OwnAllocations jane@example.com 2026-11-05|TeamAllocationOn 2026-11-05 2026-11-06" {
 		t.Errorf("calls = %v", repo.calls)
 	}
 	b, _ := json.Marshal(got)
@@ -138,10 +138,10 @@ func TestDashboardMyWork(t *testing.T) {
 	}
 
 	repo.calls = nil
-	if _, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{Email: "jane@wso2.com", Trips: true}); err != nil {
+	if _, err := svc.MyWork(context.Background(), domain.DashboardMyWorkFilter{Email: "jane@example.com", Trips: true}); err != nil {
 		t.Fatal(err)
 	}
-	if repo.trips.Email != "jane@wso2.com" || repo.trips.Limit != 3 {
+	if repo.trips.Email != "jane@example.com" || repo.trips.Limit != 3 {
 		t.Errorf("trip filter = %+v", repo.trips)
 	}
 }
@@ -210,14 +210,18 @@ func TestDashboardTravel(t *testing.T) {
 func TestDashboardValidation(t *testing.T) {
 	svc := NewDashboardService(&fakeDashboardRepo{}, dashboardTestNow)
 	ctx := context.Background()
-	if _, err := svc.AllocationsToday(ctx, domain.DashboardAllocationsTodayFilter{Date: "2026-13-01"}); !dashboardIsValidation(err) {
-		t.Errorf("AllocationsToday bad date: %v", err)
-	}
-	if _, err := svc.Agency(ctx, 0, ""); !dashboardIsValidation(err) {
-		t.Errorf("Agency no id: %v", err)
-	}
-	if _, err := svc.Engagements(ctx, domain.DashboardEngagementsFilter{Today: "x"}); !dashboardIsValidation(err) {
-		t.Errorf("Engagements bad date: %v", err)
+	_, err := svc.AllocationsToday(ctx, domain.DashboardAllocationsTodayFilter{Date: "2026-13-01"})
+	dashboardWantValidation(t, "AllocationsToday bad date", err, "date must be a date")
+	_, err = svc.Agency(ctx, 0, "")
+	dashboardWantValidation(t, "Agency no id", err, "agencyId must be a positive integer")
+	_, err = svc.Engagements(ctx, domain.DashboardEngagementsFilter{Today: "x"})
+	dashboardWantValidation(t, "Engagements bad date", err, "today must be a date")
+}
+
+func dashboardWantValidation(t *testing.T, name string, err error, want string) {
+	t.Helper()
+	if !dashboardIsValidation(err) || !strings.Contains(err.Error(), want) {
+		t.Errorf("%s: err = %v, want validation %q", name, err, want)
 	}
 }
 

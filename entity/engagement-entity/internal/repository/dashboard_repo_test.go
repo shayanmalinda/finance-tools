@@ -136,21 +136,21 @@ func TestDashboardAllocationsToday_PastDateAndBusinessUnit(t *testing.T) {
 func TestDashboardOwnAllocationsAndTeamAllocation(t *testing.T) {
 	m := newDashboardMocks(t)
 	m.alloc.ExpectQuery(re(`WHERE a.email = ? AND a.engagement_id NOT IN ('-1', '-1.0') AND a.status = 'Active'`)).
-		WithArgs("jane@wso2.com", "2026-11-05").
+		WithArgs("jane@example.com", "2026-11-05").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "eid", "type", "acc", "title", "s", "e", "cl"}).
 			AddRow("A1", "E1", 6, "Acme", "Acme API rollout", "2026-11-01", "2026-11-20", "Confirmed").
 			AddRow("A2", "E2", nil, nil, nil, "2026-12-01", "2026-12-05", nil))
 	m.alloc.ExpectQuery(re(`a.engagement_id IN ('-1', '-1.0') AND a.status != 'Deleted'
 			AND a.start_date < ? AND a.end_date >= ?
 			AND COALESCE(aT.allocation_type, '') != 'Engagement Overhead'`)).
-		WithArgs("jane@wso2.com", "2026-11-06", "2026-11-05").
+		WithArgs("jane@example.com", "2026-11-06", "2026-11-05").
 		WillReturnError(sql.ErrNoRows)
 
-	allocs, err := m.repo.OwnAllocations(context.Background(), "jane@wso2.com", "2026-11-05")
+	allocs, err := m.repo.OwnAllocations(context.Background(), "jane@example.com", "2026-11-05")
 	if err != nil || len(allocs) != 2 || *allocs[0].EngagementTypeID != 6 || allocs[1].EngagementTypeID != nil {
 		t.Fatalf("OwnAllocations = %+v, %v", allocs, err)
 	}
-	team, err := m.repo.TeamAllocationOn(context.Background(), "jane@wso2.com", "2026-11-05", "2026-11-06")
+	team, err := m.repo.TeamAllocationOn(context.Background(), "jane@example.com", "2026-11-05", "2026-11-06")
 	if err != nil || team != nil {
 		t.Fatalf("TeamAllocationOn = %+v, %v", team, err)
 	}
@@ -242,8 +242,8 @@ func TestDashboardUpcomingTrips_Filters(t *testing.T) {
 		{"everyone", DashboardTripFilter{Today: "2026-11-05", Limit: 5},
 			`WHERE COALESCE(t.status, '') != 'Cancelled' AND t.end_date >= ? ORDER BY t.start_date, t.job_number LIMIT ?`,
 			[]driver.Value{"2026-11-05", 5}},
-		{"traveller", DashboardTripFilter{Today: "2026-11-05", Email: "jane@wso2.com", Limit: 3},
-			`AND t.end_date >= ? AND t.traveller_email = ? ORDER BY`, []driver.Value{"2026-11-05", "jane@wso2.com", 3}},
+		{"traveller", DashboardTripFilter{Today: "2026-11-05", Email: "jane@example.com", Limit: 3},
+			`AND t.end_date >= ? AND t.traveller_email = ? ORDER BY`, []driver.Value{"2026-11-05", "jane@example.com", 3}},
 		{"agency", DashboardTripFilter{Today: "2026-11-05", AgencyID: 2, Limit: 5},
 			`AND t.end_date >= ? AND t.travel_agent_id = ? ORDER BY`, []driver.Value{"2026-11-05", 2, 5}},
 	}
@@ -252,7 +252,7 @@ func TestDashboardUpcomingTrips_Filters(t *testing.T) {
 			m := newDashboardMocks(t)
 			m.travel.ExpectQuery(re(tc.sql)).WithArgs(tc.args...).
 				WillReturnRows(sqlmock.NewRows(cols).
-					AddRow("TRV-2026-11-0001", "New", "jane@wso2.com", "Paris", "France", "2026-11-10", "2026-11-12", nil, 4))
+					AddRow("TRV-2026-11-0001", "New", "jane@example.com", "Paris", "France", "2026-11-10", "2026-11-12", nil, 4))
 			got, total, err := m.repo.UpcomingTrips(context.Background(), tc.f)
 			if err != nil || len(got) != 1 || total != 4 || got[0].Agency != nil {
 				t.Fatalf("UpcomingTrips = %+v, %d, %v", got, total, err)
@@ -296,14 +296,14 @@ func TestDashboardTravelKPIsAndCells(t *testing.T) {
 	m.travel.ExpectQuery(re(`GROUP BY d_month, d_country, ta.name_of_travel_agent`)).
 		WithArgs(w.YearStart, w.Tomorrow).
 		WillReturnRows(sqlmock.NewRows([]string{"m", "c", "a", "n"}).
-			AddRow("2026-10", "France", "Classic Travels", 2).AddRow("2026-11", nil, nil, 1))
+			AddRow("2026-10", "France", "Birch Travels", 2).AddRow("2026-11", nil, nil, 1))
 
 	k, err := m.repo.TravelKPIs(context.Background(), w)
 	if err != nil || k != (DashboardTravelKPIs{1, 2, 3, 4, 5}) {
 		t.Fatalf("TravelKPIs = %+v, %v", k, err)
 	}
 	cells, err := m.repo.TravelCells(context.Background(), w)
-	if err != nil || len(cells) != 2 || *cells[0].Agency != "Classic Travels" || cells[1].Agency != nil || cells[1].Country != "" {
+	if err != nil || len(cells) != 2 || *cells[0].Agency != "Birch Travels" || cells[1].Agency != nil || cells[1].Country != "" {
 		t.Fatalf("TravelCells = %+v, %v", cells, err)
 	}
 	m.verify(t)
@@ -365,8 +365,8 @@ func TestDashboardAgency(t *testing.T) {
 	m.travel.ExpectQuery(re(`WHERE t.travel_agent_id = ? AND t.status IN ('In Progress', 'Extended') AND pa.status = 'Active'`)).
 		WithArgs(2, 5).
 		WillReturnRows(sqlmock.NewRows([]string{"j", "e", "s", "en", "d", "c", "t"}).
-			AddRow("TRV-2026-10-1246", "jane@wso2.com", "2026-10-06", "2026-10-16", 11, "GBP", 770.0).
-			AddRow("TRV-2026-10-1247", "joe@wso2.com", nil, nil, nil, nil, nil))
+			AddRow("TRV-2026-10-1246", "jane@example.com", "2026-10-06", "2026-10-16", 11, "GBP", 770.0).
+			AddRow("TRV-2026-10-1247", "member@example.com", nil, nil, nil, nil, nil))
 
 	k, err := m.repo.AgencyKPIs(context.Background(), 2, w)
 	if err != nil || k != (DashboardAgencyKPIs{3, 1, 2, 1, 6}) {

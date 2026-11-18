@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/apierror"
@@ -151,16 +152,19 @@ func TestTravelService_SearchDefaultsAndOverlay(t *testing.T) {
 
 func TestTravelService_SearchValidation(t *testing.T) {
 	_, _, _, svc := newTravelSvc()
-	for name, f := range map[string]domain.TravelRequestSearch{
-		"status":  {Statuses: []string{"Approved"}},
-		"date":    {StartFrom: "05/10/2026"},
-		"sort":    {Sort: "job"},
-		"offset":  {Offset: -1},
-		"endTo":   {EndTo: "2026-13-01"},
-		"deleted": {Statuses: []string{"Deleted"}},
+	for name, tc := range map[string]struct {
+		f    domain.TravelRequestSearch
+		want string
+	}{
+		"status":  {domain.TravelRequestSearch{Statuses: []string{"Approved"}}, `invalid travel status "Approved"`},
+		"date":    {domain.TravelRequestSearch{StartFrom: "05/10/2026"}, "startFrom must be a date"},
+		"sort":    {domain.TravelRequestSearch{Sort: "job"}, "sort must be current or startDesc"},
+		"offset":  {domain.TravelRequestSearch{Offset: -1}, "offset must be 0 or more"},
+		"endTo":   {domain.TravelRequestSearch{EndTo: "2026-13-01"}, "endTo must be a date"},
+		"deleted": {domain.TravelRequestSearch{Statuses: []string{"Deleted"}}, `invalid travel status "Deleted"`},
 	} {
-		if _, err := svc.Search(context.Background(), f); !travelIsValidation(err) {
-			t.Errorf("%s: err = %v, want validation", name, err)
+		if _, err := svc.Search(context.Background(), tc.f); !travelIsValidation(err) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want validation %q", name, err, tc.want)
 		}
 	}
 }
@@ -185,25 +189,25 @@ func TestTravelService_GetAndUpdate(t *testing.T) {
 
 	status, agent, visa, badAgent, badVisa := "In Progress", 2, 301, 9, 9
 	if _, err := svc.Update(ctx, "TRV-2026-10-0001", domain.UpdateTravelRequestInput{
-		Status: &status, TravelAgentID: &agent, VisaID: &visa, UpdatedBy: " jane@wso2.com "}); err != nil {
+		Status: &status, TravelAgentID: &agent, VisaID: &visa, UpdatedBy: " jane@example.com "}); err != nil {
 		t.Fatal(err)
 	}
-	if req.updated.UpdatedBy != "jane@wso2.com" {
+	if req.updated.UpdatedBy != "jane@example.com" {
 		t.Errorf("updatedBy = %q", req.updated.UpdatedBy)
 	}
 	for name, in := range map[string]domain.UpdateTravelRequestInput{
 		"no actor":  {Status: &status},
-		"nothing":   {UpdatedBy: "j@wso2.com"},
-		"bad state": {Status: travelStr("Approved"), UpdatedBy: "j@wso2.com"},
-		"agent":     {TravelAgentID: &badAgent, UpdatedBy: "j@wso2.com"},
-		"visa":      {VisaID: &badVisa, UpdatedBy: "j@wso2.com"},
+		"nothing":   {UpdatedBy: "j@example.com"},
+		"bad state": {Status: travelStr("Approved"), UpdatedBy: "j@example.com"},
+		"agent":     {TravelAgentID: &badAgent, UpdatedBy: "j@example.com"},
+		"visa":      {VisaID: &badVisa, UpdatedBy: "j@example.com"},
 	} {
 		if _, err := svc.Update(ctx, "TRV-2026-10-0001", in); !travelIsValidation(err) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
 	req.found = false
-	if _, err := svc.Update(ctx, "TRV-2026-10-0001", domain.UpdateTravelRequestInput{Status: &status, UpdatedBy: "j@wso2.com"}); !errors.As(err, &nf) {
+	if _, err := svc.Update(ctx, "TRV-2026-10-0001", domain.UpdateTravelRequestInput{Status: &status, UpdatedBy: "j@example.com"}); !errors.As(err, &nf) {
 		t.Errorf("not found: err = %v", err)
 	}
 }
@@ -225,8 +229,8 @@ func TestTravelDocumentService_Validation(t *testing.T) {
 	docs := &travelFakeDocuments{visas: map[int]domain.TravelVisa{1: {ID: 1}}}
 	svc := NewTravelDocumentService(docs)
 	ctx := context.Background()
-	good := domain.CreateTravelVisaInput{Email: "c@wso2.com", Country: "GB", VisaType: "Business/Visit", EntryType: "Single",
-		IssuedDate: "2026-01-01", StartDate: "2026-01-02", EndDate: "2026-12-31", ImageID: "x.png", CreatedBy: "c@wso2.com"}
+	good := domain.CreateTravelVisaInput{Email: "c@example.com", Country: "GB", VisaType: "Business/Visit", EntryType: "Single",
+		IssuedDate: "2026-01-01", StartDate: "2026-01-02", EndDate: "2026-12-31", ImageID: "x.png", CreatedBy: "c@example.com"}
 	if v, err := svc.CreateVisa(ctx, good); err != nil || v.ID != 1 {
 		t.Fatalf("create: %+v %v", v, err)
 	}
@@ -242,7 +246,7 @@ func TestTravelDocumentService_Validation(t *testing.T) {
 	}
 
 	upd := domain.UpdateTravelVisaInput{Country: "GB", VisaType: "B", EntryType: "S", IssuedDate: "2026-01-01",
-		StartDate: "2026-01-02", EndDate: "2026-12-31", Status: "inactive", UpdatedBy: "a@wso2.com"}
+		StartDate: "2026-01-02", EndDate: "2026-12-31", Status: "inactive", UpdatedBy: "a@example.com"}
 	if _, err := svc.UpdateVisa(ctx, 1, upd); err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -266,14 +270,21 @@ func TestTravelDocumentService_Validation(t *testing.T) {
 		t.Errorf("validity: %v", err)
 	}
 
-	for name, in := range map[string]domain.CreateTravelDocumentInput{
-		"type":        {Email: "c@wso2.com", DocumentNo: "1", DocumentType: "Visa", IssuedCountry: "LK", IssuedDate: "2020-01-01", ImageID: "i", CreatedBy: "c"},
-		"expiry":      {Email: "c@wso2.com", DocumentNo: "1", DocumentType: "Passport", IssuedCountry: "LK", IssuedDate: "2020-01-01", ImageID: "i", CreatedBy: "c"},
-		"issued>exp":  {Email: "c@wso2.com", DocumentNo: "1", DocumentType: "Passport", IssuedCountry: "LK", IssuedDate: "2030-01-01", ExpiryDate: travelStr("2029-01-01"), ImageID: "i", CreatedBy: "c"},
-		"no document": {Email: "c@wso2.com", DocumentType: "Passport", IssuedCountry: "LK", IssuedDate: "2020-01-01", ImageID: "i", CreatedBy: "c"},
+	doc := func(typ, no, issued string, expiry *string) domain.CreateTravelDocumentInput {
+		return domain.CreateTravelDocumentInput{Email: "c@example.com", DocumentNo: no, DocumentType: typ,
+			IssuedCountry: "LK", IssuedDate: issued, ExpiryDate: expiry, ImageID: "i", CreatedBy: "c"}
+	}
+	for name, tc := range map[string]struct {
+		in   domain.CreateTravelDocumentInput
+		want string
+	}{
+		"type":        {doc("Visa", "1", "2020-01-01", nil), "documentType must be"},
+		"expiry":      {doc("Passport", "1", "2020-01-01", nil), "expiryDate is required"},
+		"issued>exp":  {doc("Passport", "1", "2030-01-01", travelStr("2029-01-01")), "issuedDate must not be after expiryDate"},
+		"no document": {doc("Passport", "", "2020-01-01", nil), "documentNo"},
 	} {
-		if _, err := svc.CreateDocument(ctx, in); !travelIsValidation(err) {
-			t.Errorf("%s: %v", name, err)
+		if _, err := svc.CreateDocument(ctx, tc.in); !travelIsValidation(err) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want validation %q", name, err, tc.want)
 		}
 	}
 	docs.updateErr = repository.ErrTravelDuplicateActive

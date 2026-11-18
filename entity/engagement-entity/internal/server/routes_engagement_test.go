@@ -89,7 +89,7 @@ func TestEngagementRoutes_GetEngagement(t *testing.T) {
 		"last_updated_date", "campaign_id"}
 	mock.ExpectQuery(`WHERE e.id = \?`).WithArgs("E07201").WillReturnRows(sqlmock.NewRows(cols).AddRow(
 		"E07201", 6, "Paid Post Sale", 40, "Consulting", "001A", "Northwind Bank", "Open Banking PoC", "006A", "00kA",
-		"APIM PoC", "Boston", "United States of America", "Retail", "kevin@wso2.com", 1,
+		"APIM PoC", "Boston", "United States of America", "Retail", "owner@example.com", 1,
 		"NWB-APIM-0712-CO", "2026-10-19", "2026-11-19", "New", nil, "On-site", "Pending",
 		nil, "Owner", 0, "Tech", nil, nil, nil, nil, nil))
 	mock.ExpectQuery(`FROM engagement_funding_source`).WithArgs("E07201").

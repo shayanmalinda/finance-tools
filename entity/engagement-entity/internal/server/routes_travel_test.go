@@ -45,12 +45,12 @@ func TestTravelRequestDetail_CombinesBothSchemas(t *testing.T) {
 	day := func(s string) time.Time { d, _ := time.Parse(time.DateOnly, s); return d }
 	travelMock.ExpectQuery(`WHERE t.job_number = \? LIMIT 1`).WithArgs("TRV-2026-10-1246").
 		WillReturnRows(sqlmock.NewRows(make([]string, 24)).AddRow(
-			"TRV-2026-10-1246", "In Progress", "chanuka@wso2.com", "Singapore", "Singapore", "WSO2",
+			"TRV-2026-10-1246", "In Progress", "traveller@example.com", "Singapore", "Singapore", "WSO2",
 			day("2026-10-06"), day("2026-10-16"), "A2609100005", "EVT00012", "MKT-01", "Marketing Event",
 			nil, nil, nil, "Visa Not Applicable", nil, nil, nil, nil, nil, nil, nil, nil))
 	allocMock.ExpectQuery(`a.id IN \(\?\)`).WithArgs("A2609100005").
 		WillReturnRows(sqlmock.NewRows(make([]string, 9)).AddRow("A2609100005", "EVT00012",
-			"Integration Summit Singapore 2026", "WSO2", "MKT-01", "7015g00000CkR08AAF", 5, "Marketing Event", "Internal"))
+			"Integration Summit Singapore 2026", "WSO2", "MKT-01", "701000000000002AAA", 5, "Marketing Event", "Internal"))
 	allocMock.ExpectQuery(`FROM engagement_funding_source`).WithArgs("EVT00012").
 		WillReturnRows(sqlmock.NewRows(make([]string, 5)).AddRow("Integration", "APIM", "APAC", "SEA", 100.0))
 
@@ -72,7 +72,7 @@ func TestTravelRequestDetail_CombinesBothSchemas(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Engagement.CampaignID != "7015g00000CkR08AAF" || body.Visa != "Visa Not Applicable" ||
+	if body.Engagement.CampaignID != "701000000000002AAA" || body.Visa != "Visa Not Applicable" ||
 		len(body.FundingSources) != 1 || body.FundingSources[0].Percentage != 100 {
 		t.Errorf("body = %+v", body)
 	}
@@ -116,7 +116,7 @@ func TestTravelEmailAudit_NoContent(t *testing.T) {
 	h, _, travelMock := newTestRouter(t)
 	travelMock.ExpectExec(`INSERT INTO email_auditlog`).WillReturnResult(sqlmock.NewResult(1, 1))
 	rec := travelServe(h, http.MethodPost, "/travel-email-audit-logs",
-		`{"subject":"[Travel App] Travel Request (#TRV-2026-10-1246)","templateId":"noContent","contentKeyValPairs":"{}","recipients":"a@wso2.com","ccRecipients":""}`)
+		`{"subject":"[Travel App] Travel Request (#TRV-2026-10-1246)","templateId":"noContent","contentKeyValPairs":"{}","recipients":"a@example.com","ccRecipients":""}`)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body)
 	}
@@ -132,9 +132,9 @@ func TestTravelVisaCreate_Created(t *testing.T) {
 	travelMock.ExpectExec(`INSERT INTO visa_status`).WillReturnResult(sqlmock.NewResult(5, 1))
 	travelMock.ExpectCommit()
 	travelMock.ExpectQuery(`WHERE v.id = \?`).WithArgs(5).WillReturnRows(sqlmock.NewRows(make([]string, 17)).
-		AddRow(5, "c@wso2.com", "GB", "Business/Visit", "Single", nil, nil, nil, "Active", "x.png", nil, nil, nil, nil, nil, "c@wso2.com", nil))
-	rec := travelServe(h, http.MethodPost, "/visas", `{"email":"c@wso2.com","country":"GB","visaType":"Business/Visit",
-		"entryType":"Single","issuedDate":"2026-01-01","startDate":"2026-01-02","endDate":"2026-12-31","imageId":"x.png","createdBy":"c@wso2.com"}`)
+		AddRow(5, "c@example.com", "GB", "Business/Visit", "Single", nil, nil, nil, "Active", "x.png", nil, nil, nil, nil, nil, "c@example.com", nil))
+	rec := travelServe(h, http.MethodPost, "/visas", `{"email":"c@example.com","country":"GB","visaType":"Business/Visit",
+		"entryType":"Single","issuedDate":"2026-01-01","startDate":"2026-01-02","endDate":"2026-12-31","imageId":"x.png","createdBy":"c@example.com"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body)
 	}

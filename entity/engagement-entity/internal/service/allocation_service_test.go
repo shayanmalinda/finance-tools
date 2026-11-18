@@ -68,7 +68,7 @@ func isNotFound(err error) bool {
 }
 
 func goodInput() domain.AllocationInput {
-	return domain.AllocationInput{Email: "a@wso2.com", AllocationTypeID: 1, Status: "Active", StartDate: "2026-11-01",
+	return domain.AllocationInput{Email: "a@example.com", AllocationTypeID: 1, Status: "Active", StartDate: "2026-11-01",
 		EndDate: "2026-11-02", EngagementID: "-1", IsTravelRequired: "No", IsRecurring: "No"}
 }
 
@@ -77,7 +77,7 @@ func TestAllocationBulk_Validation(t *testing.T) {
 	svc := NewAllocationService(repo)
 	bad := []domain.AllocationBulkRequest{
 		{NewAllocations: []domain.AllocationInput{goodInput()}},
-		{CreatedBy: "m@wso2.com"},
+		{CreatedBy: "m@example.com"},
 	}
 	mutate := []func(*domain.AllocationInput){
 		func(a *domain.AllocationInput) { a.Email = "" },
@@ -90,7 +90,7 @@ func TestAllocationBulk_Validation(t *testing.T) {
 	for _, m := range mutate {
 		in := goodInput()
 		m(&in)
-		bad = append(bad, domain.AllocationBulkRequest{CreatedBy: "m@wso2.com", NewAllocations: []domain.AllocationInput{in}})
+		bad = append(bad, domain.AllocationBulkRequest{CreatedBy: "m@example.com", NewAllocations: []domain.AllocationInput{in}})
 	}
 	for i, req := range bad {
 		if _, err := svc.Bulk(context.Background(), req); !isValidation(err) {
@@ -100,7 +100,7 @@ func TestAllocationBulk_Validation(t *testing.T) {
 	if repo.bulk != nil {
 		t.Fatal("repository called for invalid input")
 	}
-	if _, err := svc.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "m@wso2.com",
+	if _, err := svc.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "m@example.com",
 		NewAllocations: []domain.AllocationInput{goodInput()}}); err != nil || repo.bulk == nil {
 		t.Errorf("valid: %v", err)
 	}

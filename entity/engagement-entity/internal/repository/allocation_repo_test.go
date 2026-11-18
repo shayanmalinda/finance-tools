@@ -69,10 +69,10 @@ var allocationCols = []string{
 // engagementAllocationRow is A1 of E07201 (Paid Post Sale), Confirmed, travel Yes.
 func engagementAllocationRow(clearance, travel string) []driver.Value {
 	return []driver.Value{
-		"A0000000001", "jane@wso2.com", 12, "Consulting", "#d030eb",
+		"A0000000001", "jane@example.com", 12, "Consulting", "#d030eb",
 		time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
 		"No", nil, nil, nil, "note", clearance,
-		travel, "Active", "mgr@wso2.com", []byte("2026-11-01 10:20:30"), "E07201", "NWB-CO",
+		travel, "Active", "mgr@example.com", []byte("2026-11-01 10:20:30"), "E07201", "NWB-CO",
 		"E07201", 6, "Paid Post Sale", "Customer", "Consulting", "Acme", "Acme - PoC",
 		"NWB-CO", "Sri Lanka", "Colombo", "In Progress", "Confirmed",
 		"2026-11-01", "2026-11-30", "LI-1",
@@ -81,9 +81,9 @@ func engagementAllocationRow(clearance, travel string) []driver.Value {
 
 func defaultAllocationRow() []driver.Value {
 	return []driver.Value{
-		"A0000000002", "jane@wso2.com", 40, "Digital Operations", nil,
+		"A0000000002", "jane@example.com", 40, "Digital Operations", nil,
 		"2026-11-01", "2026-11-30", "No", nil, nil, nil, nil, "Confirmed",
-		"No", "Active", "mgr@wso2.com", nil, "-1", "DIG-GEN",
+		"No", "Active", "mgr@example.com", nil, "-1", "DIG-GEN",
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	}
 }
@@ -95,7 +95,7 @@ func TestAllocationEngagement_WithFundingSources(t *testing.T) {
 			"loc", "country", "bd", "user", "cs", "code", "s", "e", "st", "es", "scope", "nature", "contact", "owner",
 			"tech", "comment", "desc"}).
 			AddRow("E07201", 6, "Paid Post Sale", "Customer", 12, "Consulting", "Yes", "Acme", "001", "Acme - PoC",
-				"OPP", "LI-1", "APIM", "Colombo", "Sri Lanka", nil, "kevin@wso2.com", int64(1), "NWB-CO",
+				"OPP", "LI-1", "APIM", "Colombo", "Sri Lanka", nil, "owner@example.com", int64(1), "NWB-CO",
 				time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), "2026-11-30", "New", "Pending", nil, "On-site", nil,
 				"Owner", "Tech", nil, nil))
 	m.alloc.ExpectQuery(re("FROM engagement_funding_source AS eng_fs")).WithArgs("E07201").WillReturnRows(
@@ -154,12 +154,12 @@ func TestAllocationGet_EngagementAndDefault(t *testing.T) {
 func TestAllocationTimeline_WindowTypesAndActiveOnly(t *testing.T) {
 	m := newAllocationMocks(t)
 	m.alloc.ExpectQuery(re("WHERE a.email IN (?, ?) AND (")+".*"+re("AND a.status = 'Active' AND a.allocation_type IN (?) ORDER BY a.start_date, a.id")).
-		WithArgs("a@wso2.com", "b@wso2.com", "2026-11-01", "2026-11-30", "2026-11-01", "2026-11-30",
+		WithArgs("a@example.com", "b@example.com", "2026-11-01", "2026-11-30", "2026-11-01", "2026-11-30",
 			"2026-11-01", "2026-11-30", "2026-11-01", "2026-11-30", 40).
 		WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(defaultAllocationRow()...))
 
 	got, err := m.repo.Timeline(context.Background(), domain.AllocationTimelineRequest{
-		Emails: []string{"a@wso2.com", "b@wso2.com"}, StartDate: "2026-11-01", EndDate: "2026-11-30", AllocationTypeIDs: []int{40},
+		Emails: []string{"a@example.com", "b@example.com"}, StartDate: "2026-11-01", EndDate: "2026-11-30", AllocationTypeIDs: []int{40},
 	})
 	if err != nil || len(got) != 1 {
 		t.Fatalf("got %v, %v", got, err)
@@ -174,7 +174,7 @@ func TestAllocationSearch_FiltersCountPageAndTravel(t *testing.T) {
 	m := newAllocationMocks(t)
 	yes := true
 	req := domain.AllocationSearchRequest{
-		EngagementTypeIDs: []int{3, 4}, ClearanceStatuses: []string{"Confirmed"}, Consultants: []string{"jane@wso2.com"},
+		EngagementTypeIDs: []int{3, 4}, ClearanceStatuses: []string{"Confirmed"}, Consultants: []string{"jane@example.com"},
 		AllocationTypes: []string{"Consulting"}, TravelRequired: &yes, StartFrom: "2026-01-01", EndTo: "2026-12-31",
 		Search: "50%", Today: "2026-11-05", Limit: 10, Offset: 20,
 	}
@@ -182,7 +182,7 @@ func TestAllocationSearch_FiltersCountPageAndTravel(t *testing.T) {
 		" AND a.clearance_status IN (?) AND a.email IN (?) AND eaT.allocation_type IN (?)" +
 		" AND a.isTravelRequired = 'Yes' AND a.start_date >= ? AND a.end_date <= ?" +
 		" AND (a.id LIKE ? OR a.email LIKE ? OR e.id LIKE ? OR e.project_name LIKE ? OR e.customer_name LIKE ? OR e.engagement_code LIKE ?)")
-	args := []driver.Value{3, 4, "Confirmed", "jane@wso2.com", "Consulting", "2026-01-01", "2026-12-31 23:59:59",
+	args := []driver.Value{3, 4, "Confirmed", "jane@example.com", "Consulting", "2026-01-01", "2026-12-31 23:59:59",
 		`%50\%%`, `%50\%%`, `%50\%%`, `%50\%%`, `%50\%%`, `%50\%%`}
 	m.alloc.ExpectQuery(re("SELECT COUNT(*)") + ".*" + where).WithArgs(args...).
 		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(21))
@@ -191,7 +191,7 @@ func TestAllocationSearch_FiltersCountPageAndTravel(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow("Confirmed", "Yes")...))
 	m.travel.ExpectQuery(re("FROM travel WHERE allocation_id IN (?) ORDER BY job_number")).WithArgs("A0000000001").
 		WillReturnRows(sqlmock.NewRows([]string{"job", "aid", "email", "status"}).
-			AddRow("TRV-2026-11-0001", "A0000000001", "jane@wso2.com", "New"))
+			AddRow("TRV-2026-11-0001", "A0000000001", "jane@example.com", "New"))
 
 	items, total, err := m.repo.Search(context.Background(), req)
 	if err != nil {
@@ -220,12 +220,12 @@ func TestAllocationBulk_IdenticalActiveAllocationIsRefused(t *testing.T) {
 	m := newAllocationMocks(t)
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")+".*"+re("FOR UPDATE")).
-		WithArgs("jane@wso2.com", "E07201", "2026-11-10", "2026-11-20", "09:00", "11:00").
+		WithArgs("jane@example.com", "E07201", "2026-11-10", "2026-11-20", "09:00", "11:00").
 		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	m.alloc.ExpectRollback()
 
-	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
-		NewAllocations: []domain.AllocationInput{{Email: "jane@wso2.com", EngagementID: "E07201",
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
+		NewAllocations: []domain.AllocationInput{{Email: "jane@example.com", EngagementID: "E07201",
 			StartDate: "2026-11-10", EndDate: "2026-11-20", StartTime: allocStr("09:00"), EndTime: allocStr("11:00"), Status: "Active"}}})
 	var ce *apierror.ConflictError
 	if !errors.As(err, &ce) {
@@ -236,15 +236,15 @@ func TestAllocationBulk_IdenticalActiveAllocationIsRefused(t *testing.T) {
 
 func TestAllocationBulk_DuplicateCandidatesInOnePayloadAreRefused(t *testing.T) {
 	m := newAllocationMocks(t)
-	a := domain.AllocationInput{Email: "jane@wso2.com", EngagementID: "E07201", StartDate: "2026-11-10", EndDate: "2026-11-20",
+	a := domain.AllocationInput{Email: "jane@example.com", EngagementID: "E07201", StartDate: "2026-11-10", EndDate: "2026-11-20",
 		StartTime: allocStr("09:00"), EndTime: allocStr("11:00"), Status: "Active"}
 	twin := a
-	twin.Email = "Jane@wso2.com"
+	twin.Email = "Jane@example.com"
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
 	m.alloc.ExpectRollback()
 
-	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
 		NewAllocations: []domain.AllocationInput{a, twin}})
 	var ce *apierror.ConflictError
 	if !errors.As(err, &ce) {
@@ -255,7 +255,7 @@ func TestAllocationBulk_DuplicateCandidatesInOnePayloadAreRefused(t *testing.T) 
 
 func TestAllocationBulk_InactiveAfterAnActiveTwinIsRefused(t *testing.T) {
 	m := newAllocationMocks(t)
-	a := domain.AllocationInput{Email: "jane@wso2.com", EngagementID: "E07201", StartDate: "2026-11-10",
+	a := domain.AllocationInput{Email: "jane@example.com", EngagementID: "E07201", StartDate: "2026-11-10",
 		EndDate: "2026-11-20", Status: "Active"}
 	inactive := a
 	inactive.Status = "Inactive"
@@ -264,7 +264,7 @@ func TestAllocationBulk_InactiveAfterAnActiveTwinIsRefused(t *testing.T) {
 	m.alloc.ExpectRollback()
 
 	// In separate requests the Inactive one meets the saved Active row.
-	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
 		NewAllocations: []domain.AllocationInput{a, inactive}})
 	var ce *apierror.ConflictError
 	if !errors.As(err, &ce) {
@@ -275,7 +275,7 @@ func TestAllocationBulk_InactiveAfterAnActiveTwinIsRefused(t *testing.T) {
 
 func TestAllocationBulk_InactiveTwinsAreLeftToTheSavedRowCheck(t *testing.T) {
 	m := newAllocationMocks(t)
-	a := domain.AllocationInput{Email: "jane@wso2.com", EngagementID: "E07201", StartDate: "2026-11-10",
+	a := domain.AllocationInput{Email: "jane@example.com", EngagementID: "E07201", StartDate: "2026-11-10",
 		EndDate: "2026-11-20", Status: "Inactive"}
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
@@ -283,7 +283,7 @@ func TestAllocationBulk_InactiveTwinsAreLeftToTheSavedRowCheck(t *testing.T) {
 	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	m.alloc.ExpectRollback()
 
-	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
 		NewAllocations: []domain.AllocationInput{a, a}})
 	var ce *apierror.ConflictError
 	if !errors.As(err, &ce) {
@@ -295,7 +295,7 @@ func TestAllocationBulk_InactiveTwinsAreLeftToTheSavedRowCheck(t *testing.T) {
 func TestAllocationBulk_TravelBindsToTheFirstQualifyingAllocationID(t *testing.T) {
 	m := newAllocationMocks(t)
 	eng := "E07201"
-	plain := domain.AllocationInput{Email: "jane@wso2.com", AllocationTypeID: 12, Status: "Active",
+	plain := domain.AllocationInput{Email: "jane@example.com", AllocationTypeID: 12, Status: "Active",
 		StartDate: "2026-11-10", EndDate: "2026-11-20", EngagementID: eng, IsTravelRequired: "No", IsRecurring: "No"}
 	qualifying := plain
 	qualifying.IsTravelRequired, qualifying.ClearanceStatus = "Yes", confirmed()
@@ -311,8 +311,8 @@ func TestAllocationBulk_TravelBindsToTheFirstQualifyingAllocationID(t *testing.T
 	m.alloc.ExpectQuery(re("SELECT aT.allocation_type")).WithArgs("A2").WillReturnRows(
 		sqlmock.NewRows([]string{"t", "c", "l", "cn", "p"}).AddRow("T", "LK", nil, "Acme", nil))
 	m.travel.ExpectBegin()
-	m.travel.ExpectExec(re("INSERT INTO travel (")).WithArgs("jane@wso2.com", "T", "LK", nil, "", "Acme", "2026-11-10", "2026-11-20",
-		"New", "Pre-Approved", "mgr@wso2.com", "mgr@wso2.com", "unmodified", "Approved", nil, eng, "A2").
+	m.travel.ExpectExec(re("INSERT INTO travel (")).WithArgs("jane@example.com", "T", "LK", nil, "", "Acme", "2026-11-10", "2026-11-20",
+		"New", "Pre-Approved", "mgr@example.com", "mgr@example.com", "unmodified", "Approved", nil, eng, "A2").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectQuery(re("SELECT job_number")).WillReturnRows(sqlmock.NewRows([]string{"j"}).AddRow("TRV-1"))
 	m.travel.ExpectCommit()
@@ -320,7 +320,7 @@ func TestAllocationBulk_TravelBindsToTheFirstQualifyingAllocationID(t *testing.T
 
 	// Distinct times keep the two rows from being duplicates of each other.
 	plain.StartTime, plain.EndTime = allocStr("13:00"), allocStr("14:00")
-	if _, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
+	if _, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
 		NewAllocations: []domain.AllocationInput{plain, qualifying}}); err != nil {
 		t.Fatal(err)
 	}
@@ -330,19 +330,19 @@ func TestAllocationBulk_TravelBindsToTheFirstQualifyingAllocationID(t *testing.T
 func TestAllocationBulk_InsertsTravelUpdatesLogsAndRequestStatus(t *testing.T) {
 	m := newAllocationMocks(t)
 	eng := "E07201"
-	main := domain.AllocationInput{Email: "jane@wso2.com", AllocationTypeID: 12, Status: "Active", ClearanceStatus: confirmed(),
+	main := domain.AllocationInput{Email: "jane@example.com", AllocationTypeID: 12, Status: "Active", ClearanceStatus: confirmed(),
 		StartDate: "2026-11-10", EndDate: "2026-11-20", EngagementID: eng, EngagementCode: "NWB-CO",
 		IsTravelRequired: "Yes", IsRecurring: "No"}
-	eo := domain.AllocationInput{Email: "jane@wso2.com", AllocationTypeID: 99, Status: "Active", ClearanceStatus: confirmed(),
+	eo := domain.AllocationInput{Email: "jane@example.com", AllocationTypeID: 99, Status: "Active", ClearanceStatus: confirmed(),
 		StartDate: "2026-11-05", EndDate: "2026-11-09", EngagementID: "-1.0", EngagementCode: "NWB-CO-EO",
 		IsTravelRequired: "No", IsRecurring: "No"}
 
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectQuery(re("SELECT COUNT(*) FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
 	m.alloc.ExpectExec(re("INSERT INTO allocation (")).
-		WithArgs("jane@wso2.com", 12, "Active", nil, "Confirmed", "2026-11-10", "2026-11-20", nil, nil, nil,
-			"mgr@wso2.com", eng, "NWB-CO", "Yes", "No", nil).WillReturnResult(sqlmock.NewResult(0, 1))
-	m.alloc.ExpectQuery(re("SELECT id FROM allocation")).WithArgs("jane@wso2.com", eng, "2026-11-10", "2026-11-20", "Active").
+		WithArgs("jane@example.com", 12, "Active", nil, "Confirmed", "2026-11-10", "2026-11-20", nil, nil, nil,
+			"mgr@example.com", eng, "NWB-CO", "Yes", "No", nil).WillReturnResult(sqlmock.NewResult(0, 1))
+	m.alloc.ExpectQuery(re("SELECT id FROM allocation")).WithArgs("jane@example.com", eng, "2026-11-10", "2026-11-20", "Active").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("A0000000009"))
 	m.alloc.ExpectExec(re("INSERT INTO allocation (")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectQuery(re("SELECT aT.allocation_type, e.country")).WithArgs("A0000000009").
@@ -350,27 +350,28 @@ func TestAllocationBulk_InsertsTravelUpdatesLogsAndRequestStatus(t *testing.T) {
 			AddRow("Consulting", "Sri Lanka", "Colombo → HQ", "Acme", "LI-1"))
 	m.travel.ExpectBegin()
 	m.travel.ExpectExec(re("INSERT INTO travel (")).
-		WithArgs("jane@wso2.com", "Consulting", "Sri Lanka", "Colombo -> HQ", "NWB-CO", "Acme", "2026-11-10", "2026-11-20",
-			"New", "Pre-Approved", "mgr@wso2.com", "mgr@wso2.com", "unmodified", "Approved", "LI-1", eng, "A0000000009").
+		WithArgs("jane@example.com", "Consulting", "Sri Lanka", "Colombo -> HQ", "NWB-CO", "Acme", "2026-11-10", "2026-11-20",
+			"New", "Pre-Approved", "mgr@example.com", "mgr@example.com", "unmodified", "Approved", "LI-1", eng, "A0000000009").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	m.travel.ExpectQuery(re("SELECT job_number FROM travel")).WithArgs("A0000000009", "jane@wso2.com").
+	m.travel.ExpectQuery(re("SELECT job_number FROM travel")).WithArgs("A0000000009", "jane@example.com").
 		WillReturnRows(sqlmock.NewRows([]string{"job"}).AddRow("TRV-2026-11-0042"))
 	m.travel.ExpectCommit()
 	m.alloc.ExpectExec(re("UPDATE allocation SET start_date = ?, end_date = ?, updated_by = ?")).
-		WithArgs("2026-11-21", "2026-11-30", "mgr@wso2.com", "A0000000005").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("2026-11-21", "2026-11-30", "mgr@example.com", "A0000000005").WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectExec(re("UPDATE engagement SET updated_by = ?, status = ? WHERE Id = ?")).
-		WithArgs("mgr@wso2.com", "In Progress", eng).WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("mgr@example.com", "In Progress", eng).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectCommit()
 
 	resp, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{
-		CreatedBy: "mgr@wso2.com", NewAllocations: []domain.AllocationInput{main, eo},
+		CreatedBy: "mgr@example.com", NewAllocations: []domain.AllocationInput{main, eo},
 		UpdateAllocations:       []domain.AllocationDateUpdate{{ID: "A0000000005", StartDate: "2026-11-21", EndDate: "2026-11-30"}},
 		RequestStatusInProgress: &eng,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *resp.FirstAllocationID != "A0000000009" || *resp.TravelJobNumber != "TRV-2026-11-0042" || resp.RecordsAdded != 2 || resp.RecordsUpdated != 1 {
+	if resp.FirstAllocationID == nil || resp.TravelJobNumber == nil || *resp.FirstAllocationID != "A0000000009" ||
+		*resp.TravelJobNumber != "TRV-2026-11-0042" || resp.RecordsAdded != 2 || resp.RecordsUpdated != 1 {
 		t.Errorf("resp = %+v", resp)
 	}
 	m.verify(t)
@@ -378,23 +379,23 @@ func TestAllocationBulk_InsertsTravelUpdatesLogsAndRequestStatus(t *testing.T) {
 
 func TestAllocationBulk_UploadLogsAndTravelFailureRollsBack(t *testing.T) {
 	m := newAllocationMocks(t)
-	logs := domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
-		NewAllocations: []domain.AllocationInput{{Email: "a@wso2.com", AllocationTypeID: 40, Status: "Active",
+	logs := domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
+		NewAllocations: []domain.AllocationInput{{Email: "a@example.com", AllocationTypeID: 40, Status: "Active",
 			StartDate: "2026-11-01", EndDate: "2026-11-05", EngagementID: "-1.0", EngagementCode: "DIG-GEN",
 			IsTravelRequired: "No", IsRecurring: "No"}},
-		AllocationLogs: []domain.AllocationUploadLog{{Email: "a@wso2.com", AllocationTypeID: 40, StartDate: "2026-11-01",
+		AllocationLogs: []domain.AllocationUploadLog{{Email: "a@example.com", AllocationTypeID: 40, StartDate: "2026-11-01",
 			EndDate: "2026-11-05", EngagementCode: "DIG-GEN"}}}
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectExec(re("INSERT INTO allocation (")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectQuery(re("SELECT id FROM allocation")).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("A1"))
 	m.alloc.ExpectExec(re("INSERT INTO allocation_upload_log (")).
-		WithArgs("a@wso2.com", "2026-11-01", "2026-11-05", 40, "DIG-GEN", "mgr@wso2.com").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("a@example.com", "2026-11-01", "2026-11-05", 40, "DIG-GEN", "mgr@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectCommit()
 	if _, err := m.repo.Bulk(context.Background(), logs); err != nil {
 		t.Fatal(err)
 	}
 
-	// A travel insert failure rolls the allocation back (legacy order).
+	// A travel insert failure rolls the allocation back.
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectQuery(re("SELECT COUNT(*)")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
 	m.alloc.ExpectExec(re("INSERT INTO allocation (")).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -405,8 +406,8 @@ func TestAllocationBulk_UploadLogsAndTravelFailureRollsBack(t *testing.T) {
 	m.travel.ExpectExec(re("INSERT INTO travel (")).WillReturnError(errors.New("boom"))
 	m.travel.ExpectRollback()
 	m.alloc.ExpectRollback()
-	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@wso2.com",
-		NewAllocations: []domain.AllocationInput{{Email: "b@wso2.com", AllocationTypeID: 1, Status: "Active", ClearanceStatus: confirmed(),
+	_, err := m.repo.Bulk(context.Background(), domain.AllocationBulkRequest{CreatedBy: "mgr@example.com",
+		NewAllocations: []domain.AllocationInput{{Email: "b@example.com", AllocationTypeID: 1, Status: "Active", ClearanceStatus: confirmed(),
 			StartDate: "2026-11-01", EndDate: "2026-11-02", EngagementID: "E1", IsTravelRequired: "Yes", IsRecurring: "No"}}})
 	if err == nil {
 		t.Error("travel failure: want error")
@@ -415,7 +416,7 @@ func TestAllocationBulk_UploadLogsAndTravelFailureRollsBack(t *testing.T) {
 }
 
 func preRecord(clearance, travel, email string) domain.AllocationRecord {
-	c, tr, by := clearance, travel, "adder@wso2.com"
+	c, tr, by := clearance, travel, "adder@example.com"
 	code, country, addr, cust, typ, li := "NWB-CO", "Sri Lanka", "Colombo", "Acme", "Consulting", "LI-1"
 	return domain.AllocationRecord{ID: "A0000000001", Email: email, StartDate: "2026-11-10", EndDate: "2026-11-20",
 		ClearanceStatus: &c, IsTravelRequired: &tr, AddedBy: &by,
@@ -428,19 +429,19 @@ func TestAllocationUpdate_ConfirmCreatesTravelAddedByTheAllocator(t *testing.T) 
 	next, status, comment := "Confirmed", "Active", "ok"
 	m.alloc.ExpectBegin()
 	m.alloc.ExpectExec(re("UPDATE allocation SET updated_by = ?, clearance_status = ?, status = ?, comment = ? WHERE Id = ?")).
-		WithArgs("mgr@wso2.com", "Confirmed", "Active", "ok", "A0000000001").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("mgr@example.com", "Confirmed", "Active", "ok", "A0000000001").WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectBegin()
 	m.travel.ExpectExec(re("INSERT INTO travel (")).
-		WithArgs("jane@wso2.com", "Consulting", "Sri Lanka", "Colombo", "NWB-CO", "Acme", "2026-11-10", "2026-11-20",
-			"New", "Pre-Approved", "adder@wso2.com", "adder@wso2.com", "unmodified", "Approved", "LI-1", "E07201", "A0000000001").
+		WithArgs("jane@example.com", "Consulting", "Sri Lanka", "Colombo", "NWB-CO", "Acme", "2026-11-10", "2026-11-20",
+			"New", "Pre-Approved", "adder@example.com", "adder@example.com", "unmodified", "Approved", "LI-1", "E07201", "A0000000001").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectQuery(re("SELECT job_number")).WillReturnRows(sqlmock.NewRows([]string{"j"}).AddRow("TRV-1"))
 	m.travel.ExpectCommit()
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow("Confirmed", "Yes")...))
 
-	resp, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &next, Status: &status, Comment: &comment, UpdatedBy: "mgr@wso2.com"})
+	resp, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &next, Status: &status, Comment: &comment, UpdatedBy: "mgr@example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,8 +458,8 @@ func TestAllocationUpdate_UnchangedStatusAddsNoTravel_UpdatedDatesGoToTravel(t *
 	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow(same, "Yes")...))
-	if _, err := m.repo.Update(context.Background(), preRecord("Confirmed", "Yes", "jane@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &same, UpdatedBy: "mgr@wso2.com"}); err != nil {
+	if _, err := m.repo.Update(context.Background(), preRecord("Confirmed", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &same, UpdatedBy: "mgr@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -467,15 +468,15 @@ func TestAllocationUpdate_UnchangedStatusAddsNoTravel_UpdatedDatesGoToTravel(t *
 	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectBegin()
 	m.travel.ExpectExec(re("INSERT INTO travel (")).
-		WithArgs("jane@wso2.com", "Consulting", "Sri Lanka", "Colombo", "NWB-CO", "Acme", start, end,
-			"New", "Pre-Approved", "adder@wso2.com", "adder@wso2.com", "unmodified", "Approved", "LI-1", "E07201", "A0000000001").
+		WithArgs("jane@example.com", "Consulting", "Sri Lanka", "Colombo", "NWB-CO", "Acme", start, end,
+			"New", "Pre-Approved", "adder@example.com", "adder@example.com", "unmodified", "Approved", "LI-1", "E07201", "A0000000001").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectQuery(re("SELECT job_number")).WillReturnRows(sqlmock.NewRows([]string{"j"}).AddRow("TRV-2"))
 	m.travel.ExpectCommit()
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow(same, "Yes")...))
-	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &same, StartDate: &start, EndDate: &end, UpdatedBy: "mgr@wso2.com"}); err != nil {
+	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &same, StartDate: &start, EndDate: &end, UpdatedBy: "mgr@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	m.verify(t)
@@ -489,12 +490,12 @@ func TestAllocationUpdate_RejectCancelsTravel_PartnerAndCVPToConfirmedDoNot(t *t
 	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectBegin()
 	m.travel.ExpectExec(re("UPDATE travel SET status = ? WHERE traveller_email = ? AND allocation_id = ?")).
-		WithArgs("Cancelled", "jane@wso2.com", "A0000000001").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("Cancelled", "jane@example.com", "A0000000001").WillReturnResult(sqlmock.NewResult(0, 1))
 	m.travel.ExpectCommit()
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow(rejected, "Yes")...))
-	resp, err := m.repo.Update(context.Background(), preRecord("Confirmed", "Yes", "jane@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &rejected, Status: &status, UpdatedBy: "mgr@wso2.com"})
+	resp, err := m.repo.Update(context.Background(), preRecord("Confirmed", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &rejected, Status: &status, UpdatedBy: "mgr@example.com"})
 	if err != nil || !resp.TravelCancelled {
 		t.Fatalf("reject: %+v, %v", resp, err)
 	}
@@ -504,8 +505,8 @@ func TestAllocationUpdate_RejectCancelsTravel_PartnerAndCVPToConfirmedDoNot(t *t
 	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow(confirmedS, "Yes")...))
-	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "partner-allocations-group+X+A+B@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &confirmedS, UpdatedBy: "mgr@wso2.com"}); err != nil {
+	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "partner-allocations-group+X+A+B@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &confirmedS, UpdatedBy: "mgr@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -514,8 +515,8 @@ func TestAllocationUpdate_RejectCancelsTravel_PartnerAndCVPToConfirmedDoNot(t *t
 	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
 	m.alloc.ExpectCommit()
 	m.alloc.ExpectQuery(re("WHERE a.id = ?")).WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow(confirmedS, "Yes")...))
-	if _, err := m.repo.Update(context.Background(), preRecord("Confirmed - Visa Pending", "Yes", "jane@wso2.com"),
-		domain.AllocationUpdateRequest{ClearanceStatus: &confirmedS, UpdatedBy: "mgr@wso2.com"}); err != nil {
+	if _, err := m.repo.Update(context.Background(), preRecord("Confirmed - Visa Pending", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &confirmedS, UpdatedBy: "mgr@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	m.verify(t)
@@ -530,10 +531,10 @@ func TestAllocationDeleteAndVisas(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.travel.ExpectQuery(re("WHERE email = ? AND end_date >= ? AND start_date <= ? LIMIT 100 OFFSET 0")).
-		WithArgs("jane@wso2.com", "2026-11-20", "2026-11-10").
+		WithArgs("jane@example.com", "2026-11-20", "2026-11-10").
 		WillReturnRows(sqlmock.NewRows([]string{"c", "t", "e", "s", "sd", "ed"}).
 			AddRow("India", "Business", "Multiple", "Approved", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "2027-01-01 00:00:00"))
-	v, err := m.repo.Visas(context.Background(), "jane@wso2.com", "2026-11-10", "2026-11-20")
+	v, err := m.repo.Visas(context.Background(), "jane@example.com", "2026-11-10", "2026-11-20")
 	if err != nil || len(v) != 1 || *v[0].EndDate != "2027-01-01" {
 		t.Errorf("visas = %+v, %v", v, err)
 	}
@@ -542,16 +543,16 @@ func TestAllocationDeleteAndVisas(t *testing.T) {
 
 func TestConsultantAllocations_LegacyFiltersAndFundingSources(t *testing.T) {
 	m := newAllocationMocks(t)
-	f := domain.ConsultantAllocationFilter{StartDate: "2026-11-01", EndDate: "2026-11-30", Email: "jane@wso2.com",
+	f := domain.ConsultantAllocationFilter{StartDate: "2026-11-01", EndDate: "2026-11-30", Email: "jane@example.com",
 		AllocationTypeIDs: []int{12}, BusinessUnit: "PARTNER", Department: "D", Team: "T"}
 	m.alloc.ExpectQuery(re("WHERE allocation.status = 'Active'")+".*"+re("AND allocation.clearance_status = 'Confirmed'")+".*"+
 		re("AND employee.BusinessUnit = ? AND employee.Department = ? AND employee.Team = ? AND allocation.email IN (?) AND allocation.allocation_type IN (?) ORDER BY id")).
 		WithArgs("2026-11-30", "2026-11-01", "2026-11-01", "2026-11-30", "2026-11-01", "2026-11-30", "2026-11-01", "2026-11-30",
-			"PARTNER", "D", "T", "jane@wso2.com", 12).
+			"PARTNER", "D", "T", "jane@example.com", 12).
 		WillReturnRows(sqlmock.NewRows(make([]string, 22)).
-			AddRow("A1", "jane@wso2.com", "Consulting", "2026-10-01 00:00:00", "2026-11-10 00:00:00", "E07201", "No", nil, nil, nil,
+			AddRow("A1", "jane@example.com", "Consulting", "2026-10-01 00:00:00", "2026-11-10 00:00:00", "E07201", "No", nil, nil, nil,
 				"NWB-CO", "On-site", "Sri Lanka", "NWB-CO", "CS-GEN", "Paid Post Sale", 40, "D", "T", "BU", "LK", "WSO2 Lanka").
-			AddRow("A2", "jane@wso2.com", "Digital", "2026-11-11 00:00:00", "2026-11-30 00:00:00", "-1", "Yes", "09:00:00", "11:00:00", "Asia/Colombo",
+			AddRow("A2", "jane@example.com", "Digital", "2026-11-11 00:00:00", "2026-11-30 00:00:00", "-1", "Yes", "09:00:00", "11:00:00", "Asia/Colombo",
 				nil, nil, nil, "DIG-GEN", "DIG-GEN", "Internal Engagement", 19, "D", "T", "BU", "LK", "WSO2 Lanka"))
 	m.alloc.ExpectQuery(re("WHERE eng_fs.engagement_id IN (?)")).WithArgs("E07201").
 		WillReturnRows(sqlmock.NewRows([]string{"e", "b", "p", "s", "r", "pct"}).AddRow("E07201", "APIM", "PU", "SR", "R", 100.0))
@@ -571,14 +572,14 @@ func TestNonAllocatedEmployees_SubtractsAllocated(t *testing.T) {
 	m := newAllocationMocks(t)
 	f := domain.ConsultantAllocationFilter{StartDate: "2026-11-01", EndDate: "2026-11-30", Department: "PARTNER"}
 	m.alloc.ExpectQuery(re("SELECT DISTINCT employee.Work_Email AS workEmail") + ".*" + re("AND employee.Department = ?")).
-		WillReturnRows(sqlmock.NewRows([]string{"w"}).AddRow("a@wso2.com").AddRow(nil))
+		WillReturnRows(sqlmock.NewRows([]string{"w"}).AddRow("a@example.com").AddRow(nil))
 	m.alloc.ExpectQuery(re("FROM employee")+".*"+re("WHERE department != 'PARTNER'")+".*"+re("AND employee.Work_Email != '' ORDER BY employee.Work_Email")).
 		WithArgs("2026-11-30", "2026-11-01").
 		WillReturnRows(sqlmock.NewRows([]string{"w", "t", "b", "d", "j", "c"}).
-			AddRow("a@wso2.com", "T", "B", "D", "Software Engineer", "C").
-			AddRow("b@wso2.com", "T", "B", "D", "Software Engineer", "C"))
+			AddRow("a@example.com", "T", "B", "D", "Software Engineer", "C").
+			AddRow("b@example.com", "T", "B", "D", "Software Engineer", "C"))
 	got, err := m.repo.NonAllocatedEmployees(context.Background(), f)
-	if err != nil || len(got) != 1 || *got[0].WorkEmail != "b@wso2.com" {
+	if err != nil || len(got) != 1 || *got[0].WorkEmail != "b@example.com" {
 		t.Errorf("got %+v, %v", got, err)
 	}
 	m.verify(t)

@@ -53,9 +53,9 @@ func TestReferenceLists(t *testing.T) {
 	}
 
 	travelMock.ExpectQuery(re(`SELECT id, name_of_travel_agent, status, vendor_id FROM travel_agents ORDER BY name_of_travel_agent`)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "n", "s", "v"}).AddRow(1, "Classic Travels", "Active", 2339).AddRow(2, "Gone", "Deleted", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "n", "s", "v"}).AddRow(1, "Birch Travels", "Active", 9001).AddRow(2, "Gone", "Deleted", nil))
 	ags, err := repo.TravelAgencies(ctx)
-	if err != nil || len(ags) != 2 || !ags[0].Active || *ags[0].NetsuiteVendorID != "2339" || ags[1].Active || ags[1].NetsuiteVendorID != nil {
+	if err != nil || len(ags) != 2 || !ags[0].Active || *ags[0].NetsuiteVendorID != "9001" || ags[1].Active || ags[1].NetsuiteVendorID != nil {
 		t.Fatalf("agencies %+v err %v", ags, err)
 	}
 	travelMock.ExpectQuery(re(`SELECT id, name FROM inv_cost_type WHERE status = 'active' ORDER BY id`)).

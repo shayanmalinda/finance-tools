@@ -55,7 +55,7 @@ func (f *fakeFinanceRepo) AuditPush(_ context.Context, e audit.Event) error {
 }
 
 func (f *fakeFinanceRepo) Trip(_ context.Context, jn string) (*domain.FinanceTrip, error) {
-	return &domain.FinanceTrip{JobNumber: jn, TravellerEmail: "jane@wso2.com", AllocationID: fp("A1"), CustomerName: fp("Travel Customer"),
+	return &domain.FinanceTrip{JobNumber: jn, TravellerEmail: "jane@example.com", AllocationID: fp("A1"), CustomerName: fp("Travel Customer"),
 		EngagementCode: fp("STALE")}, nil
 }
 func (f *fakeFinanceRepo) Invoice(context.Context, int) (*domain.FinanceInvoice, error) {
@@ -79,7 +79,11 @@ func (f *fakeFinanceRepo) FailInvoicePush(_ context.Context, _ int, _, msg strin
 	return nil
 }
 func (f *fakeFinanceRepo) ResolveInvoiceFailure(_ context.Context, _ int, _, ref string) (bool, error) {
-	f.log("resolve:" + map[bool]string{true: "found " + ref, false: "notfound"}[ref != ""])
+	if ref != "" {
+		f.log("resolve:found " + ref)
+	} else {
+		f.log("resolve:notfound")
+	}
 	return true, nil
 }
 func (f *fakeFinanceRepo) CompleteInvoicePush(_ context.Context, _ int, ref string) error {
@@ -182,8 +186,8 @@ func (f *fakeNetSuite) CreateVendorBill(_ context.Context, vb netsuite.VendorBil
 func approvedInvoice() *domain.FinanceInvoice {
 	return &domain.FinanceInvoice{ID: 7, InvoiceNumber: "INV-1", JobNumber: "TRV-2026-11-0001", Status: "Accepted by finance",
 		InvoiceCurrency: "USD", InvoiceAmountText: "155100.00", ConvertedCurrency: "USD", ConvertedAmountText: "155100.00",
-		VendorID: fp(2339), Department: fp("Sales"), AccountInternalID: fp("6001"), CostTypeName: fp("Currency"),
-		FinanceApprovedBy: fp("fin@wso2.com"), AddedDate: fp("2026-11-04 10:00:00")}
+		VendorID: fp(9001), Department: fp("Sales"), AccountInternalID: fp("6001"), CostTypeName: fp("Currency"),
+		FinanceApprovedBy: fp("fin@example.com"), AddedDate: fp("2026-11-04 10:00:00")}
 }
 
 func newFinanceSvc(repo *fakeFinanceRepo, ns *fakeNetSuite) *financeService {
@@ -195,13 +199,13 @@ func newFinanceSvc(repo *fakeFinanceRepo, ns *fakeNetSuite) *financeService {
 func TestPushInvoice_PushesAndBuildsTheLegacyPayload(t *testing.T) {
 	repo := &fakeFinanceRepo{invoice: approvedInvoice(), claimWon: true}
 	ns := &fakeNetSuite{enabled: true}
-	res, err := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@wso2.com")
-	if err != nil || !res.OK || res.Outcome != domain.NSOutcomePushed || *res.Reference != "5501" {
+	res, err := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@example.com")
+	if err != nil || !res.OK || res.Outcome != domain.NSOutcomePushed || res.Reference == nil || *res.Reference != "5501" {
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
 	po := ns.po
-	if po.Memo != "Currency - jane@wso2.com - (USD 155100.00) - Acme - TRV-2026-11-0001" || po.TransactionDate != "2026-11-04" ||
-		po.VendorID != "2339" || po.TaxCode != "7" || po.POType != "Travel-PO" || po.EngagementCode != "PS-ACME-1" ||
+	if po.Memo != "Currency - jane@example.com - (USD 155100.00) - Acme - TRV-2026-11-0001" || po.TransactionDate != "2026-11-04" ||
+		po.VendorID != "9001" || po.TaxCode != "7" || po.POType != "Travel-PO" || po.EngagementCode != "PS-ACME-1" ||
 		po.TotalAmount != "155100.00" || *po.FundingSources[0].Region != "UK" {
 		t.Errorf("po = %+v", po)
 	}
@@ -217,8 +221,11 @@ func TestPushInvoice_PushesAndBuildsTheLegacyPayload(t *testing.T) {
 func TestPushInvoice_LookupFoundDoesNotPushAgain(t *testing.T) {
 	repo := &fakeFinanceRepo{invoice: approvedInvoice(), claimWon: true}
 	ns := &fakeNetSuite{enabled: true, found: []netsuite.Record{{InternalID: "4400"}}}
-	res, _ := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@wso2.com")
-	if !res.OK || res.Outcome != domain.NSOutcomeFound || *res.Reference != "4400" || ns.created != 0 ||
+	res, err := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.Outcome != domain.NSOutcomeFound || res.Reference == nil || *res.Reference != "4400" || ns.created != 0 ||
 		strings.Join(repo.calls, ",") != "claim,ref 4400" {
 		t.Errorf("res = %+v, created = %d, calls = %v", res, ns.created, repo.calls)
 	}
@@ -227,7 +234,10 @@ func TestPushInvoice_LookupFoundDoesNotPushAgain(t *testing.T) {
 func TestPushInvoice_OnePushInFlight(t *testing.T) {
 	repo := &fakeFinanceRepo{invoice: approvedInvoice(), claimWon: false}
 	ns := &fakeNetSuite{enabled: true}
-	res, _ := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@wso2.com")
+	res, err := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.OK || res.Outcome != domain.NSOutcomeSkipped || ns.created != 0 || len(repo.pushes) != 0 {
 		t.Errorf("res = %+v, pushes = %+v", res, repo.pushes)
 	}
@@ -236,7 +246,10 @@ func TestPushInvoice_OnePushInFlight(t *testing.T) {
 func TestPushInvoice_FailureIsMarked(t *testing.T) {
 	repo := &fakeFinanceRepo{invoice: approvedInvoice(), claimWon: true}
 	ns := &fakeNetSuite{enabled: true, createErr: errors.New("No status returned from NetSuite")}
-	res, _ := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@wso2.com")
+	res, err := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.OK || res.Outcome != domain.NSOutcomeFailed || strings.Join(repo.calls, ",") != "claim,fail" || repo.failMsg == "" {
 		t.Errorf("res = %+v, calls = %v", res, repo.calls)
 	}
@@ -248,7 +261,10 @@ func TestPushInvoice_FailureIsMarked(t *testing.T) {
 func TestPushInvoice_LookupErrorReleases(t *testing.T) {
 	repo := &fakeFinanceRepo{invoice: approvedInvoice(), claimWon: true}
 	ns := &fakeNetSuite{enabled: true, lookupErr: errors.New("down")}
-	res, _ := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@wso2.com")
+	res, err := newFinanceSvc(repo, ns).PushInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.OK || strings.Join(repo.calls, ",") != "claim,release" || ns.created != 0 {
 		t.Errorf("res = %+v, calls = %v", res, repo.calls)
 	}
@@ -256,7 +272,7 @@ func TestPushInvoice_LookupErrorReleases(t *testing.T) {
 
 func TestPushInvoice_Guards(t *testing.T) {
 	ctx := context.Background()
-	if _, err := newFinanceSvc(&fakeFinanceRepo{}, &fakeNetSuite{}).PushInvoice(ctx, 7, "p@wso2.com"); !errors.As(err, new(*apierror.ServiceUnavailableError)) {
+	if _, err := newFinanceSvc(&fakeFinanceRepo{}, &fakeNetSuite{}).PushInvoice(ctx, 7, "p@example.com"); !errors.As(err, new(*apierror.ServiceUnavailableError)) {
 		t.Errorf("disabled: err = %v", err)
 	}
 	lkr := approvedInvoice()
@@ -267,7 +283,7 @@ func TestPushInvoice_Guards(t *testing.T) {
 	noVendor.VendorID = nil
 	for name, inv := range map[string]*domain.FinanceInvoice{"lkr": lkr, "failed": failed, "no vendor": noVendor} {
 		repo := &fakeFinanceRepo{invoice: inv, claimWon: true}
-		res, err := newFinanceSvc(repo, &fakeNetSuite{enabled: true}).PushInvoice(ctx, 7, "p@wso2.com")
+		res, err := newFinanceSvc(repo, &fakeNetSuite{enabled: true}).PushInvoice(ctx, 7, "p@example.com")
 		if err != nil || res.OK || len(repo.calls) != 0 {
 			t.Errorf("%s: res = %+v, calls = %v, err = %v", name, res, repo.calls, err)
 		}
@@ -279,17 +295,26 @@ func TestResyncInvoice(t *testing.T) {
 	inv.NetSuiteFailed = true
 	repo := &fakeFinanceRepo{invoice: inv}
 	ns := &fakeNetSuite{enabled: true, found: []netsuite.Record{{InternalID: "4400"}}}
-	res, _ := newFinanceSvc(repo, ns).ResyncInvoice(context.Background(), 7, "p@wso2.com")
-	if !res.OK || *res.Reference != "4400" || repo.calls[0] != "resolve:found 4400" || ns.created != 0 {
+	res, err := newFinanceSvc(repo, ns).ResyncInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.Reference == nil || *res.Reference != "4400" || len(repo.calls) == 0 || repo.calls[0] != "resolve:found 4400" || ns.created != 0 {
 		t.Errorf("found: res = %+v, calls = %v", res, repo.calls)
 	}
 	repo = &fakeFinanceRepo{invoice: inv}
-	res, _ = newFinanceSvc(repo, &fakeNetSuite{enabled: true}).ResyncInvoice(context.Background(), 7, "p@wso2.com")
-	if res.OK || res.Outcome != domain.NSOutcomeNotFound || repo.calls[0] != "resolve:notfound" {
+	res, err = newFinanceSvc(repo, &fakeNetSuite{enabled: true}).ResyncInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK || res.Outcome != domain.NSOutcomeNotFound || len(repo.calls) == 0 || repo.calls[0] != "resolve:notfound" {
 		t.Errorf("not found: res = %+v, calls = %v", res, repo.calls)
 	}
 	repo = &fakeFinanceRepo{invoice: approvedInvoice()}
-	res, _ = newFinanceSvc(repo, &fakeNetSuite{enabled: true}).ResyncInvoice(context.Background(), 7, "p@wso2.com")
+	res, err = newFinanceSvc(repo, &fakeNetSuite{enabled: true}).ResyncInvoice(context.Background(), 7, "p@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.OK || len(repo.calls) != 0 {
 		t.Errorf("not failed: res = %+v", res)
 	}
@@ -304,15 +329,15 @@ func pendingPayment() *domain.FinancePayment {
 func TestPushPayment_VendorBillPayload(t *testing.T) {
 	repo := &fakeFinanceRepo{payment: pendingPayment(), claimWon: true, classBySuf: fp(9)}
 	ns := &fakeNetSuite{enabled: true}
-	emp := &domain.FinanceEmployee{EmployeeID: "LK100", Email: "jane@wso2.com", FirstName: "Jane", LastName: "Doe",
+	emp := &domain.FinanceEmployee{EmployeeID: "LK100", Email: "jane@example.com", FirstName: "Jane", LastName: "Doe",
 		JobRole: "Engineer", Department: "Eng", Company: "WSO2 - UK"}
 	res, err := newFinanceSvc(repo, ns).PushPayment(context.Background(), "TRV-2026-11-0001-001",
-		domain.FinancePushRequest{UpdatedBy: "p@wso2.com", Employee: emp})
-	if err != nil || !res.OK || *res.Reference != "7701" {
+		domain.FinancePushRequest{UpdatedBy: "p@example.com", Employee: emp})
+	if err != nil || !res.OK || res.Reference == nil || *res.Reference != "7701" {
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
 	vb := ns.vb
-	wantMemo := "Per Diem for jane@wso2.com - GBP 400.0 - TRV-2026-11-0001 - \n    Travel Customer - PS-ACME-1"
+	wantMemo := "Per Diem for jane@example.com - GBP 400.0 - TRV-2026-11-0001 - \n    Travel Customer - PS-ACME-1"
 	if vb.Memo != wantMemo || vb.TransactionDate != "2026-11-5" || vb.TotalAmount != "152000.50" || vb.BillCurrency != "LKR" ||
 		vb.TaxCode != "12" || vb.Employee.Subsidiary != "WSO2 UK Ltd" || vb.Account != "6001" {
 		t.Errorf("vb = %+v", vb)
@@ -324,20 +349,23 @@ func TestPushPayment_Guards(t *testing.T) {
 	emp := &domain.FinanceEmployee{Company: "Unknown Co"}
 	repo := &fakeFinanceRepo{payment: pendingPayment(), claimWon: true, classByCode: fp(9)}
 	res, err := newFinanceSvc(repo, &fakeNetSuite{enabled: true}).PushPayment(ctx, "TRV-2026-11-0001-001",
-		domain.FinancePushRequest{UpdatedBy: "p@wso2.com", Employee: emp})
+		domain.FinancePushRequest{UpdatedBy: "p@example.com", Employee: emp})
 	if err != nil || res.OK || !strings.Contains(*res.Message, "No Subsidiary") || len(repo.calls) != 0 {
 		t.Errorf("no subsidiary: res = %+v, err = %v", res, err)
 	}
 	failed := pendingPayment()
 	failed.NSStatus = fp("Failed")
 	repo = &fakeFinanceRepo{payment: failed, claimWon: true}
-	res, _ = newFinanceSvc(repo, &fakeNetSuite{enabled: true}).PushPayment(ctx, "TRV-2026-11-0001-001",
-		domain.FinancePushRequest{UpdatedBy: "p@wso2.com", Employee: emp})
+	res, err = newFinanceSvc(repo, &fakeNetSuite{enabled: true}).PushPayment(ctx, "TRV-2026-11-0001-001",
+		domain.FinancePushRequest{UpdatedBy: "p@example.com", Employee: emp})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.OK || len(repo.calls) != 0 {
 		t.Errorf("failed payment pushed: %+v", res)
 	}
 	if _, err := newFinanceSvc(repo, &fakeNetSuite{enabled: true}).PushPayment(ctx, "TRV-2026-11-0001-001",
-		domain.FinancePushRequest{UpdatedBy: "p@wso2.com"}); !errors.As(err, new(*apierror.ValidationError)) {
+		domain.FinancePushRequest{UpdatedBy: "p@example.com"}); !errors.As(err, new(*apierror.ValidationError)) {
 		t.Errorf("no employee: err = %v", err)
 	}
 }
@@ -347,7 +375,7 @@ func TestAddInvoices_Validation(t *testing.T) {
 	row := domain.FinanceInvoiceCreate{InvoiceNumber: "INV-1", Month: "October", CostTypeID: 1, InvoiceCurrency: "USD",
 		InvoiceAmount: 10, ConvertedCurrency: "USD", ConvertedAmount: 10}
 	in := func(rows ...domain.FinanceInvoiceCreate) domain.FinanceInvoicesCreate {
-		return domain.FinanceInvoicesCreate{Invoices: rows, CreatedBy: "agent@wso2.com"}
+		return domain.FinanceInvoicesCreate{Invoices: rows, CreatedBy: "agent@example.com"}
 	}
 	bad := row
 	bad.InvoiceNumber = "INV 1"
@@ -383,19 +411,19 @@ func TestAddInvoices_Validation(t *testing.T) {
 func TestDecideInvoices(t *testing.T) {
 	repo := &fakeFinanceRepo{invoice: approvedInvoice()}
 	res, err := newFinanceSvc(repo, &fakeNetSuite{}).DecideInvoices(context.Background(), domain.FinanceInvoiceDecision{
-		InvoiceIDs: []int{7}, Decision: "approve", Step: "travel", UpdatedBy: "po@wso2.com"})
+		InvoiceIDs: []int{7}, Decision: "approve", Step: "travel", UpdatedBy: "po@example.com"})
 	if err != nil || len(res) != 1 || res[0].OK || *res[0].Message != FinanceInvoiceStatusMsg {
 		t.Errorf("res = %+v, err = %v", res, err)
 	}
 	if _, err := newFinanceSvc(repo, &fakeNetSuite{}).DecideInvoices(context.Background(), domain.FinanceInvoiceDecision{
-		InvoiceIDs: []int{7}, Decision: "reject", Step: "finance", UpdatedBy: "f@wso2.com"}); err == nil {
+		InvoiceIDs: []int{7}, Decision: "reject", Step: "finance", UpdatedBy: "f@example.com"}); err == nil {
 		t.Error("a reject without a reason must fail")
 	}
 	// 253 x + "→" saves as 255 characters: accepted. 254 x + "→" is 255 raw but 256 saved: refused.
 	for n, ok := range map[int]bool{253: true, 254: false} {
 		reason := strings.Repeat("x", n) + "→"
 		_, err := newFinanceSvc(repo, &fakeNetSuite{}).DecideInvoices(context.Background(), domain.FinanceInvoiceDecision{
-			InvoiceIDs: []int{7}, Decision: "reject", Step: "finance", Reason: reason, UpdatedBy: "f@wso2.com"})
+			InvoiceIDs: []int{7}, Decision: "reject", Step: "finance", Reason: reason, UpdatedBy: "f@example.com"})
 		if (err == nil) != ok {
 			t.Errorf("reason of %d+→: err = %v, want accepted %v", n, err, ok)
 		}

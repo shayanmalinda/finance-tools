@@ -35,7 +35,7 @@ func TestLatin1(t *testing.T) {
 		{"en and em dash kept", "Jan–Mar — Day 1", "Jan–Mar — Day 1"},
 		{"no-break space kept", "10\u00A0km", "10\u00A0km"},
 
-		// Replaced (LEGACY-ISSUES.md #1).
+		// Replaced with the closest plain form a latin1 column can hold.
 		{"right arrow", "APIM 3.2 → v4.2 Migration", "APIM 3.2 -> v4.2 Migration"},
 		{"other arrows", "A ← B ↔ C ⇒ D", "A <- B <-> C => D"},
 		{"quotes and primes latin1 lacks", "‛a‟ 5′ 6″", "'a\" 5' 6\""},
@@ -45,7 +45,7 @@ func TestLatin1(t *testing.T) {
 		{"thin and narrow spaces", "10\u2009000\u202Fkm", "10 000 km"},
 		{"line separator", "a\u2028b", "a\nb"},
 		{"comparison signs", "≤ 5 ≥ 1 ≠ 0", "<= 5 >= 1 != 0"},
-		{"letters without decomposition", "Łukasz Kołodziej", "Lukasz Kolodziej"},
+		{"letters without decomposition", "Łata Pełna", "Lata Pelna"},
 		{"ligature", "ﬁnance", "finance"},
 
 		// Decomposed to the base letter.

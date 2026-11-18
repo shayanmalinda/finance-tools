@@ -31,7 +31,7 @@ func TestDashboardRoutes_Validation(t *testing.T) {
 		"/dashboard/allocations-today?date=yesterday",
 		"/dashboard/allocations-today?businessUnitId=abc",
 		"/dashboard/my-work",
-		"/dashboard/my-work?email=jane@wso2.com&trips=maybe",
+		"/dashboard/my-work?email=jane@example.com&trips=maybe",
 		"/dashboard/queues?pendingApprovalType=x",
 		"/dashboard/travel?trips=1x",
 		"/dashboard/engagements?engagementType=-1",

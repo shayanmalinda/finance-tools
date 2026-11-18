@@ -52,11 +52,11 @@ var engagementTestCols = []string{"id", "engagement_type", "eT.name", "allocatio
 
 func engagementTestRow(id string, engType int, status string) []driver.Value {
 	return []driver.Value{id, engType, "Marketing Event", 12, "Conference",
-		"001E0000002SFO2IAO", "WSO2", "WSO2Con Asia", "", "",
-		"", "Colombo\nSri Lanka", "Sri Lanka", nil, "kevin@wso2.com", 0,
+		"001000000000001AAA", "WSO2", "WSO2Con Asia", "", "",
+		"", "Colombo\nSri Lanka", "Sri Lanka", nil, "owner@example.com", 0,
 		"MKT-GEN", "2026-11-20", "2026-11-22", status, "scope", "Physical", "Pending",
 		nil, nil, 0, nil, nil, "desc", nil,
-		time.Date(2026, 10, 1, 8, 30, 0, 0, time.UTC), "7015g00000ApD26AAF"}
+		time.Date(2026, 10, 1, 8, 30, 0, 0, time.UTC), "701000000000001AAA"}
 }
 
 func TestEngagementSearch_FiltersSortAndPage(t *testing.T) {
@@ -102,7 +102,7 @@ func TestEngagementSearch_ApprovalsBaseSortAndCreatorSearch(t *testing.T) {
 	mock.ExpectQuery(re(`ORDER BY e.last_updated_date ASC, e.id ASC LIMIT ? OFFSET ?`)).
 		WillReturnRows(sqlmock.NewRows(engagementTestCols))
 	items, _, err := repo.Search(context.Background(), domain.EngagementSearchRequest{
-		PendingApproval: true, Search: "kevin", Sort: domain.EngagementSortCreated, Limit: 50,
+		PendingApproval: true, Search: "owner", Sort: domain.EngagementSortCreated, Limit: 50,
 	})
 	if err != nil || items == nil || len(items) != 0 {
 		t.Fatalf("items %v, err %v", items, err)
@@ -151,12 +151,12 @@ func TestEngagementFundingSourcesAndConsultants(t *testing.T) {
 		t.Fatalf("fs %+v err %v", fs, err)
 	}
 	mock.ExpectQuery(re(`SELECT DISTINCT engagement_id, email FROM allocation WHERE status = 'Active' AND engagement_id IN (?)`)).
-		WithArgs("E1").WillReturnRows(sqlmock.NewRows([]string{"e", "m"}).AddRow("E1", "a@wso2.com"))
+		WithArgs("E1").WillReturnRows(sqlmock.NewRows([]string{"e", "m"}).AddRow("E1", "a@example.com"))
 	cons, err := repo.Consultants(context.Background(), []string{"E1"})
 	if err != nil || len(cons["E1"]) != 1 {
 		t.Fatalf("cons %v err %v", cons, err)
 	}
-	// Empty id lists read nothing (legacy read the whole table).
+	// Empty id lists read nothing.
 	if fs, err := repo.FundingSources(context.Background(), nil); err != nil || len(fs) != 0 {
 		t.Errorf("funding sources for no ids: %v err %v", fs, err)
 	}
@@ -224,12 +224,12 @@ func TestEngagementUpdate_DynamicSetAndFundingReplace(t *testing.T) {
 	mock, _, repo := engagementMocks(t)
 	mock.ExpectBegin()
 	mock.ExpectExec(re(`UPDATE engagement SET updated_by = ?, location = ?, start_date = ?, status = ?, project_name = ? WHERE id = ?`)).
-		WithArgs("me@wso2.com", "addr", "2026-12-01", "Updated", "New name", "E1").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("me@example.com", "addr", "2026-12-01", "Updated", "New name", "E1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(re(`DELETE FROM engagement_funding_source WHERE engagement_id = ?`)).WithArgs("E1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(re(`INSERT INTO engagement_funding_source`)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	before, err := repo.Update(context.Background(), "E1", domain.EngagementUpdateRequest{
-		UpdatedBy: "me@wso2.com", Address: engagementPtr("addr"), StartDate: engagementPtr("2026-12-01"),
+		UpdatedBy: "me@example.com", Address: engagementPtr("addr"), StartDate: engagementPtr("2026-12-01"),
 		RequestStatus: engagementPtr("Updated"), ProjectName: engagementPtr("New name"),
 		FundingSources: []domain.EngagementFundingSource{{BusinessUnit: "a", ProductUnit: "b", Region: "c", SubRegion: "d", Percentage: 100}},
 	})
@@ -261,25 +261,25 @@ func TestEngagementUpdate_CancelCascade(t *testing.T) {
 	allocMock, travelMock, repo := engagementMocks(t)
 	allocMock.ExpectQuery(re(`WHERE a.engagement_id = ? AND a.status = 'Active' ORDER BY a.id`)).WithArgs("E1").
 		WillReturnRows(sqlmock.NewRows(engagementAllocCols).
-			AddRow("A1", "a@wso2.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed", "Yes", "x", nil, "No", nil, nil, nil, "Active").
-			AddRow("A2", "b@wso2.com", 3, "2026-11-01", "2026-11-05", nil, "Tentative", "Yes", "x", nil, "No", nil, nil, nil, "Active").
-			AddRow("A3", "c@wso2.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed - Visa Pending", nil, "x", nil, nil, nil, nil, nil, "Active").
-			AddRow("A4", "d@wso2.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed - Visa Pending", "Yes", "x", nil, nil, nil, nil, nil, "Active"))
+			AddRow("A1", "a@example.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed", "Yes", "x", nil, "No", nil, nil, nil, "Active").
+			AddRow("A2", "b@example.com", 3, "2026-11-01", "2026-11-05", nil, "Tentative", "Yes", "x", nil, "No", nil, nil, nil, "Active").
+			AddRow("A3", "c@example.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed - Visa Pending", nil, "x", nil, nil, nil, nil, nil, "Active").
+			AddRow("A4", "d@example.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed - Visa Pending", "Yes", "x", nil, nil, nil, nil, nil, "Active"))
 	allocMock.ExpectBegin()
 	allocMock.ExpectExec(re(`UPDATE engagement SET updated_by = ?, engagement_status = ?, status = ? WHERE id = ?`)).
-		WithArgs("me@wso2.com", "Cancelled", "Cancelled", "E1").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("me@example.com", "Cancelled", "Cancelled", "E1").WillReturnResult(sqlmock.NewResult(0, 1))
 	allocMock.ExpectExec(re(`UPDATE allocation SET updated_by = ?, clearance_status = ?, status = ? WHERE engagement_id = ?`)).
-		WithArgs("me@wso2.com", "Allocation Cancelled", "Inactive", "E1").WillReturnResult(sqlmock.NewResult(0, 6))
+		WithArgs("me@example.com", "Allocation Cancelled", "Inactive", "E1").WillReturnResult(sqlmock.NewResult(0, 6))
 	travelMock.ExpectBegin()
-	for _, a := range [][2]string{{"A1", "a@wso2.com"}, {"A4", "d@wso2.com"}} {
+	for _, a := range [][2]string{{"A1", "a@example.com"}, {"A4", "d@example.com"}} {
 		travelMock.ExpectExec(re(`UPDATE travel SET status = ?, last_updated_by = ?, last_updated_date = NOW() WHERE allocation_id = ? AND traveller_email = ?`)).
-			WithArgs("Cancelled", "me@wso2.com", a[0], a[1]).WillReturnResult(sqlmock.NewResult(0, 1))
+			WithArgs("Cancelled", "me@example.com", a[0], a[1]).WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	travelMock.ExpectCommit()
 	allocMock.ExpectCommit()
 
 	before, err := repo.Update(context.Background(), "E1", domain.EngagementUpdateRequest{
-		UpdatedBy: "me@wso2.com", EngagementStatus: engagementPtr("Cancelled"), RequestStatus: engagementPtr("Cancelled"),
+		UpdatedBy: "me@example.com", EngagementStatus: engagementPtr("Cancelled"), RequestStatus: engagementPtr("Cancelled"),
 	})
 	if err != nil || len(before) != 4 {
 		t.Fatalf("before %d, err %v", len(before), err)
@@ -296,7 +296,7 @@ func TestEngagementUpdate_CancelCascade(t *testing.T) {
 func TestEngagementUpdate_CancelTravelFailureRollsBack(t *testing.T) {
 	allocMock, travelMock, repo := engagementMocks(t)
 	allocMock.ExpectQuery(re(`a.status = 'Active'`)).WillReturnRows(sqlmock.NewRows(engagementAllocCols).
-		AddRow("A1", "a@wso2.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed", "Yes", "x", nil, "No", nil, nil, nil, "Active"))
+		AddRow("A1", "a@example.com", 3, "2026-11-01", "2026-11-05", nil, "Confirmed", "Yes", "x", nil, "No", nil, nil, nil, "Active"))
 	allocMock.ExpectBegin()
 	allocMock.ExpectExec(re(`UPDATE engagement SET`)).WillReturnResult(sqlmock.NewResult(0, 1))
 	allocMock.ExpectExec(re(`UPDATE allocation SET`)).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -322,12 +322,12 @@ func TestEngagementAllocations_JoinsTravelByAllocationAndEmail(t *testing.T) {
 	added := time.Date(2026, 10, 4, 16, 20, 0, 0, time.UTC)
 	allocMock.ExpectQuery(re(`FROM allocation AS a WHERE a.engagement_id = ? ORDER BY a.id`)).WithArgs("E1").
 		WillReturnRows(sqlmock.NewRows(engagementAllocCols).
-			AddRow("A1", "A@wso2.com", 3, "2026-11-01", "2026-11-05", "c", "Confirmed", "Yes", "x", added, "Yes", "09:00:00", "11:00:00", "Asia/Colombo", "Active").
-			AddRow("A2", "b@wso2.com", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("A1", "A@example.com", 3, "2026-11-01", "2026-11-05", "c", "Confirmed", "Yes", "x", added, "Yes", "09:00:00", "11:00:00", "Asia/Colombo", "Active").
+			AddRow("A2", "b@example.com", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	travelMock.ExpectQuery(re(`FROM travel WHERE allocation_id IN (?, ?) ORDER BY job_number`)).WithArgs("A1", "A2").
 		WillReturnRows(sqlmock.NewRows([]string{"job", "alloc", "email", "status"}).
-			AddRow("TRV-2026-10-1246", "A1", "a@wso2.com", "New").
-			AddRow("TRV-2026-10-1300", "A2", "someone@wso2.com", "New"))
+			AddRow("TRV-2026-10-1246", "A1", "a@example.com", "New").
+			AddRow("TRV-2026-10-1300", "A2", "someone@example.com", "New"))
 	allocs, err := repo.Allocations(context.Background(), "E1", false)
 	if err != nil || len(allocs) != 2 {
 		t.Fatalf("allocs %v err %v", allocs, err)
@@ -361,7 +361,7 @@ func TestEngagement_WithoutCampaignColumn(t *testing.T) {
 	if _, err := repo.Create(context.Background(), domain.EngagementCreateRequest{AllocationTypeID: 1, UUID: "u"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	campaign := "7015g00000ApD26AAF"
+	campaign := "701000000000001AAA"
 	mock.ExpectQuery(re(`SELECT engagement_type FROM allocation_type`)).WillReturnRows(sqlmock.NewRows([]string{"t"}).AddRow(5))
 	if _, err := repo.Create(context.Background(), domain.EngagementCreateRequest{AllocationTypeID: 5, UUID: "v", CampaignID: &campaign}, nil); err == nil {
 		t.Error("saved a campaign without the column")

@@ -23,8 +23,8 @@ import (
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/audit"
 )
 
-// The other tests cover the business SQL with audit off; audit_test.go
-// switches it on.
+// The other tests cover the business SQL with audit off;
+// routes_audit_test.go switches it on.
 func TestMain(m *testing.M) {
 	audit.SetEnabled(false)
 	os.Exit(m.Run())

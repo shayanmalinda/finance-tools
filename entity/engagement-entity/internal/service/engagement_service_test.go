@@ -125,7 +125,7 @@ func TestEngagementGet_IDFormatAndNotFound(t *testing.T) {
 
 func engagementValidCreate() domain.EngagementCreateRequest {
 	return domain.EngagementCreateRequest{
-		AllocationTypeID: 12, UUID: "u", CreatedBy: "me@wso2.com", RequestStatus: "Pending Approval",
+		AllocationTypeID: 12, UUID: "u", CreatedBy: "me@example.com", RequestStatus: "Pending Approval",
 		EngagementStatus: "Pending", StartDate: "2026-11-20", EndDate: "2026-11-22",
 		ProjectName: "WSO2Con → Asia 🎉", Address: "Line 1\nLine 2",
 	}

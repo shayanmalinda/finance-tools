@@ -63,10 +63,10 @@ func travelDay(s string) time.Time {
 
 func travelSampleRow() *sqlmock.Rows {
 	return sqlmock.NewRows(travelRowColumns).AddRow(
-		"TRV-2026-10-1246", "In Progress", "chanuka@wso2.com", "London", "United Kingdom", "Acme",
+		"TRV-2026-10-1246", "In Progress", "traveller@example.com", "London", "United Kingdom", "Acme",
 		travelDay("2026-10-06"), travelDay("2026-10-16"), "A2609100005", "E07201", "ACME-01", "Paid",
-		int64(2), "Acorn Travels", int64(301), nil, "chanuka@wso2.com", "GB", "Business/Visit", "Multiple",
-		travelDay("2026-01-10"), travelDay("2028-01-09"), "shivanga@wso2.com", travelDay("2026-10-01"))
+		int64(2), "Acorn Travels", int64(301), nil, "traveller@example.com", "GB", "Business/Visit", "Multiple",
+		travelDay("2026-01-10"), travelDay("2028-01-09"), "approver@example.com", travelDay("2026-10-01"))
 }
 
 func TestTravelSearch_FiltersSearchSortAndPaging(t *testing.T) {
@@ -74,7 +74,7 @@ func TestTravelSearch_FiltersSearchSortAndPaging(t *testing.T) {
 	agency := 2
 	f := domain.TravelRequestSearch{
 		Statuses: []string{"In Progress", "Extended"}, TravelAgentID: &agency,
-		TravellerEmails: []string{"chanuka@wso2.com"}, Countries: []string{"United Kingdom"},
+		TravellerEmails: []string{"traveller@example.com"}, Countries: []string{"United Kingdom"},
 		AgencyNames: []string{"Acorn Travels"}, StartFrom: "2026-10-01", EndTo: "2026-10-31",
 		Search: "lon_", SearchEngagements: true, SearchAgency: true, EngagementIDs: []string{"E07201"},
 		Today: "2026-10-05", Limit: 10, Offset: 20,
@@ -84,7 +84,7 @@ func TestTravelSearch_FiltersSearchSortAndPaging(t *testing.T) {
 		` AND (t.job_number LIKE ? OR t.traveller_email LIKE ? OR t.city LIKE ? OR t.country LIKE ?` +
 		` OR t.customer_name LIKE ? OR t.engagement_id IN (?) OR ta.name_of_travel_agent LIKE ?)`
 	like := `%lon\_%`
-	args := []any{"In Progress", "Extended", 2, "chanuka@wso2.com", "United Kingdom", "Acorn Travels",
+	args := []any{"In Progress", "Extended", 2, "traveller@example.com", "United Kingdom", "Acorn Travels",
 		"2026-10-01", "2026-10-31", like, like, like, like, like, "E07201", like}
 	mock.ExpectQuery(travelRe(`SELECT COUNT(*) FROM travel AS t`) + `.*` + travelRe(where)).
 		WithArgs(travelArgs(args)...).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(31))
@@ -132,9 +132,9 @@ func TestTravelSearch_StartDescOrder(t *testing.T) {
 	db, mock := travelNewDB(t)
 	mock.ExpectQuery(`SELECT COUNT`).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	mock.ExpectQuery(travelRe(`WHERE t.status NOT IN ('Deleted', '') AND t.traveller_email IN (?) ORDER BY t.start_date DESC, t.job_number LIMIT ? OFFSET ?`)).
-		WithArgs("me@wso2.com", 50, 0).WillReturnRows(travelSampleRow())
+		WithArgs("me@example.com", 50, 0).WillReturnRows(travelSampleRow())
 	if _, _, err := NewTravelRequestRepository(db).Search(context.Background(), domain.TravelRequestSearch{
-		TravellerEmails: []string{"me@wso2.com"}, Sort: domain.TravelSortStartDesc, Limit: 50,
+		TravellerEmails: []string{"me@example.com"}, Sort: domain.TravelSortStartDesc, Limit: 50,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -177,23 +177,23 @@ func TestTravelUpdate_SetsOnlyGivenFields(t *testing.T) {
 	status, agent, visa := "In Progress", 2, 301
 	mock.ExpectBegin()
 	mock.ExpectExec(travelRe(`UPDATE travel SET last_updated_by = ?, last_updated_date = NOW(), status = ?, travel_agent_id = ?, visa_id = ? WHERE job_number = ?`)).
-		WithArgs("shivanga@wso2.com", status, agent, visa, "TRV-2026-10-1246").
+		WithArgs("approver@example.com", status, agent, visa, "TRV-2026-10-1246").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectBegin()
 	mock.ExpectExec(travelRe(`UPDATE travel SET last_updated_by = ?, last_updated_date = NOW(), status = ? WHERE job_number = ?`)).
-		WithArgs("shivanga@wso2.com", status, "TRV-2026-10-0000").
+		WithArgs("approver@example.com", status, "TRV-2026-10-0000").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 	repo := NewTravelRequestRepository(db)
 	found, err := repo.Update(context.Background(), "TRV-2026-10-1246", domain.UpdateTravelRequestInput{
-		Status: &status, TravelAgentID: &agent, VisaID: &visa, UpdatedBy: "shivanga@wso2.com",
+		Status: &status, TravelAgentID: &agent, VisaID: &visa, UpdatedBy: "approver@example.com",
 	})
 	if err != nil || !found {
 		t.Fatalf("found %v err %v", found, err)
 	}
 	found, err = repo.Update(context.Background(), "TRV-2026-10-0000", domain.UpdateTravelRequestInput{
-		Status: &status, UpdatedBy: "shivanga@wso2.com",
+		Status: &status, UpdatedBy: "approver@example.com",
 	})
 	if err != nil || found {
 		t.Fatalf("missing: found %v err %v", found, err)
@@ -252,7 +252,7 @@ func TestTravelEngagements(t *testing.T) {
 	mock.ExpectQuery(travelRe(`WHERE e.status != 'Deleted' AND a.id IN (?, ?)`)).WithArgs("A1", "A2").
 		WillReturnRows(sqlmock.NewRows([]string{"a.id", "e.id", "project_name", "customer_name", "engagement_code",
 			"campaign_id", "eT.id", "eT.name", "eT.type"}).
-			AddRow("A1", "EVT00012", "Integration Summit Singapore 2026", "WSO2", "MKT-01", "7015g00000CkR08AAF",
+			AddRow("A1", "EVT00012", "Integration Summit Singapore 2026", "WSO2", "MKT-01", "701000000000002AAA",
 				5, "Marketing Event", "Internal"))
 	mock.ExpectQuery(travelRe(`SELECT id FROM engagement
 		WHERE status != 'Deleted' AND project_name LIKE ?`)).WithArgs("%Summit%", 1000).
@@ -263,7 +263,7 @@ func TestTravelEngagements(t *testing.T) {
 	repo := NewTravelEngagementRepository(db)
 	ctx := context.Background()
 	got, err := repo.ByAllocation(ctx, []string{"A1", "A2"})
-	if err != nil || len(got) != 1 || *got["A1"].CampaignID != "7015g00000CkR08AAF" || *got["A1"].TypeName != "Marketing Event" || *got["A1"].TypeID != 5 {
+	if err != nil || len(got) != 1 || *got["A1"].CampaignID != "701000000000002AAA" || *got["A1"].TypeName != "Marketing Event" || *got["A1"].TypeID != 5 {
 		t.Fatalf("got %+v err %v", got, err)
 	}
 	ids, err := repo.IDsByTitle(ctx, "Summit")

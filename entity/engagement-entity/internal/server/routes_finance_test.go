@@ -42,7 +42,7 @@ func TestFinanceRoutes_Validation(t *testing.T) {
 		{http.MethodGet, "/finance/invoices?failed=maybe", ""},
 		{http.MethodGet, "/finance/invoices?addedFrom=2026-13-01", ""},
 		{http.MethodGet, "/finance/per-diem-payments/TRV-1", ""},
-		{http.MethodPost, "/finance/invoices/decisions", `{"invoiceIds":[1],"decision":"approve","step":"hr","updatedBy":"a@wso2.com"}`},
+		{http.MethodPost, "/finance/invoices/decisions", `{"invoiceIds":[1],"decision":"approve","step":"hr","updatedBy":"a@example.com"}`},
 		{http.MethodPost, "/finance/invoices/decisions", `{"unknown":1}`},
 	} {
 		if rec := financeServe(h, tc.method, tc.path, tc.body); rec.Code != http.StatusBadRequest {
@@ -56,7 +56,7 @@ func TestFinanceRoutes_NetSuiteDisabledIs503(t *testing.T) {
 	h, _, _ := newTestRouter(t)
 	for _, path := range []string{"/finance/invoices/7/push", "/finance/invoices/7/resync",
 		"/finance/per-diem-payments/TRV-2026-11-0001-001/push", "/finance/per-diem-payments/TRV-2026-11-0001-001/resync"} {
-		rec := financeServe(h, http.MethodPost, path, `{"updatedBy":"p@wso2.com"}`)
+		rec := financeServe(h, http.MethodPost, path, `{"updatedBy":"p@example.com"}`)
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("%s: status = %d, want 503", path, rec.Code)
 		}

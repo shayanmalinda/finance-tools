@@ -51,7 +51,7 @@ func TestNormalizeDSNForcesUTC(t *testing.T) {
 	}
 }
 
-// Same cases as the GRC compliance entity's TestNormalizeDSNTLSHandling.
+// A DSN's tls parameter is kept as given; an omitted or empty one becomes verified TLS.
 func TestNormalizeDSNTLSHandling(t *testing.T) {
 	tests := []struct {
 		name string
