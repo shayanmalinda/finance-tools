@@ -21,6 +21,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,5 +106,22 @@ func TestAudit_RecoversPanicsAndWaitAuditsDrains(t *testing.T) {
 	defer cancel2()
 	if err := WaitAudits(ctx2); err != nil {
 		t.Errorf("WaitAudits = %v", err)
+	}
+}
+
+// HEAD runs the GET handler but sends no body: nothing is recorded.
+func TestAudit_SkipsHEAD(t *testing.T) {
+	var calls atomic.Int32
+	rec := auditRecorderFunc(func(context.Context, domain.AuditEvent) error { calls.Add(1); return nil })
+	event := func(*http.Request) (domain.AuditEvent, bool) {
+		return domain.AuditEvent{Action: domain.AuditExport}, true
+	}
+	h := Audit(rec, event)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("a,b")) }))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodHead, "/reports/invoices?format=csv", nil))
+	if err := WaitAudits(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := calls.Load(); n != 0 {
+		t.Errorf("HEAD recorded %d audit events", n)
 	}
 }

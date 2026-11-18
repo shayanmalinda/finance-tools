@@ -76,6 +76,10 @@ func TestAuth(t *testing.T) {
 		{"userinfo down is unavailable, not no access", map[string]string{"Authorization": "Bearer tok"},
 			&fakeVerifier{claims: oidc.Claims{Email: "jane@wso2.com"}}, &fakeUserinfo{err: errors.New("down")},
 			http.StatusServiceUnavailable, 1, 0},
+		// Userinfo refusing the token is a sign-in problem, not an outage.
+		{"userinfo rejecting the token is 401", map[string]string{"Authorization": "Bearer tok"},
+			&fakeVerifier{claims: oidc.Claims{Email: "jane@wso2.com"}}, &fakeUserinfo{err: oidc.ErrUserinfoRejected},
+			http.StatusUnauthorized, 1, 0},
 		{"signing keys unavailable is not sign in again", map[string]string{"X-Jwt-Assertion": "tok"},
 			&fakeVerifier{err: fmt.Errorf("oidc: validating token: %w", oidc.ErrKeysUnavailable)}, &fakeUserinfo{},
 			http.StatusServiceUnavailable, 0, 0},

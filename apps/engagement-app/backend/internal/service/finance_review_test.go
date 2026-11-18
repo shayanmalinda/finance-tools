@@ -185,3 +185,32 @@ func TestFinanceAddInvoicesReadsTheCompanyOnce(t *testing.T) {
 		t.Errorf("emails %d, HR lookups %d; want 3 and 1", len(m.sent), hr.n)
 	}
 }
+
+// A positive amount must be at least one cent; it can't pass as 0.00.
+func TestFinanceCentsNeedsOneCent(t *testing.T) {
+	for f, want := range map[float64]bool{100.1: true, 0.01: true, 0: true, 0.000000001: false, 100.004: false} {
+		if got := financeCents(f); got != want {
+			t.Errorf("financeCents(%v) = %v, want %v", f, got, want)
+		}
+	}
+}
+
+// A batch that stops while the first record's call is in flight reports
+// that record as outcome unknown, not a bare batch error; one that stops
+// before any call keeps the batch error; earlier answers are kept.
+func TestFinanceBatchStop(t *testing.T) {
+	empty := domain.BatchResult{Results: []domain.BatchItem{}}
+	out, err := financeBatchStop(empty, "A", true, []string{"B"}, context.DeadlineExceeded)
+	if err != nil || len(out.Results) != 2 || *out.Results[0].Message != financeOutcomeUnknownMsg ||
+		*out.Results[1].Message != financeOutOfTimeMsg {
+		t.Errorf("first in flight: %+v, %v", out, err)
+	}
+	if _, err := financeBatchStop(empty, "A", false, []string{"B"}, context.DeadlineExceeded); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("before any call: err = %v, want the batch error", err)
+	}
+	done := domain.BatchResult{Results: []domain.BatchItem{{ID: "A", Message: financeStr("Not pushed: the trip is closed.")}}}
+	out, err = financeBatchStop(done, "B", false, []string{"C"}, context.DeadlineExceeded)
+	if err != nil || len(out.Results) != 3 || out.Results[0].ID != "A" || *out.Results[1].Message != financeOutOfTimeMsg {
+		t.Errorf("after a checked record: %+v, %v", out, err)
+	}
+}

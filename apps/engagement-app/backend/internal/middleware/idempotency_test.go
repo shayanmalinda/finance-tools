@@ -171,26 +171,33 @@ func TestIdempotency_PanicReleasesTheKey(t *testing.T) {
 	}
 }
 
-// The same key on another query string is another request: it runs, it is
-// not replayed.
+// The query is part of the request: the same key on another query string
+// is a different request (422), never a fresh run or a replay.
 func TestIdempotency_QueryIsPartOfTheRequest(t *testing.T) {
 	var calls int32
 	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&calls, 1)
 		w.WriteHeader(http.StatusCreated)
 	}))
-	for _, target := range []string{"/engagements?notify=true", "/engagements?notify=false"} {
+	send := func(target string) int {
 		req := httptest.NewRequest(http.MethodPost, target, nil)
 		req.Header.Set(IdempotencyKeyHeader, "k1")
 		req = req.WithContext(reqcontext.WithCaller(req.Context(), reqcontext.Caller{Email: "a@wso2.com"}))
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		if rec.Header().Get("Idempotent-Replayed") != "" {
-			t.Errorf("%s was replayed", target)
-		}
+		return rec.Code
 	}
-	if calls != 2 {
-		t.Errorf("handler ran %d times, want 2", calls)
+	if code := send("/payments?notify=true"); code != http.StatusCreated {
+		t.Fatalf("first: %d", code)
+	}
+	if code := send("/payments?notify=true&retry=1"); code != http.StatusUnprocessableEntity {
+		t.Errorf("same key, other query: %d, want 422", code)
+	}
+	if code := send("/payments?notify=true"); code != http.StatusCreated {
+		t.Errorf("same key, same query: %d, want the replayed 201", code)
+	}
+	if calls != 1 {
+		t.Errorf("handler ran %d times, want 1", calls)
 	}
 }
 
@@ -261,5 +268,74 @@ func TestIdempotency_LargeResponseIsNotKept(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("handler ran %d times, want 2", calls)
+	}
+}
+
+// A different body is 422 even while the first request is still running.
+func TestIdempotency_DifferentBodyIs422WhileInFlight(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusCreated)
+	}))
+	send := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/engagements", strings.NewReader(body))
+		req.Header.Set(IdempotencyKeyHeader, "k1")
+		req = req.WithContext(reqcontext.WithCaller(req.Context(), reqcontext.Caller{Email: "a@wso2.com"}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); send(`{"a":1}`) }()
+	<-started
+	if code := send(`{"a":2}`); code != http.StatusUnprocessableEntity {
+		t.Errorf("different body in flight: %d, want 422", code)
+	}
+	if code := send(`{"a":1}`); code != http.StatusConflict {
+		t.Errorf("same body in flight: %d, want 409", code)
+	}
+	close(release)
+	<-done
+}
+
+// A replay keeps the headers the current request already carries, such as
+// CORS for its own origin.
+func TestIdempotency_ReplayKeepsCurrentCORS(t *testing.T) {
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	send := func(origin string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		rec.Header().Set("Access-Control-Allow-Origin", origin) // as CORS sets it
+		h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
+		return rec
+	}
+	send("https://a.example")
+	rec := send("https://b.example")
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://b.example" || rec.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("replay: origin %q, headers %v", got, rec.Header())
+	}
+}
+
+// At the cap, the caller's own expired keys are reclaimed before refusing,
+// even when the periodic sweep has not run yet.
+func TestIdempotency_CapReclaimsExpiredKeys(t *testing.T) {
+	s := NewIdempotency()
+	now := time.Unix(0, 0)
+	s.now = func() time.Time { return now }
+	h := s.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusCreated) }))
+	for i := range maxKeysPerCaller {
+		h.ServeHTTP(httptest.NewRecorder(), idemRequest(strconv.Itoa(i), "a@wso2.com"))
+	}
+	// Expired, but less than a sweep interval since the last sweep.
+	now = now.Add(idempotencyTTL + time.Second)
+	s.lastSweep = now
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, idemRequest("fresh", "a@wso2.com"))
+	if rec.Code != http.StatusCreated {
+		t.Errorf("fresh key after expiry: %d, want 201", rec.Code)
 	}
 }

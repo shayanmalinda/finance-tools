@@ -495,3 +495,50 @@ func TestNewVerifier_FailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// A 401 from userinfo is ErrUserinfoRejected (Auth answers 401) and does
+// not mark the endpoint down for other callers.
+func TestUserinfoClient_RejectedToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer revoked" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"email":"jane@wso2.com","groups":["g"]}`))
+	}))
+	defer srv.Close()
+	u := NewUserinfoClient(srv.URL, srv.Client())
+	if _, err := u.Fetch(context.Background(), "revoked"); !errors.Is(err, ErrUserinfoRejected) {
+		t.Fatalf("err = %v, want ErrUserinfoRejected", err)
+	}
+	if _, err := u.Fetch(context.Background(), "good"); err != nil {
+		t.Errorf("another token after a 401: %v", err)
+	}
+}
+
+// While refreshes fail, a cached key is trusted for maxKeyGrace past
+// maxAge, and not after it.
+func TestVerify_CachedKeyHasAHardExpiry(t *testing.T) {
+	f := newFakeIssuer(t)
+	v := f.verifier()
+	tok := f.sign(validClaims())
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	f.serve(http.StatusBadGateway, false)
+	v.keys.minGap, v.keys.backoff, v.keys.maxAge = 0, 0, 0
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("within the grace period: %v", err)
+	}
+	v.keys.mu.Lock()
+	v.keys.lastRefresh = time.Now().Add(-maxKeyGrace - time.Minute)
+	v.keys.mu.Unlock()
+	if _, err := v.Verify(context.Background(), tok); !errors.Is(err, ErrKeysUnavailable) {
+		t.Errorf("past the grace period: err = %v, want ErrKeysUnavailable", err)
+	}
+	// A successful refresh trusts the key again.
+	f.serve(0, false)
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Errorf("after recovery: %v", err)
+	}
+}

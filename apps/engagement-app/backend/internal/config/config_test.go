@@ -103,6 +103,20 @@ func TestValidateRequiresEmailOrOptOut(t *testing.T) {
 	}
 }
 
+// With EMAIL_DISABLED a leftover EMAIL_SERVICE_URL is never used, so it
+// needs neither https nor the client pair.
+func TestValidateIgnoresTheEmailURLWhenDisabled(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("EMAIL_SERVICE_URL", "http://email.example")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("Validate() = %v", err)
+	}
+}
+
 func TestLoadGatewayAudiences(t *testing.T) {
 	setMinimalEnv(t)
 	c, err := Load()
@@ -155,6 +169,8 @@ func TestValidateRejectsInsecureOutboundURLs(t *testing.T) {
 		"CURRENCY_CONVERT_SERVICE_URL"} {
 		t.Run(key, func(t *testing.T) {
 			setMinimalEnv(t)
+			t.Setenv("EMAIL_DISABLED", "") // email on, so its URL is checked
+			t.Setenv("EMAIL_SERVICE_URL", "https://email.example")
 			t.Setenv("ENTITY_CLIENT_ID", "id")
 			t.Setenv("ENTITY_CLIENT_SECRET", "secret")
 			t.Setenv(key, "http://svc.example/x")

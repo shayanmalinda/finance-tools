@@ -22,6 +22,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
@@ -117,5 +118,26 @@ func TestEmployeesByOrg_RepeatedPageIsAnError(t *testing.T) {
 	var ue *apierror.UpstreamError
 	if !errors.As(err, &ue) {
 		t.Fatalf("err = %v, want UpstreamError", err)
+	}
+}
+
+// A listing longer than 100 pages completes when HR caps each page at 100
+// rows: the bound follows rows, not the requested page size.
+func TestEmployeesByOrg_SmallPagesStillComplete(t *testing.T) {
+	const total, pageCap = 10_050, 100
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req graphqlRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		off := int(req.Variables["offset"].(float64))
+		page := []map[string]string{}
+		for i := off; i < total && i < off+pageCap; i++ {
+			page = append(page, map[string]string{"workEmail": "e" + strconv.Itoa(i) + "@wso2.com"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"employees": page}})
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, nil).EmployeesByOrg(context.Background(), OrgEmployeeFilter{})
+	if err != nil || len(got) != total {
+		t.Fatalf("got %d rows, err %v", len(got), err)
 	}
 }

@@ -991,3 +991,18 @@ func TestTravelPeopleFillNames(t *testing.T) {
 		t.Fatalf("failed lookup: %+v", d)
 	}
 }
+
+// A Travel 18 holder without 1 or 2 never gets full scope, even with 5 and
+// even when no agency resolved for them.
+func TestTravelFullFailsClosedForAgentsWithoutAgency(t *testing.T) {
+	p := travelPerms("agent@acorn.com", 5, 18)
+	if travelFull(p) {
+		t.Error("Travel 18 + 5 without an agency got full scope")
+	}
+	if s := travelScope(p, "x@wso2.com", nil); s != "" {
+		t.Errorf("scope = %q, want none", s)
+	}
+	if !travelFull(travelPerms("lead@wso2.com", 2, 18)) {
+		t.Error("Travel 2 + 18 lost full scope")
+	}
+}

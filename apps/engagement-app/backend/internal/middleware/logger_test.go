@@ -41,7 +41,7 @@ func TestLogger_QuotesThePath(t *testing.T) {
 	buf := captureLog(t)
 	h := Logger(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/a%0Astatus=200%20forged", nil))
-	if out := strings.TrimSuffix(buf.String(), "\n"); strings.Contains(out, "\n") || !strings.Contains(out, `"/a\nstatus=200 forged"`) {
+	if out := strings.TrimSuffix(buf.String(), "\n"); strings.Contains(out, "\n") || !strings.Contains(out, `"/a%0Astatus=200%20forged"`) {
 		t.Errorf("log = %q", buf.String())
 	}
 }
@@ -104,4 +104,17 @@ func TestRecovery_LogsStackAndRepanicsAbort(t *testing.T) {
 func asError(p any) error {
 	err, _ := p.(error)
 	return err
+}
+
+// An encoded "?" or "/" inside an email segment does not leave part of the
+// email in the log.
+func TestLogger_RedactsEmailsWithEncodedDelimiters(t *testing.T) {
+	buf := captureLog(t)
+	h := Logger(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	for _, target := range []string{"/travellers/jane%3Fx%40wso2.com/passports", "/travellers/jane%2Fx%40wso2.com/passports"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil))
+	}
+	if out := buf.String(); strings.Contains(out, "jane") || strings.Count(out, `"/travellers/{email}/passports"`) != 2 {
+		t.Errorf("log = %q", out)
+	}
 }
