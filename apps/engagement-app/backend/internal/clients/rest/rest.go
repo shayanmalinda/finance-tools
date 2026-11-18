@@ -37,6 +37,7 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/redact"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/reqcontext"
 )
 
@@ -127,7 +128,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 			err = ue.Err
 		}
 		slog.ErrorContext(ctx, "dependency request failed", "service", c.service, "method", method,
-			"path", logPath(path), "err", err)
+			"path", redact.Path(path), "err", err)
 		return &apierror.UpstreamError{Service: c.service, Msg: "unreachable"}
 	}
 	defer resp.Body.Close()
@@ -144,7 +145,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 			}
 		}
 		slog.WarnContext(ctx, "dependency returned an error", "service", c.service, "method", method,
-			"path", logPath(path), "status", resp.StatusCode)
+			"path", redact.Path(path), "status", resp.StatusCode)
 		return &apierror.UpstreamError{Service: c.service, StatusCode: resp.StatusCode, Msg: msg}
 	}
 
@@ -160,11 +161,4 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		return &apierror.UpstreamError{Service: c.service, StatusCode: resp.StatusCode, Msg: "malformed response: " + err.Error()}
 	}
 	return nil
-}
-
-// logPath is path without its query, which can carry personal data (emails,
-// search text).
-func logPath(path string) string {
-	p, _, _ := strings.Cut(path, "?")
-	return p
 }

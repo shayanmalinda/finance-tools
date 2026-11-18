@@ -59,7 +59,12 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
   super admin groups and the travel agency of an agent) go into the context
   for record-level rules.
 - Double submit: create, allocate and push routes accept an
-  `Idempotency-Key` header (`internal/middleware/idempotency.go`).
+  `Idempotency-Key` header (`internal/middleware/idempotency.go`). The store
+  is per replica, holds at most 100 live keys per caller, and keeps responses
+  up to 256 KiB.
+- Logs: request paths are logged without their query and with email
+  segments replaced by `{email}` (`internal/redact`); a sent email is logged
+  by type, reference and recipient counts, not addresses or subject.
 - Audit: every Engagement Entity call carries the user (`X-User-Email`) and
   the correlation ID; the entity records each write. Views and downloads of
   passports, visas and travel documents and CSV exports are sent to the
@@ -88,9 +93,10 @@ gofmt -l .           # must print nothing
 ## Configuration
 
 Settings come from environment variables; locally from a git-ignored `.env`
-(copy `.env.local`). Only `ENGAGEMENT_ENTITY_BASE_URL` is required to start.
-Every other service is optional: unset, the backend starts and the screens
-that need it answer 503 (email is logged instead of sent). Service and token
+(copy `.env.local`). `ENGAGEMENT_ENTITY_BASE_URL`, `JWT_AUDIENCES` and
+`EMAIL_SERVICE_URL` (or `EMAIL_DISABLED=true`) are required to start. Every
+other service is optional: unset, the backend starts and the screens that
+need it answer 503. Service and token
 URLs must be https (http only on localhost). Never put real values in
 committed files.
 
@@ -107,10 +113,12 @@ committed files.
 | `JWT_USERINFO_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/userinfo` | – |
 | `JWT_AUDIENCES` | Yes | – | One WSO2 client id (comma-separated list allowed) |
 | `GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_JWKS_URL` | Only if the gateway's JWT is not issued by Asgardeo | – | Choreo gateway backend JWT issuer and keys (to confirm on staging) |
+| `GATEWAY_JWT_AUDIENCES` | Only if the gateway's JWT names another audience | `JWT_AUDIENCES` | The `aud` of the gateway's JWT (comma-separated list allowed) |
 | `JWT_CLOCK_SKEW_SECONDS` | No | `60` | – |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |
 | `SERVER_PORT` | No | `8190` | – |
-| `EMAIL_SERVICE_URL` | For sending email | – (emails logged) | `[app_allocation.email.emailServiceConfig] endpointUrl` |
+| `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | `[app_allocation.email.emailServiceConfig] endpointUrl` |
+| `EMAIL_DISABLED` | Locally | `false` | `true` logs that an email would be sent (no addresses or subject) instead of sending it |
 | `EMAIL_TEST_RECIPIENT` | No | – | Set on staging: every email goes only here (`isSendTestingEmailsOnlyVal` + `allocationTestEmail`) |
 | `EMAIL_ALLOCATIONS_APP_UUID`, `EMAIL_TRAVEL_APP_UUID` | With email | – | `[app_allocation.email] appUuid`, `[app_travel.email.emailConfigurations] travelAppUUID` |
 | `EMAIL_ALLOCATIONS_FROM`, `EMAIL_TRAVEL_FROM` | With email | – | `allocationManagerEmail`, `travelAppEmail` |
@@ -148,6 +156,7 @@ backend/
 │   ├── middleware/             # CorrelationID, Recovery, Logger, CORS, Timeout, Auth, Require (gate), Idempotency, Audit
 │   ├── oidc/                   # JWT verification (multi-issuer), userinfo client
 │   ├── reqcontext/             # Caller (email, groups) and correlation ID in the context
+│   ├── redact/                 # Strips emails and queries from logged paths
 │   ├── server/                 # routes.go (shared graph) + routes_<area>.go, server.go
 │   └── service/                # Access (Perms per request), then one service per screen area
 ├── openapi.yaml

@@ -92,7 +92,7 @@ func main() {
 			Suppressed:    e.Suppressed,
 		}, rest.New("email", e.ServiceURL, oauth))
 	} else {
-		slog.Warn("EMAIL_SERVICE_URL is not set: emails are logged, not sent")
+		slog.Warn("EMAIL_DISABLED is set: emails are logged, not sent")
 	}
 
 	var files filestore.Store = filestore.Unconfigured{}
@@ -160,7 +160,7 @@ func newVerifier(c config.JWTConfig) (*oidc.MultiVerifier, error) {
 	vs := []*oidc.Verifier{asgardeo}
 	if c.GatewayIssuer != "" {
 		gw, err := oidc.NewVerifier(oidc.Config{
-			Issuer: c.GatewayIssuer, JWKSURL: c.GatewayJWKSURL, Audiences: c.Audiences, ClockSkew: c.ClockSkew,
+			Issuer: c.GatewayIssuer, JWKSURL: c.GatewayJWKSURL, Audiences: c.GatewayAudiences, ClockSkew: c.ClockSkew,
 		}, nil)
 		if err != nil {
 			return nil, err

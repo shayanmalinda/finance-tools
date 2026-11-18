@@ -137,8 +137,9 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 		slog.ErrorContext(ctx, "email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
 		return err
 	}
+	// Counts, not addresses: type and ref already identify the email.
 	slog.InfoContext(ctx, "email sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID,
-		"to", to, "cc", cc, "testingRedirect", testing)
+		"toCount", len(to), "ccCount", len(cc), "testingRedirect", testing)
 	return nil
 }
 
@@ -193,14 +194,16 @@ func FilterRecipients(toIn, ccIn, suppressed []string) (to, cc []string) {
 	return to, cc
 }
 
-// LogSender is the Sender used when EMAIL_SERVICE_URL is unset: it logs what
-// would have been sent and returns nil, so local runs need no email service.
+// LogSender is the Sender used when EMAIL_DISABLED is set: it logs that an
+// email would have been sent and returns nil, so local runs need no email
+// service. Like Send, it leaves the addresses and the subject (which names
+// projects and customers) out of the log.
 type LogSender struct{}
 
 // Send logs m.
 func (LogSender) Send(ctx context.Context, m Message) error {
 	to, cc := FilterRecipients(m.To, m.CC, nil)
-	slog.InfoContext(ctx, "email not configured; not sent", "type", m.NotificationType, "ref", m.ReferenceID,
-		"template", m.TemplateID, "subject", subjectLine(m.Subject), "to", to, "cc", cc)
+	slog.InfoContext(ctx, "email disabled; not sent", "type", m.NotificationType, "ref", m.ReferenceID,
+		"template", m.TemplateID, "toCount", len(to), "ccCount", len(cc))
 	return nil
 }

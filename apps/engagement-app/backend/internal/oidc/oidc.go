@@ -44,9 +44,7 @@ type Config struct {
 	Issuer string
 	// JWKSURL is where the signing keys are fetched from. Must be https.
 	JWKSURL string
-	// Audiences: when non-empty, the token's aud must contain at least one.
-	// Empty skips the audience check (the signature and issuer are still
-	// verified); main logs a warning when it is empty.
+	// Audiences: the token's aud must contain at least one. Required.
 	Audiences []string
 	// ClockSkew is the leeway on exp, nbf and iat.
 	ClockSkew time.Duration
@@ -77,12 +75,15 @@ type Verifier struct {
 }
 
 // NewVerifier builds a Verifier. httpClient is used to fetch the JWKS; nil
-// uses a client with a 10 second timeout. It fails closed: an empty issuer
-// or a non-https JWKS URL is an error, never a verifier that skips the
-// check.
+// uses a client with a 10 second timeout. It fails closed: an empty issuer,
+// an empty audience list or a non-https JWKS URL is an error, never a
+// verifier that skips the check.
 func NewVerifier(cfg Config, httpClient *http.Client) (*Verifier, error) {
 	if cfg.Issuer == "" {
 		return nil, errors.New("oidc: issuer is required")
+	}
+	if len(cfg.Audiences) == 0 {
+		return nil, errors.New("oidc: at least one audience is required")
 	}
 	u, err := url.Parse(cfg.JWKSURL)
 	if err != nil || !SecureOrLoopback(u) {
@@ -115,9 +116,7 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Claims, error) 
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
 		jwt.WithLeeway(v.cfg.ClockSkew),
-	}
-	if len(v.cfg.Audiences) > 0 {
-		opts = append(opts, jwt.WithAudience(v.cfg.Audiences...)) // any of
+		jwt.WithAudience(v.cfg.Audiences...), // any of
 	}
 	token, err := jwt.ParseWithClaims(rawToken, &c,
 		func(t *jwt.Token) (any, error) {

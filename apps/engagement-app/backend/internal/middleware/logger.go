@@ -20,6 +20,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/redact"
 )
 
 type responseWriter struct {
@@ -42,8 +44,9 @@ func Logger(next http.Handler) http.Handler {
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
 		// %q: the path is decoded, so it can hold a newline that would
-		// forge a log line. The correlation ID is checked in CorrelationID.
-		log.Printf("%s %q correlationID=%s status=%d elapsed=%s", r.Method, r.URL.Path,
+		// forge a log line. redact.Path drops the emails some paths carry.
+		// The correlation ID is checked in CorrelationID.
+		log.Printf("%s %q correlationID=%s status=%d elapsed=%s", r.Method, redact.Path(r.URL.Path),
 			CorrelationIDFromContext(r.Context()), rw.status, time.Since(start))
 	})
 }

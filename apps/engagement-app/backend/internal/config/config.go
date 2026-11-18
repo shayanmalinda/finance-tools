@@ -88,6 +88,10 @@ type JWTConfig struct {
 	GatewayJWKSURL string
 	// Audiences is required: the token must contain one of these aud values.
 	Audiences []string
+	// GatewayAudiences are the aud values accepted on the gateway's JWT.
+	// They default to Audiences: the gateway's JWT may name a different
+	// audience than the Asgardeo token.
+	GatewayAudiences []string
 	// ClockSkew is the leeway allowed on exp, nbf and iat.
 	ClockSkew time.Duration
 }
@@ -104,8 +108,12 @@ func (c OAuthClient) Configured() bool { return c.ClientID != "" && c.ClientSecr
 
 // EmailConfig is the email service and the legacy recipient settings; all optional.
 type EmailConfig struct {
-	// ServiceURL unset: emails are logged and not sent.
+	// ServiceURL is required unless Disabled is set.
 	ServiceURL string
+	// Disabled (EMAIL_DISABLED=true) is the explicit opt-out for local runs:
+	// emails are logged and not sent. Without it a missing ServiceURL stops
+	// startup, so a deployment typo can't silently stop every email.
+	Disabled bool
 	// AppBaseURL is the One WSO2 link written into emails.
 	AppBaseURL string
 
@@ -135,7 +143,7 @@ type EmailConfig struct {
 }
 
 // Enabled reports whether emails are sent.
-func (e EmailConfig) Enabled() bool { return e.ServiceURL != "" }
+func (e EmailConfig) Enabled() bool { return e.ServiceURL != "" && !e.Disabled }
 
 // CurrencyConfig is the legacy currency conversion service
 // ([app_travel.utils] currencyConvertServiceEndpoint, POST /convert-currency).
@@ -186,6 +194,12 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	emailDisabled := false
+	if v := strings.TrimSpace(os.Getenv("EMAIL_DISABLED")); v != "" {
+		if emailDisabled, err = strconv.ParseBool(v); err != nil {
+			return nil, errors.New("EMAIL_DISABLED must be true or false")
+		}
+	}
 	ccTraveller := false
 	if v := strings.TrimSpace(os.Getenv("EMAIL_CC_TRAVELLER")); v != "" {
 		if ccTraveller, err = strconv.ParseBool(v); err != nil {
@@ -215,16 +229,22 @@ func Load() (*Config, error) {
 			companies[company] = splitList(list)
 		}
 	}
+	audiences := getList("JWT_AUDIENCES")
+	gatewayAudiences := getList("GATEWAY_JWT_AUDIENCES")
+	if len(gatewayAudiences) == 0 {
+		gatewayAudiences = audiences
+	}
 	return &Config{
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8190"),
 		JWT: JWTConfig{
-			Issuer:         getEnvOrDefault("JWT_ISSUER", DefaultIssuer),
-			JWKSURL:        getEnvOrDefault("JWT_JWKS_URL", DefaultJWKSURL),
-			UserinfoURL:    getEnvOrDefault("JWT_USERINFO_URL", DefaultUserinfoURL),
-			GatewayIssuer:  strings.TrimSpace(os.Getenv("GATEWAY_JWT_ISSUER")),
-			GatewayJWKSURL: strings.TrimSpace(os.Getenv("GATEWAY_JWT_JWKS_URL")),
-			Audiences:      getList("JWT_AUDIENCES"),
-			ClockSkew:      skew,
+			Issuer:           getEnvOrDefault("JWT_ISSUER", DefaultIssuer),
+			JWKSURL:          getEnvOrDefault("JWT_JWKS_URL", DefaultJWKSURL),
+			UserinfoURL:      getEnvOrDefault("JWT_USERINFO_URL", DefaultUserinfoURL),
+			GatewayIssuer:    strings.TrimSpace(os.Getenv("GATEWAY_JWT_ISSUER")),
+			GatewayJWKSURL:   strings.TrimSpace(os.Getenv("GATEWAY_JWT_JWKS_URL")),
+			Audiences:        audiences,
+			GatewayAudiences: gatewayAudiences,
+			ClockSkew:        skew,
 		},
 		EngagementEntityBaseURL: trimURL(os.Getenv("ENGAGEMENT_ENTITY_BASE_URL")),
 		SalesEntityBaseURL:      trimURL(os.Getenv("SALES_ENTITY_BASE_URL")),
@@ -232,6 +252,7 @@ func Load() (*Config, error) {
 		Client:                  shared,
 		Email: EmailConfig{
 			ServiceURL:              trimURL(os.Getenv("EMAIL_SERVICE_URL")),
+			Disabled:                emailDisabled,
 			AppBaseURL:              trimURL(getEnvOrDefault("APP_BASE_URL", "https://one.wso2.com")),
 			AllocationsAppUUID:      strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_APP_UUID")),
 			TravelAppUUID:           strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_APP_UUID")),
@@ -286,6 +307,9 @@ func (c *Config) Validate() error {
 	}
 	if c.EngagementEntityBaseURL == "" {
 		errs = append(errs, errors.New("ENGAGEMENT_ENTITY_BASE_URL is required"))
+	}
+	if c.Email.ServiceURL == "" && !c.Email.Disabled {
+		errs = append(errs, errors.New("EMAIL_SERVICE_URL is required (set EMAIL_DISABLED=true to only log emails)"))
 	}
 	needsClient := map[string]string{
 		"SALES_ENTITY_BASE_URL": c.SalesEntityBaseURL,
