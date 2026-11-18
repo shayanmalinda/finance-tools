@@ -228,24 +228,12 @@ func TestVerify_NoEmailOrGroups(t *testing.T) {
 	}
 }
 
-// No audience configured: any audience passes, the signature still counts.
-func TestVerify_OptionalAudience(t *testing.T) {
-	f := newFakeIssuer(t)
-	v, err := NewVerifier(Config{Issuer: testIssuer, JWKSURL: f.srv.URL + "/jwks"}, f.srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := validClaims()
-	c["aud"] = []string{"any-client"}
-	if _, err := v.Verify(context.Background(), f.sign(c)); err != nil {
-		t.Errorf("Verify: %v", err)
-	}
-}
-
 func TestMultiVerifier(t *testing.T) {
 	a, b := newFakeIssuer(t), newFakeIssuer(t)
 	va := a.verifier()
-	vb, err := NewVerifier(Config{Issuer: "https://gateway.example/token", JWKSURL: b.srv.URL + "/jwks"}, b.srv.Client())
+	vb, err := NewVerifier(Config{
+		Issuer: "https://gateway.example/token", JWKSURL: b.srv.URL + "/jwks", Audiences: []string{testAudience},
+	}, b.srv.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,6 +485,7 @@ func TestNewVerifier_FailsClosed(t *testing.T) {
 	}{
 		{"no issuer", Config{JWKSURL: "https://x/jwks", Audiences: []string{"a"}}},
 		{"http JWKS", Config{Issuer: testIssuer, JWKSURL: "http://x/jwks", Audiences: []string{"a"}}},
+		{"no audience", Config{Issuer: testIssuer, JWKSURL: "https://x/jwks"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

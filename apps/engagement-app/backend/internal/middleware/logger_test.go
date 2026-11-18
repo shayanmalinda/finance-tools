@@ -46,6 +46,16 @@ func TestLogger_QuotesThePath(t *testing.T) {
 	}
 }
 
+// An employee email in the path is not written to the access log.
+func TestLogger_RedactsEmails(t *testing.T) {
+	buf := captureLog(t)
+	h := Logger(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/travellers/jane%40wso2.com/passports", nil))
+	if out := buf.String(); strings.Contains(out, "jane") || !strings.Contains(out, `"/travellers/{email}/passports"`) {
+		t.Errorf("log = %q", out)
+	}
+}
+
 func TestCorrelationID_ReplacesUnsafeIDs(t *testing.T) {
 	for id, keep := range map[string]bool{
 		"abc-123_X.y:z":          true,

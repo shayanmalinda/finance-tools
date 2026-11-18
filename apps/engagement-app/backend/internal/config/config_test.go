@@ -17,6 +17,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 
 var allKeys = []string{
 	"SERVER_PORT", "JWT_ISSUER", "JWT_JWKS_URL", "JWT_USERINFO_URL", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL",
+	"GATEWAY_JWT_AUDIENCES", "EMAIL_DISABLED",
 	"JWT_AUDIENCES", "JWT_CLOCK_SKEW_SECONDS", "ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL",
 	"ENTITY_TOKEN_URL", "ENTITY_CLIENT_ID", "ENTITY_CLIENT_SECRET", "EMAIL_SERVICE_URL", "APP_BASE_URL",
 	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
@@ -38,10 +40,11 @@ func setMinimalEnv(t *testing.T) {
 	}
 	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "http://engagement-entity:8290/")
 	t.Setenv("JWT_AUDIENCES", "client-a")
+	t.Setenv("EMAIL_DISABLED", "true")
 }
 
-// The only required settings are the entity URL and the audience; everything
-// else defaults.
+// The only required settings are the entity URL, the audience and either
+// the email service or the explicit email opt-out; everything else defaults.
 func TestLoadMinimal(t *testing.T) {
 	setMinimalEnv(t)
 	c, err := Load()
@@ -62,6 +65,59 @@ func TestLoadMinimal(t *testing.T) {
 	}
 	if c.Email.Enabled() || c.Files.Enabled() || len(c.CORSAllowedOrigins) != 0 {
 		t.Error("email, files and CORS must be off by default")
+	}
+}
+
+// A missing EMAIL_SERVICE_URL stops startup unless EMAIL_DISABLED says the
+// emails are meant to be off.
+func TestValidateRequiresEmailOrOptOut(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("EMAIL_DISABLED", "")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "EMAIL_SERVICE_URL") {
+		t.Errorf("Validate() = %v, want EMAIL_SERVICE_URL required", err)
+	}
+
+	t.Setenv("EMAIL_DISABLED", "maybe")
+	if _, err := Load(); err == nil {
+		t.Error("Load accepted EMAIL_DISABLED=maybe")
+	}
+
+	// Set together, the opt-out wins: emails stay off.
+	t.Setenv("EMAIL_DISABLED", "true")
+	t.Setenv("EMAIL_SERVICE_URL", "https://email.example")
+	t.Setenv("ENTITY_CLIENT_ID", "id")
+	t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+	c, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if c.Email.Enabled() {
+		t.Error("EMAIL_DISABLED=true left email enabled")
+	}
+}
+
+func TestLoadGatewayAudiences(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.JWT.GatewayAudiences, []string{"client-a"}) {
+		t.Errorf("GatewayAudiences = %v, want JWT_AUDIENCES by default", c.JWT.GatewayAudiences)
+	}
+	t.Setenv("GATEWAY_JWT_AUDIENCES", "gw-1, gw-2")
+	if c, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.JWT.GatewayAudiences, []string{"gw-1", "gw-2"}) || !slices.Equal(c.JWT.Audiences, []string{"client-a"}) {
+		t.Errorf("audiences = %v, gateway %v", c.JWT.Audiences, c.JWT.GatewayAudiences)
 	}
 }
 

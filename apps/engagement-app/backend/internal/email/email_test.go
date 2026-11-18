@@ -17,11 +17,14 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,5 +102,33 @@ func TestHTTPSender_SubjectHasNoLineBreaks(t *testing.T) {
 	}
 	if got.Subject != "[Allocations] x  Bcc: evil@x.com end" {
 		t.Errorf("subject = %q", got.Subject)
+	}
+}
+
+// Neither sender writes addresses or the subject (which names projects and
+// customers) to the log; counts and the reference are enough.
+func TestSenders_LogNoAddressesOrSubject(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer srv.Close()
+	m := Message{App: AppAllocations, To: []string{"jane@wso2.com"}, CC: []string{"lead@wso2.com"},
+		Subject: "Consultant request for E07201 : Acme - PoC", ReferenceID: "E07201", NotificationType: "allocation"}
+	s := New(Config{ServiceURL: srv.URL}, rest.New("email", srv.URL, srv.Client()))
+	if err := s.Send(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if err := (LogSender{}).Send(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "@") || strings.Contains(out, "Acme") {
+		t.Errorf("log carries addresses or subject: %s", out)
+	}
+	if strings.Count(out, "ref=E07201") != 2 || strings.Count(out, "toCount=1 ccCount=1") != 2 {
+		t.Errorf("log = %s", out)
 	}
 }

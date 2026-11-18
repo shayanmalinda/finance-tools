@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -167,5 +168,98 @@ func TestIdempotency_PanicReleasesTheKey(t *testing.T) {
 	h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
 	if rec.Code != http.StatusCreated || calls != 2 {
 		t.Errorf("retry: %d after %d calls, want 201 after 2", rec.Code, calls)
+	}
+}
+
+// The same key on another query string is another request: it runs, it is
+// not replayed.
+func TestIdempotency_QueryIsPartOfTheRequest(t *testing.T) {
+	var calls int32
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	for _, target := range []string{"/engagements?notify=true", "/engagements?notify=false"} {
+		req := httptest.NewRequest(http.MethodPost, target, nil)
+		req.Header.Set(IdempotencyKeyHeader, "k1")
+		req = req.WithContext(reqcontext.WithCaller(req.Context(), reqcontext.Caller{Email: "a@wso2.com"}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Header().Get("Idempotent-Replayed") != "" {
+			t.Errorf("%s was replayed", target)
+		}
+	}
+	if calls != 2 {
+		t.Errorf("handler ran %d times, want 2", calls)
+	}
+}
+
+// A replay keeps the retry's own correlation ID, not the original's.
+func TestIdempotency_ReplayKeepsItsCorrelationID(t *testing.T) {
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "/engagements/E1")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	send := func(corrID string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		rec.Header().Set(correlationIDHeader, corrID) // as CorrelationID sets it
+		h.ServeHTTP(rec, idemRequest("k1", "a@wso2.com"))
+		return rec
+	}
+	send("first")
+	rec := send("second")
+	if got := rec.Header().Get(correlationIDHeader); got != "second" {
+		t.Errorf("replayed correlation ID = %q, want second", got)
+	}
+	if rec.Header().Get("Idempotent-Replayed") != "true" || rec.Header().Get("Location") != "/engagements/E1" {
+		t.Errorf("replay headers = %v", rec.Header())
+	}
+}
+
+// One caller can hold only so many live keys; another caller is unaffected,
+// and a key frees up once it expires.
+func TestIdempotency_CapsKeysPerCaller(t *testing.T) {
+	s := NewIdempotency()
+	now := time.Unix(0, 0)
+	s.now = func() time.Time { return now }
+	h := s.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusCreated) }))
+	send := func(key, email string) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, idemRequest(key, email))
+		return rec.Code
+	}
+	for i := range maxKeysPerCaller {
+		if code := send(strconv.Itoa(i), "a@wso2.com"); code != http.StatusCreated {
+			t.Fatalf("key %d: %d", i, code)
+		}
+	}
+	if code := send("one-more", "a@wso2.com"); code != http.StatusTooManyRequests {
+		t.Errorf("over the cap: %d, want 429", code)
+	}
+	// A key already held still replays.
+	if code := send("0", "a@wso2.com"); code != http.StatusCreated {
+		t.Errorf("replay at the cap: %d", code)
+	}
+	if code := send("one-more", "b@wso2.com"); code != http.StatusCreated {
+		t.Errorf("another caller: %d", code)
+	}
+	now = now.Add(idempotencyTTL + sweepInterval)
+	if code := send("one-more", "a@wso2.com"); code != http.StatusCreated {
+		t.Errorf("after expiry: %d", code)
+	}
+}
+
+// A response too large to keep is not remembered: a retry runs again.
+func TestIdempotency_LargeResponseIsNotKept(t *testing.T) {
+	var calls int32
+	h := NewIdempotency().Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		_, _ = w.Write(make([]byte, maxStoredBody+1))
+	}))
+	for range 2 {
+		h.ServeHTTP(httptest.NewRecorder(), idemRequest("k1", "a@wso2.com"))
+	}
+	if calls != 2 {
+		t.Errorf("handler ran %d times, want 2", calls)
 	}
 }
