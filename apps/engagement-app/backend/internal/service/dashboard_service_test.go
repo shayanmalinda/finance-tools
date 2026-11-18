@@ -211,13 +211,15 @@ func TestDashboard_FinanceQueuesAndCardSpend(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]int{"approve": 3, "push": 2, "pay": 5, "failed": 3}
-	if len(got.WaitingOnYou) != len(want) {
-		t.Fatalf("cards = %+v", got.WaitingOnYou)
-	}
+	cards := map[string]int{}
 	for _, c := range got.WaitingOnYou {
-		if want[c.Key] != c.Count {
-			t.Errorf("%s = %d, want %d", c.Key, c.Count, want[c.Key])
+		if _, dup := cards[c.Key]; dup {
+			t.Errorf("card %s appears twice", c.Key)
 		}
+		cards[c.Key] = c.Count
+	}
+	if !reflect.DeepEqual(cards, want) {
+		t.Errorf("cards = %v, want %v", cards, want)
 	}
 	// Travel Cost with card spend, but no Travel section.
 	if !f.travel.CostCards || !f.travel.CostInvoices || f.travel.Trips {

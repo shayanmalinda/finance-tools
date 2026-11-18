@@ -28,6 +28,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -274,9 +275,9 @@ func TestMultiVerifier(t *testing.T) {
 }
 
 func TestUserinfoClient(t *testing.T) {
-	hits := 0
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		hits.Add(1)
 		if r.Header.Get("Authorization") != "Bearer tok" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -291,8 +292,8 @@ func TestUserinfoClient(t *testing.T) {
 			t.Fatalf("got %+v, %v", c, err)
 		}
 	}
-	if hits != 1 {
-		t.Errorf("userinfo called %d times, want 1 (cached)", hits)
+	if n := hits.Load(); n != 1 {
+		t.Errorf("userinfo called %d times, want 1 (cached)", n)
 	}
 	if _, err := u.Fetch(context.Background(), "bad"); err == nil {
 		t.Error("want an error for a rejected token")
@@ -302,9 +303,9 @@ func TestUserinfoClient(t *testing.T) {
 // A failing endpoint is not called again for a few seconds: requests fail
 // fast instead of each waiting for the timeout.
 func TestUserinfoClient_DownEndpointFailsFast(t *testing.T) {
-	hits := 0
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits++
+		hits.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
@@ -314,15 +315,15 @@ func TestUserinfoClient_DownEndpointFailsFast(t *testing.T) {
 			t.Fatalf("token %s: want an error", tok)
 		}
 	}
-	if hits != 1 {
-		t.Errorf("userinfo called %d times, want 1", hits)
+	if n := hits.Load(); n != 1 {
+		t.Errorf("userinfo called %d times, want 1", n)
 	}
 }
 
 func TestUserinfoClient_OneCallersFailureDoesNotBlockOthers(t *testing.T) {
-	hits := 0
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		hits.Add(1)
 		if r.Header.Get("Authorization") == "Bearer limited" {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
@@ -342,8 +343,8 @@ func TestUserinfoClient_OneCallersFailureDoesNotBlockOthers(t *testing.T) {
 	if c, err := u.Fetch(context.Background(), "other"); err != nil || c.Email != "jane@wso2.com" {
 		t.Errorf("another caller after a 429 and a cancel: %+v, %v", c, err)
 	}
-	if hits != 2 {
-		t.Errorf("userinfo called %d times, want 2 (the cancelled call never reaches it)", hits)
+	if n := hits.Load(); n != 2 {
+		t.Errorf("userinfo called %d times, want 2 (the cancelled call never reaches it)", n)
 	}
 }
 
