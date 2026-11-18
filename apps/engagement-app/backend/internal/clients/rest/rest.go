@@ -122,11 +122,15 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// A *url.Error repeats the full URL; log only its cause. A token
-		// endpoint error can quote the endpoint's response body, so only
-		// its status is logged.
-		var ue *url.Error
-		if errors.As(err, &ue) {
+		// A *url.Error repeats the full URL, and a failed token fetch nests
+		// another one for the token endpoint: log only the innermost cause.
+		// A token endpoint error can quote the endpoint's response body, so
+		// only its status is logged.
+		for {
+			var ue *url.Error
+			if !errors.As(err, &ue) {
+				break
+			}
 			err = ue.Err
 		}
 		var re *oauth2.RetrieveError

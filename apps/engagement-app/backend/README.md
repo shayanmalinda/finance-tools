@@ -37,7 +37,8 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
   `X-Jwt-Assertion` (Choreo gateway) or, when absent, `Authorization: Bearer`
   (One WSO2 calling directly, e.g. locally), and verifies it in
   `internal/oidc`: RS256 signature against the issuer's JWKS (cached;
-  refetched on an unknown key id at most every 30 s, and after 30 minutes;
+  refetched on an unknown key id at most every 30 s after a successful
+  fetch and every 5 s after a failed one, and after 30 minutes;
   a failed fetch is 503, not 401, when the token's key is not cached; a
   cached key is still used for up to 30 more minutes while refetches fail,
   then the request is 503 until a fetch succeeds), issuer, expiry
@@ -63,7 +64,8 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
 - Double submit: create, allocate and push routes accept an
   `Idempotency-Key` header (`internal/middleware/idempotency.go`). The store
   is per replica, holds at most 100 live keys per caller, and keeps responses
-  up to 256 KiB.
+  up to 256 KiB for 10 minutes from when the response is ready. A replay
+  carries its own correlation ID and CORS headers.
 - Logs: request paths are logged without their query and with email
   segments replaced by `{email}` (`internal/redact`); a sent email is logged
   by type, reference and recipient counts, not addresses or subject.

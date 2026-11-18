@@ -241,6 +241,18 @@ func allocMinDate(a, b string) string {
 // allocToday is the current date (YYYY-MM-DD) of now.
 func allocToday(now time.Time) string { return now.Format(allocDateLayout) }
 
+// allocZones is domain.ReferenceTimeZones plus UTC, as a set.
+var allocZones = func() map[string]bool {
+	m := map[string]bool{"UTC": true}
+	for _, z := range domain.ReferenceTimeZones {
+		m[z] = true
+	}
+	return m
+}()
+
+// allocKnownZone reports whether zone is one an hourly allocation may store.
+func allocKnownZone(zone string) bool { return allocZones[zone] }
+
 // allocNormTime returns a time of day (H:MM, HH:MM or HH:MM:SS) as HH:MM,
 // so that times compare as strings; ok is false when s is not a time.
 func allocNormTime(s string) (string, bool) {

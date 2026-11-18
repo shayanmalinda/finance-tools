@@ -64,24 +64,44 @@ type idemEntry struct {
 // back with a different body. Per replica: a retry that lands on another
 // replica is not caught here.
 type Idempotency struct {
-	mu        sync.Mutex
-	entries   map[string]*idemEntry
-	perCaller map[string]int
+	mu      sync.Mutex
+	entries map[string]*idemEntry
+	// perCaller indexes entries by caller, so the quota check looks only
+	// at that caller's keys.
+	perCaller map[string]map[string]*idemEntry
 	lastSweep time.Time
 	now       func() time.Time
 }
 
 // NewIdempotency returns an empty Idempotency store.
 func NewIdempotency() *Idempotency {
-	return &Idempotency{entries: map[string]*idemEntry{}, perCaller: map[string]int{}, now: time.Now}
+	return &Idempotency{entries: map[string]*idemEntry{}, perCaller: map[string]map[string]*idemEntry{}, now: time.Now}
+}
+
+// add stores e under id. The caller holds s.mu.
+func (s *Idempotency) add(id string, e *idemEntry) {
+	s.entries[id] = e
+	if s.perCaller[e.caller] == nil {
+		s.perCaller[e.caller] = map[string]*idemEntry{}
+	}
+	s.perCaller[e.caller][id] = e
 }
 
 // drop removes the entry under id. The caller holds s.mu.
 func (s *Idempotency) drop(id string, e *idemEntry) {
 	delete(s.entries, id)
-	if s.perCaller[e.caller]--; s.perCaller[e.caller] <= 0 {
-		delete(s.perCaller, e.caller)
+	if keys := s.perCaller[e.caller]; keys != nil {
+		delete(keys, id)
+		if len(keys) == 0 {
+			delete(s.perCaller, e.caller)
+		}
 	}
+}
+
+// expired reports whether e can be dropped: a completed entry past its
+// replay window. An entry still in flight stays until its handler exits.
+func (e *idemEntry) expired(now time.Time) bool {
+	return e.done && now.After(e.expires)
 }
 
 // Wrap applies the protection to next. It must run inside Auth.
@@ -121,12 +141,12 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 		if now.Sub(s.lastSweep) >= sweepInterval {
 			s.lastSweep = now
 			for k, e := range s.entries {
-				if now.After(e.expires) {
+				if e.expired(now) {
 					s.drop(k, e)
 				}
 			}
 		}
-		if e, ok := s.entries[id]; ok && now.After(e.expires) {
+		if e, ok := s.entries[id]; ok && e.expired(now) {
 			s.drop(id, e)
 		}
 		if e, ok := s.entries[id]; ok {
@@ -154,40 +174,47 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 			_, _ = w.Write(body)
 			return
 		}
-		if s.perCaller[caller.Email] >= maxKeysPerCaller {
+		if len(s.perCaller[caller.Email]) >= maxKeysPerCaller {
 			// The periodic sweep may not have run yet: reclaim this
 			// caller's expired keys before refusing.
-			for k, e := range s.entries {
-				if e.caller == caller.Email && now.After(e.expires) {
+			for k, e := range s.perCaller[caller.Email] {
+				if e.expired(now) {
 					s.drop(k, e)
 				}
 			}
 		}
-		if s.perCaller[caller.Email] >= maxKeysPerCaller {
+		if len(s.perCaller[caller.Email]) >= maxKeysPerCaller {
 			s.mu.Unlock()
 			w.Header().Set("Retry-After", "60")
 			apierror.WriteJSON(w, http.StatusTooManyRequests, "Too many requests. Please try again in a minute.")
 			return
 		}
-		entry := &idemEntry{caller: caller.Email, bodySum: sum, expires: now.Add(idempotencyTTL)}
-		s.entries[id] = entry
-		s.perCaller[caller.Email]++
+		entry := &idemEntry{caller: caller.Email, bodySum: sum}
+		s.add(id, entry)
 		s.mu.Unlock()
 
 		rec := &recordingWriter{ResponseWriter: w, status: http.StatusOK}
 		finished := false
 		// Deferred so a panicking handler releases the key too: otherwise
-		// every retry would get 409 until the entry expires.
+		// every retry would get 409, as an entry in flight never expires.
 		defer func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if finished && rec.status >= 200 && rec.status < 300 && rec.buf.Len() <= maxStoredBody {
 				entry.done = true
+				// The replay window starts when the response is ready, so a
+				// long push is replayable for the full TTL.
+				entry.expires = s.now().Add(idempotencyTTL)
 				entry.status = rec.status
 				entry.header = w.Header().Clone()
-				// The correlation ID names the original request; a replay
-				// keeps its own.
+				// The correlation ID names the original request and CORS
+				// answers the original origin; a replay gets its own.
 				entry.header.Del(correlationIDHeader)
+				for k := range entry.header {
+					if strings.HasPrefix(k, "Access-Control-") {
+						entry.header.Del(k)
+					}
+				}
 				entry.body = rec.buf.Bytes()
 			} else if s.entries[id] == entry {
 				s.drop(id, entry)

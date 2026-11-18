@@ -289,6 +289,7 @@ const orgEmployeesPageSize = 1000
 // orgEmployeesMaxRows stops a listing that never reaches an empty page
 // (far above the head count). orgEmployeesMaxPages bounds the calls on
 // their own, and still reads that many rows when HR caps a page at 100.
+// One more call after the last data page checks that the listing ended.
 const (
 	orgEmployeesMaxRows  = 100_000
 	orgEmployeesMaxPages = 1000
@@ -325,7 +326,7 @@ func (c *HTTPClient) EmployeesByOrg(ctx context.Context, f OrgEmployeeFilter) ([
 	// below orgEmployeesPageSize, so a short page is not the last one.
 	out := []OrgEmployee{}
 	var prev []OrgEmployee
-	for page := 0; page < orgEmployeesMaxPages && len(out) <= orgEmployeesMaxRows; page++ {
+	for page := 0; page <= orgEmployeesMaxPages && len(out) <= orgEmployeesMaxRows; page++ {
 		var data struct {
 			Employees []OrgEmployee `json:"employees"`
 		}

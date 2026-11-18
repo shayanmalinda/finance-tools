@@ -126,10 +126,11 @@ const FinancePaymentCentsMsg = "Payment Amount can have at most two decimal plac
 
 // financeCents reports whether f has at most two decimal places (within
 // float noise, so 100.1 passes and 100.004 does not). A positive amount
-// must also be at least one cent, so 0.000000001 does not pass as 0.00.
+// must also be at least one cent before rounding, so neither 0.000000001
+// nor 0.0099999999 passes: the entity is sent the amount as given.
 func financeCents(f float64) bool {
 	c := math.Round(f * 100)
-	return math.Abs(f*100-c) < 1e-6 && (f <= 0 || c >= 1)
+	return math.Abs(f*100-c) < 1e-6 && (f <= 0 || f >= 0.01)
 }
 
 // financeOpen is the legacy UI's OPEN: In Progress or Extended.

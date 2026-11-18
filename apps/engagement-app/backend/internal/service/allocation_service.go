@@ -340,9 +340,11 @@ func (s *allocationService) validateCreate(eng engagemententity.AllocationEngage
 	if req.Hourly != nil {
 		startTime, okStart := allocNormTime(req.Hourly.StartTime)
 		endTime, okEnd := allocNormTime(req.Hourly.EndTime)
-		// "Local" would mean each replica's own zone; only IANA names are stored.
+		// Only the zones the Allocate page offers (and UTC) are stored: any
+		// other name, such as "Local" or "localtime", could load from one
+		// replica's own zone files and not from another's.
 		_, err := time.LoadLocation(req.Hourly.TimeZone)
-		if !okStart || !okEnd || err != nil || strings.EqualFold(strings.TrimSpace(req.Hourly.TimeZone), "Local") {
+		if !okStart || !okEnd || err != nil || !allocKnownZone(req.Hourly.TimeZone) {
 			return in, allocBad(allocMsgInvalidDates)
 		}
 		in.hourly = &domain.AllocationHourly{TimeZone: req.Hourly.TimeZone, StartTime: startTime, EndTime: endTime}

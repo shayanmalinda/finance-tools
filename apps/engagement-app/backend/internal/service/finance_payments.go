@@ -484,6 +484,12 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr("Not pushed: the traveller or their company was not found in HR.")})
 			continue
 		}
+		// The lookups may have used up the reserve: a push that starts now
+		// could hit the deadline with an unknown outcome.
+		if s.financeOutOfTime(ctx) {
+			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr(financeOutOfTimeMsg)})
+			continue
+		}
 		r, err := s.entity.FinancePushPayment(ctx, n, p.Email, *emp)
 		if err != nil {
 			msg, stop := financeRecordErr(err)

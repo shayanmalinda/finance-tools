@@ -436,11 +436,22 @@ const financeOutOfTimeMsg = "Not started: the request ran out of time. Try this 
 
 // financeOutcomeUnknownMsg is a record whose call was in flight when the
 // request's context ended.
-const financeOutcomeUnknownMsg = "Outcome unknown: the request ended during this record. Re-sync it to check NetSuite."
+const financeOutcomeUnknownMsg = "Outcome unknown: the request ended during this record. Check its NetSuite status before trying again."
 
 // financeNetSuiteOffMsg is a record not started because NetSuite push was
 // switched off during the batch.
 const financeNetSuiteOffMsg = "Not started: NetSuite push is not enabled."
+
+// financeEntityDownMsg is a record not started because the Engagement
+// Entity was unavailable.
+const financeEntityDownMsg = "Not started: the Engagement Entity is unavailable. Try this record again."
+
+// errNetSuiteOff is the stop error for the entity's NetSuite-disabled 503,
+// told apart from any other 503 by the entity's message.
+var errNetSuiteOff = &apierror.ServiceUnavailableError{Msg: "NetSuite push is not enabled"}
+
+// errEntityDown is the stop error for any other 503 from the entity.
+var errEntityDown = &apierror.ServiceUnavailableError{Msg: "The Engagement Entity is unavailable"}
 
 // pushItem maps an entity push or re-sync outcome.
 func pushItem(id string, r engagemententity.FinancePushResult) domain.BatchItem {
@@ -457,7 +468,10 @@ func financeRecordErr(err error) (*string, error) {
 	}
 	if errors.As(err, &up) {
 		if up.StatusCode == 503 {
-			return nil, &apierror.ServiceUnavailableError{Msg: "NetSuite push is not enabled"}
+			if up.Msg == errNetSuiteOff.Msg {
+				return nil, errNetSuiteOff
+			}
+			return nil, errEntityDown
 		}
 		if up.ClientError() {
 			return financeStr(up.Msg), nil
@@ -523,22 +537,31 @@ func (s *FinanceService) invoiceBatch(ctx context.Context, p domain.Perms, ids [
 }
 
 // financeBatchStop ends a push or re-sync batch on a stop error (NetSuite
-// off, or the request's context ended). When nothing has a result yet and
-// no entity call was in flight, the error is the batch's answer. Otherwise
-// the records already answered keep their results, so the caller knows
-// what was pushed: current is reported (outcome unknown when its call was
-// in flight as the context ended, even for the first record) and the rest
-// as not started.
+// off, the entity unavailable, or the request's context ended). When
+// nothing has a result yet and no entity call was in flight, the error is
+// the batch's answer. Otherwise the records already answered keep their
+// results, so the caller knows what was pushed: current is reported
+// (outcome unknown when its push was in flight and may have run, even for
+// the first record) and the rest as not started.
 func financeBatchStop(out domain.BatchResult, current string, inFlight bool, rest []string,
 	stop error) (domain.BatchResult, error) {
 	ended := errors.Is(stop, context.Canceled) || errors.Is(stop, context.DeadlineExceeded)
 	if len(out.Results) == 0 && !(ended && inFlight) {
 		return domain.BatchResult{}, stop
 	}
-	cur, next := financeStr(financeNetSuiteOffMsg), financeStr(financeNetSuiteOffMsg)
-	if ended {
+	var cur, next *string
+	switch {
+	case ended:
 		cur, next = financeStr(financeOutOfTimeMsg), financeStr(financeOutOfTimeMsg)
 		if inFlight {
+			cur = financeStr(financeOutcomeUnknownMsg)
+		}
+	case errors.Is(stop, errNetSuiteOff):
+		cur, next = financeStr(financeNetSuiteOffMsg), financeStr(financeNetSuiteOffMsg)
+	default:
+		cur, next = financeStr(financeEntityDownMsg), financeStr(financeEntityDownMsg)
+		if inFlight {
+			// A 503 in front of the entity can come after the push started.
 			cur = financeStr(financeOutcomeUnknownMsg)
 		}
 	}
