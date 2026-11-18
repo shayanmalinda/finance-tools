@@ -43,6 +43,11 @@ const failureBackoff = 5 * time.Second
 // identity provider rotated out or revoked stops being trusted.
 const maxKeyAge = 30 * time.Minute
 
+// maxKeyGrace is how long past maxKeyAge a cached key is still trusted
+// while refreshes fail, so a short JWKS outage doesn't sign everyone out.
+// After it, lookups answer ErrKeysUnavailable until a refresh succeeds.
+const maxKeyGrace = 30 * time.Minute
+
 // fetchTimeout bounds one JWKS fetch. The fetch is detached from the request
 // that triggered it, so one cancelled request cannot fail it for everyone.
 const fetchTimeout = 10 * time.Second
@@ -99,11 +104,20 @@ func (k *keySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error)
 	if err := k.refreshIfDue(ctx); err != nil && !ok {
 		return nil, err
 	}
-	// A failed max-age refresh keeps the cached set: the key was good at the
-	// last successful fetch.
+	// A failed max-age refresh keeps the cached set for maxKeyGrace: the key
+	// was good at the last successful fetch. Past that, nothing is trusted
+	// until a refresh succeeds.
 	k.mu.RLock()
 	key, ok = k.keys[kid]
+	expired := !k.lastRefresh.IsZero() && time.Since(k.lastRefresh) > k.maxAge+maxKeyGrace
+	lastErr := k.lastErr
 	k.mu.RUnlock()
+	if ok && expired {
+		if lastErr == nil {
+			lastErr = ErrKeysUnavailable
+		}
+		return nil, lastErr
+	}
 	if !ok {
 		return nil, fmt.Errorf("oidc: no signing key for kid %q", kid)
 	}

@@ -311,10 +311,16 @@ func (c *Config) Validate() error {
 	if c.Email.ServiceURL == "" && !c.Email.Disabled {
 		errs = append(errs, errors.New("EMAIL_SERVICE_URL is required (set EMAIL_DISABLED=true to only log emails)"))
 	}
+	// With EMAIL_DISABLED the email URL is never used, so it needs neither
+	// the client pair nor https.
+	emailURL := ""
+	if c.Email.Enabled() {
+		emailURL = c.Email.ServiceURL
+	}
 	needsClient := map[string]string{
 		"SALES_ENTITY_BASE_URL": c.SalesEntityBaseURL,
 		"HR_ENTITY_URL":         c.HREntityURL,
-		"EMAIL_SERVICE_URL":     c.Email.ServiceURL,
+		"EMAIL_SERVICE_URL":     emailURL,
 	}
 	for _, key := range []string{"SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL"} {
 		if needsClient[key] != "" && !c.Client.Configured() {
@@ -333,7 +339,7 @@ func (c *Config) Validate() error {
 		{"CURRENCY_CONVERT_TOKEN_URL", currencyToken},
 		{"SALES_ENTITY_BASE_URL", c.SalesEntityBaseURL},
 		{"HR_ENTITY_URL", c.HREntityURL},
-		{"EMAIL_SERVICE_URL", c.Email.ServiceURL},
+		{"EMAIL_SERVICE_URL", emailURL},
 		{"CURRENCY_CONVERT_SERVICE_URL", c.Currency.URL},
 	} {
 		if u.val == "" {

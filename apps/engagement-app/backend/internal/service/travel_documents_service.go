@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/mail"
@@ -614,13 +615,21 @@ func (s *travelDocumentsService) store(ctx context.Context, container, owner, co
 	return name, nil
 }
 
-// discard removes a stored image, best-effort: a failure is logged.
+// discardTimeout bounds the clean-up of a replaced image, so a slow delete
+// can't hold back the answer to a save that already succeeded.
+const discardTimeout = 10 * time.Second
+
+// discard removes a stored image, best-effort: a failure is logged without
+// the image name or the storage error, which both carry the owner's email.
 func (s *travelDocumentsService) discard(ctx context.Context, container, name string) {
 	if name == "" {
 		return
 	}
-	if err := s.files.Delete(context.WithoutCancel(ctx), container+"/"+name); err != nil {
-		slog.WarnContext(ctx, "travel image not deleted", "container", container, "image", name, "err", err)
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discardTimeout)
+	defer cancel()
+	if err := s.files.Delete(dctx, container+"/"+name); err != nil {
+		slog.WarnContext(ctx, "travel image not deleted", "container", container, "errType", fmt.Sprintf("%T", err),
+			"timedOut", errors.Is(err, context.DeadlineExceeded))
 	}
 }
 

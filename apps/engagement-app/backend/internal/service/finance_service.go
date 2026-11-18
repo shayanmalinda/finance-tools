@@ -125,8 +125,12 @@ func financeRound2(f float64) float64 { return math.Round(f*100) / 100 }
 const FinancePaymentCentsMsg = "Payment Amount can have at most two decimal places."
 
 // financeCents reports whether f has at most two decimal places (within
-// float noise, so 100.1 passes and 100.004 does not).
-func financeCents(f float64) bool { return math.Abs(f*100-math.Round(f*100)) < 1e-6 }
+// float noise, so 100.1 passes and 100.004 does not). A positive amount
+// must also be at least one cent, so 0.000000001 does not pass as 0.00.
+func financeCents(f float64) bool {
+	c := math.Round(f * 100)
+	return math.Abs(f*100-c) < 1e-6 && (f <= 0 || c >= 1)
+}
 
 // financeOpen is the legacy UI's OPEN: In Progress or Extended.
 func financeOpen(status *string) bool {

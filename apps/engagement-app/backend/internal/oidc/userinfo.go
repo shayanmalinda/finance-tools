@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,6 +66,11 @@ func NewUserinfoClient(url string, httpClient *http.Client) *UserinfoClient {
 	return &UserinfoClient{url: url, http: httpClient, cache: map[string]userinfoEntry{}}
 }
 
+// ErrUserinfoRejected reports that the userinfo endpoint refused the access
+// token (401): the token is not valid there, so the caller must sign in
+// again rather than retry.
+var ErrUserinfoRejected = errors.New("oidc: userinfo rejected the token")
+
 // Fetch returns the email and groups userinfo reports for accessToken.
 func (u *UserinfoClient) Fetch(ctx context.Context, accessToken string) (Claims, error) {
 	sum := sha256.Sum256([]byte(accessToken))
@@ -99,6 +105,9 @@ func (u *UserinfoClient) Fetch(ctx context.Context, accessToken string) (Claims,
 	defer resp.Body.Close()
 	if resp.StatusCode >= 500 {
 		return Claims{}, u.down(fmt.Errorf("oidc: userinfo returned %d", resp.StatusCode))
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return Claims{}, ErrUserinfoRejected
 	}
 	if resp.StatusCode != http.StatusOK {
 		return Claims{}, fmt.Errorf("oidc: userinfo returned %d", resp.StatusCode)

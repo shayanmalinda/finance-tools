@@ -65,7 +65,7 @@ func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		apierror.WriteJSON(w, http.StatusConflict, ce.Msg)
 	case errors.As(err, &up) && up.ClientError():
 		// The dependency rejected what we sent; its message names the problem.
-		slog.WarnContext(ctx, "dependency rejected request", "method", r.Method, "path", redact.Path(r.URL.Path), "err", up)
+		slog.WarnContext(ctx, "dependency rejected request", "method", r.Method, "path", redact.Path(r.URL.EscapedPath()), "err", up)
 		if up.StatusCode == http.StatusUnauthorized || up.StatusCode == http.StatusForbidden {
 			// A service refusing our credentials is not the user's permission problem.
 			apierror.WriteJSON(w, http.StatusServiceUnavailable, "A connected service refused the request. Please try again later.")
@@ -73,18 +73,18 @@ func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 		apierror.WriteJSON(w, up.StatusCode, up.Msg)
 	case errors.As(err, &up), errors.As(err, &sue):
-		slog.ErrorContext(ctx, "dependency unavailable", "method", r.Method, "path", redact.Path(r.URL.Path), "err", err)
+		slog.ErrorContext(ctx, "dependency unavailable", "method", r.Method, "path", redact.Path(r.URL.EscapedPath()), "err", err)
 		apierror.WriteJSON(w, http.StatusServiceUnavailable, "Service temporarily unavailable. Please try again shortly.")
 	case errors.Is(err, context.DeadlineExceeded):
-		slog.WarnContext(ctx, "request timed out", "method", r.Method, "path", redact.Path(r.URL.Path))
+		slog.WarnContext(ctx, "request timed out", "method", r.Method, "path", redact.Path(r.URL.EscapedPath()))
 		apierror.WriteJSON(w, http.StatusGatewayTimeout, "The request timed out. Please try again.")
 	case errors.Is(err, context.Canceled):
 		// No one reads this, but a non-2xx status keeps Idempotency from
 		// replaying it and Audit from recording it as a success.
-		slog.InfoContext(ctx, "request canceled by the client", "method", r.Method, "path", redact.Path(r.URL.Path))
+		slog.InfoContext(ctx, "request canceled by the client", "method", r.Method, "path", redact.Path(r.URL.EscapedPath()))
 		apierror.WriteJSON(w, statusClientClosedRequest, "The request was canceled.")
 	default:
-		slog.ErrorContext(ctx, "internal error", "method", r.Method, "path", redact.Path(r.URL.Path), "err", err)
+		slog.ErrorContext(ctx, "internal error", "method", r.Method, "path", redact.Path(r.URL.EscapedPath()), "err", err)
 		apierror.WriteJSON(w, http.StatusInternalServerError, "Something went wrong. Please try again.")
 	}
 }

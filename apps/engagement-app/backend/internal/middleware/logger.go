@@ -43,10 +43,11 @@ func Logger(next http.Handler) http.Handler {
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		// %q: the path is decoded, so it can hold a newline that would
-		// forge a log line. redact.Path drops the emails some paths carry.
-		// The correlation ID is checked in CorrelationID.
-		log.Printf("%s %q correlationID=%s status=%d elapsed=%s", r.Method, redact.Path(r.URL.Path),
+		// The escaped path: an encoded "?" or "/" inside an email segment
+		// stays inside it, so redact.Path drops the whole email, and %q
+		// keeps any odd character from forging a log line. The correlation
+		// ID is checked in CorrelationID.
+		log.Printf("%s %q correlationID=%s status=%d elapsed=%s", r.Method, redact.Path(r.URL.EscapedPath()),
 			CorrelationIDFromContext(r.Context()), rw.status, time.Since(start))
 	})
 }

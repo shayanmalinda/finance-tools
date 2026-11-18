@@ -98,10 +98,12 @@ func travelNeedsAgentAndVisa(status string) bool {
 }
 
 // travelFull reports whether p sees every travel request (Travel 1, 2 or 5).
-// An agent (Perms.IsAgent) never does, even with 5: it is scoped to its
-// agency, as in List and the finance views.
+// A holder of the agent privilege (18) without 1 or 2 never does, even with
+// 5 and even when no agency resolved for them: it is scoped to its agency,
+// as in List and the finance views, and fails closed without one.
 func travelFull(p domain.Perms) bool {
-	return !p.IsAgent() && p.Travel.Any(travelPrivNewRequests, travelPrivAllRequests, travelPrivEditAgent)
+	agentOnly := p.Travel.Has(travelPrivAgentRequests) && !p.Travel.Any(travelPrivNewRequests, travelPrivAllRequests)
+	return !agentOnly && p.Travel.Any(travelPrivNewRequests, travelPrivAllRequests, travelPrivEditAgent)
 }
 
 // travelScope is the caller's scope on a request, or "" (no access):

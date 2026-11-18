@@ -78,6 +78,11 @@ func Auth(v Verifier, userinfo UserinfoFetcher) func(http.Handler) http.Handler 
 			}
 			if bearer && userinfo != nil && (claims.Email == "" || !claims.GroupsPresent) {
 				extra, err := userinfo.Fetch(r.Context(), raw)
+				if errors.Is(err, oidc.ErrUserinfoRejected) {
+					slog.WarnContext(r.Context(), "auth: token rejected by userinfo")
+					apierror.WriteJSON(w, http.StatusUnauthorized, unauthorizedMsg)
+					return
+				}
 				if err != nil {
 					// The missing email or groups are unknown, not empty:
 					// answering with no privileges would show "no access".

@@ -116,5 +116,9 @@ func (fx *financeFX) convert(ctx context.Context, src, tgt string, amount float6
 	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 		return 0, &apierror.ServiceUnavailableError{Msg: fmt.Sprintf("Error while currency conversion: no %s rate for %s on %s", tgt, src, date)}
 	}
-	return amount / rate, nil
+	v := amount / rate
+	if math.IsInf(v, 0) || math.IsNaN(v) {
+		return 0, &apierror.ServiceUnavailableError{Msg: fmt.Sprintf("Error while currency conversion: the %s rate for %s on %s is out of range", tgt, src, date)}
+	}
+	return v, nil
 }

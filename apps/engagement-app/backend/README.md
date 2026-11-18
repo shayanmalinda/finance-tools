@@ -38,13 +38,15 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
   (One WSO2 calling directly, e.g. locally), and verifies it in
   `internal/oidc`: RS256 signature against the issuer's JWKS (cached;
   refetched on an unknown key id at most every 30 s, and after 30 minutes;
-  a failed fetch is 503, not 401), issuer, expiry
+  a failed fetch is 503, not 401, when the token's key is not cached; a
+  cached key is still used for up to 30 more minutes while refetches fail,
+  then the request is 503 until a fetch succeeds), issuer, expiry
   (required), issued-at, and audience (`JWT_AUDIENCES`, required). Trusted
   issuers: the WSO2 Asgardeo organisation (default) and, when
   `GATEWAY_JWT_ISSUER` is set, the gateway's issuer. Missing email or groups
   in a Bearer token are read from the userinfo endpoint (cached 5 minutes per
-  token hash; when it fails the request is 503, since the caller's access is
-  unknown). The caller's email and groups go into the request context.
+  token hash; when userinfo rejects the token the request is 401, when it
+  fails otherwise 503, since the caller's access is unknown). The caller's email and groups go into the request context.
 - Authorization: the legacy apps have no user-to-role table; a role is an
   Asgardeo group. `internal/service/access_service.go` reads each app's
   role-privilege map from the Engagement Entity (cached one minute), and
@@ -94,9 +96,10 @@ gofmt -l .           # must print nothing
 
 Settings come from environment variables; locally from a git-ignored `.env`
 (copy `.env.local`). `ENGAGEMENT_ENTITY_BASE_URL`, `JWT_AUDIENCES` and
-`EMAIL_SERVICE_URL` (or `EMAIL_DISABLED=true`) are required to start. Every
-other service is optional: unset, the backend starts and the screens that
-need it answer 503. Service and token
+`EMAIL_SERVICE_URL` (or `EMAIL_DISABLED=true`) are required to start, plus
+`ENTITY_CLIENT_ID` and `ENTITY_CLIENT_SECRET` when email is on or
+`SALES_ENTITY_BASE_URL` or `HR_ENTITY_URL` is set. Every other service is
+optional: unset, the backend starts and the screens that need it answer 503. Service and token
 URLs must be https (http only on localhost). Never put real values in
 committed files.
 
@@ -105,7 +108,7 @@ committed files.
 | `ENGAGEMENT_ENTITY_BASE_URL` | Yes | – | Choreo connection to the Engagement Entity (same project); locally `http://localhost:8290` |
 | `SALES_ENTITY_BASE_URL` | For accounts, opportunities, line items and campaigns | – | Choreo connection to the Go Sales Entity Service |
 | `HR_ENTITY_URL` | For employee and organisation lookups | – | `[app_allocation.entity] hrEntityEndpoint` |
-| `ENTITY_CLIENT_ID` | When any of the four above is set | – | `[app_allocation.entity.clientAuthConfig] clientId` (one pair for every outbound WSO2 service, as legacy) |
+| `ENTITY_CLIENT_ID` | When `SALES_ENTITY_BASE_URL`, `HR_ENTITY_URL` or `EMAIL_SERVICE_URL` (email on) is set | – | `[app_allocation.entity.clientAuthConfig] clientId` (one pair for every outbound WSO2 service, as legacy) |
 | `ENTITY_CLIENT_SECRET` | Same (secret) | – | `[app_allocation.entity.clientAuthConfig] clientSecret` |
 | `ENTITY_TOKEN_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | `[app_allocation.entity.clientAuthConfig] tokenUrl` |
 | `JWT_ISSUER` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | WSO2 Asgardeo organisation |

@@ -21,6 +21,8 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/redact"
 )
 
 type recoveryWriter struct {
@@ -53,7 +55,7 @@ func Recovery(next http.Handler) http.Handler {
 					panic(rec)
 				}
 				log.Printf("panic recovered correlationID=%s method=%s path=%q value=%v\n%s",
-					CorrelationIDFromContext(r.Context()), r.Method, r.URL.Path, rec, debug.Stack())
+					CorrelationIDFromContext(r.Context()), r.Method, redact.Path(r.URL.EscapedPath()), rec, debug.Stack())
 				if !rw.headerWritten {
 					rw.ResponseWriter.Header().Set("Content-Type", "application/json")
 					rw.ResponseWriter.WriteHeader(http.StatusInternalServerError)

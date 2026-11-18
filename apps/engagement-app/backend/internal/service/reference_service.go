@@ -321,6 +321,11 @@ func (s *referenceService) Opportunities(ctx context.Context, accountID string, 
 	if firstErr != nil {
 		return nil, firstErr
 	}
+	// A cancelled request can skip lookups without an error of their own:
+	// their line items were never read, so don't answer with empty ones.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

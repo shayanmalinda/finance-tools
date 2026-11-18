@@ -122,13 +122,25 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// A *url.Error repeats the full URL; log only its cause.
+		// A *url.Error repeats the full URL; log only its cause. A token
+		// endpoint error can quote the endpoint's response body, so only
+		// its status is logged.
 		var ue *url.Error
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		slog.ErrorContext(ctx, "dependency request failed", "service", c.service, "method", method,
-			"path", redact.Path(path), "err", err)
+		var re *oauth2.RetrieveError
+		if errors.As(err, &re) {
+			status := 0
+			if re.Response != nil {
+				status = re.Response.StatusCode
+			}
+			slog.ErrorContext(ctx, "dependency token request failed", "service", c.service, "method", method,
+				"path", redact.Path(path), "tokenStatus", status)
+		} else {
+			slog.ErrorContext(ctx, "dependency request failed", "service", c.service, "method", method,
+				"path", redact.Path(path), "err", err)
+		}
 		return &apierror.UpstreamError{Service: c.service, Msg: "unreachable"}
 	}
 	defer resp.Body.Close()
@@ -157,6 +169,11 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	if err := json.NewDecoder(lr).Decode(out); err != nil {
 		if lr.N == 0 {
 			return &apierror.ValidationError{Msg: "The result is too large to return. Narrow the filters, for example a shorter date range."}
+		}
+		if ctx.Err() != nil {
+			// The deadline ended while the body was read: a stop, like one
+			// during the request, not a malformed answer.
+			return ctx.Err()
 		}
 		return &apierror.UpstreamError{Service: c.service, StatusCode: resp.StatusCode, Msg: "malformed response: " + err.Error()}
 	}

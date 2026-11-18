@@ -445,7 +445,6 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 	}
 	employees := map[string]*engagemententity.FinanceEmployee{}
 	out := domain.BatchResult{Results: []domain.BatchItem{}}
-	sent := false
 	for i, n := range numbers {
 		if s.financeOutOfTime(ctx) {
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr(financeOutOfTimeMsg)})
@@ -455,7 +454,7 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return financeBatchStop(out, sent, n, false, numbers[i+1:], stop)
+				return financeBatchStop(out, n, false, numbers[i+1:], stop)
 			}
 			var nf *apierror.NotFoundError
 			if asNotFound(err, &nf) {
@@ -474,7 +473,7 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 			emp, err = s.financeEmployee(ctx, traveller)
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return financeBatchStop(out, sent, n, false, numbers[i+1:], err)
+					return financeBatchStop(out, n, false, numbers[i+1:], err)
 				}
 				out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr("Not pushed: the traveller's HR record could not be read. Try again.")})
 				continue
@@ -489,14 +488,12 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return financeBatchStop(out, sent, n, true, numbers[i+1:], stop)
+				return financeBatchStop(out, n, true, numbers[i+1:], stop)
 			}
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: msg})
-			sent = true
 			continue
 		}
 		out.Results = append(out.Results, pushItem(n, r))
-		sent = true
 	}
 	return out, nil
 }
@@ -535,7 +532,6 @@ func (s *FinanceService) ResyncPayments(ctx context.Context, p domain.Perms, num
 		return domain.BatchResult{}, financeBad("Select 1 to 200 payments.")
 	}
 	out := domain.BatchResult{Results: []domain.BatchItem{}}
-	sent := false
 	for i, n := range numbers {
 		if s.financeOutOfTime(ctx) {
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr(financeOutOfTimeMsg)})
@@ -545,14 +541,12 @@ func (s *FinanceService) ResyncPayments(ctx context.Context, p domain.Perms, num
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				return financeBatchStop(out, sent, n, true, numbers[i+1:], stop)
+				return financeBatchStop(out, n, true, numbers[i+1:], stop)
 			}
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: msg})
-			sent = true
 			continue
 		}
 		out.Results = append(out.Results, pushItem(n, r))
-		sent = true
 	}
 	return out, nil
 }

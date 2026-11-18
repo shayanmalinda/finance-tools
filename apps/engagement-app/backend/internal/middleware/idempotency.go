@@ -97,9 +97,7 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		caller, _ := reqcontext.CallerFrom(r.Context())
-		// The query is part of the request: the same key on another query
-		// is another request.
-		id := caller.Email + "\x00" + r.Method + " " + r.URL.Path + "?" + r.URL.RawQuery + "\x00" + key
+		id := caller.Email + "\x00" + r.Method + " " + r.URL.Path + "\x00" + key
 		head, err := io.ReadAll(io.LimitReader(r.Body, maxHashedBody))
 		if err != nil {
 			apierror.WriteJSON(w, http.StatusBadRequest, "Could not read the request body.")
@@ -109,7 +107,14 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 			io.Reader
 			io.Closer
 		}{io.MultiReader(bytes.NewReader(head), r.Body), r.Body}
-		sum := sha256.Sum256(head)
+		// The query is hashed with the body: the same key with another
+		// query is a different request (422), never a fresh run or a replay.
+		h := sha256.New()
+		h.Write([]byte(r.URL.RawQuery))
+		h.Write([]byte{0})
+		h.Write(head)
+		var sum [32]byte
+		h.Sum(sum[:0])
 
 		now := s.now()
 		s.mu.Lock()
@@ -129,21 +134,34 @@ func (s *Idempotency) Wrap(next http.Handler) http.Handler {
 			// under it too.
 			done, bodySum, status, header, body := e.done, e.bodySum, e.status, e.header, e.body
 			s.mu.Unlock()
-			if !done {
-				apierror.WriteJSON(w, http.StatusConflict, "This request is already being processed.")
-				return
-			}
 			if bodySum != sum {
 				apierror.WriteJSON(w, http.StatusUnprocessableEntity, "This Idempotency-Key was already used for a different request.")
 				return
 			}
+			if !done {
+				apierror.WriteJSON(w, http.StatusConflict, "This request is already being processed.")
+				return
+			}
+			// Headers this request already carries (CORS for its own origin,
+			// its correlation ID) stay; the rest come from the original.
 			for k, v := range header {
-				w.Header()[k] = v
+				if _, set := w.Header()[k]; !set {
+					w.Header()[k] = v
+				}
 			}
 			w.Header().Set("Idempotent-Replayed", "true")
 			w.WriteHeader(status)
 			_, _ = w.Write(body)
 			return
+		}
+		if s.perCaller[caller.Email] >= maxKeysPerCaller {
+			// The periodic sweep may not have run yet: reclaim this
+			// caller's expired keys before refusing.
+			for k, e := range s.entries {
+				if e.caller == caller.Email && now.After(e.expires) {
+					s.drop(k, e)
+				}
+			}
 		}
 		if s.perCaller[caller.Email] >= maxKeysPerCaller {
 			s.mu.Unlock()

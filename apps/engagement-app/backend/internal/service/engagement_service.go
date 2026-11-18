@@ -916,12 +916,12 @@ func (s *engagementService) createCustomer(ctx context.Context, ref domain.Refer
 	case domain.EngagementTypeNonPaidPre:
 		c.EngagementCode = strings.TrimSpace(strings.Split(referenceStr(opp.PreSalesCode), "(")[0])
 	case domain.EngagementTypeNonPaidPost:
-		suffix := engagementVal(at.EngagementCodeSuffix)
+		suffix := strings.TrimSpace(engagementVal(at.EngagementCodeSuffix))
 		if suffix == "" {
 			return engagementValidation("Engagement Code cannot be set. Engagement Code Suffix is not available for the selected Allocation Type.")
 		}
 		if base := strings.TrimSpace(strings.Split(referenceStr(opp.PostSalesEngagementCode), "-")[0]); base != "" {
-			c.EngagementCode = base + "-" + strings.TrimSpace(suffix)
+			c.EngagementCode = base + "-" + suffix
 		}
 	default:
 		// Only types 2, 6 and 7 require a line item; another customer type

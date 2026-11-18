@@ -63,7 +63,9 @@ func Audit(rec AuditRecorder, event func(r *http.Request) (domain.AuditEvent, bo
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
-			if rw.status < 200 || rw.status >= 300 {
+			// HEAD runs the GET handler but sends no body: nothing was viewed
+			// or exported.
+			if rw.status < 200 || rw.status >= 300 || r.Method == http.MethodHead {
 				return
 			}
 			e, ok := event(r)
