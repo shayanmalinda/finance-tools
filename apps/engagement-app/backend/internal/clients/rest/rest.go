@@ -23,13 +23,14 @@ package rest
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -122,17 +123,10 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// A *url.Error repeats the full URL, and a failed token fetch nests
-		// another one for the token endpoint: log only the innermost cause.
-		// A token endpoint error can quote the endpoint's response body, so
-		// only its status is logged.
-		for {
-			var ue *url.Error
-			if !errors.As(err, &ue) {
-				break
-			}
-			err = ue.Err
-		}
+		// Transport error text can carry URLs (a redirect's Location, the
+		// token endpoint) and a token endpoint error can quote its response
+		// body, so neither is logged: a token failure logs its status, any
+		// other failure a fixed category.
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) {
 			status := 0
@@ -143,7 +137,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 				"path", redact.Path(path), "tokenStatus", status)
 		} else {
 			slog.ErrorContext(ctx, "dependency request failed", "service", c.service, "method", method,
-				"path", redact.Path(path), "err", err)
+				"path", redact.Path(path), "cause", transportCause(err))
 		}
 		return &apierror.UpstreamError{Service: c.service, Msg: "unreachable"}
 	}
@@ -182,4 +176,24 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		return &apierror.UpstreamError{Service: c.service, StatusCode: resp.StatusCode, Msg: "malformed response: " + err.Error()}
 	}
 	return nil
+}
+
+// transportCause names the kind of a transport failure without its text.
+func transportCause(err error) string {
+	var dnsErr *net.DNSError
+	var opErr *net.OpError
+	var certErr *tls.CertificateVerificationError
+	var netErr net.Error
+	switch {
+	case errors.As(err, &dnsErr):
+		return "dns"
+	case errors.As(err, &certErr):
+		return "tls"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	case errors.As(err, &opErr):
+		return "connection"
+	default:
+		return "transport"
+	}
 }

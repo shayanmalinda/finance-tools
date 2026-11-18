@@ -490,6 +490,11 @@ func (s *FinanceService) PushPayments(ctx context.Context, p domain.Perms, numbe
 			out.Results = append(out.Results, domain.BatchItem{ID: n, Message: financeStr(financeOutOfTimeMsg)})
 			continue
 		}
+		// Canceled with time to spare: stop before the push, so the payment
+		// is reported as not started rather than outcome unknown.
+		if err := ctx.Err(); err != nil {
+			return financeBatchStop(out, n, false, numbers[i+1:], err)
+		}
 		r, err := s.entity.FinancePushPayment(ctx, n, p.Email, *emp)
 		if err != nil {
 			msg, stop := financeRecordErr(err)

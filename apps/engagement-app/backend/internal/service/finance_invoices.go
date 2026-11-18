@@ -435,8 +435,9 @@ func (s *FinanceService) financeOutOfTime(ctx context.Context) bool {
 const financeOutOfTimeMsg = "Not started: the request ran out of time. Try this record again."
 
 // financeOutcomeUnknownMsg is a record whose call was in flight when the
-// request's context ended.
-const financeOutcomeUnknownMsg = "Outcome unknown: the request ended during this record. Check its NetSuite status before trying again."
+// batch stopped (the request ended, or an ambiguous 503 came back), so it
+// may or may not have run.
+const financeOutcomeUnknownMsg = "Outcome unknown: no answer was received for this record. Check its NetSuite status before trying again."
 
 // financeNetSuiteOffMsg is a record not started because NetSuite push was
 // switched off during the batch.
@@ -518,15 +519,23 @@ func (s *FinanceService) invoiceBatch(ctx context.Context, p domain.Perms, ids [
 			out.Results = append(out.Results, domain.BatchItem{ID: sid, Message: financeStr(financeOutOfTimeMsg)})
 			continue
 		}
+		rest := func() []string {
+			r := make([]string, 0, len(ids)-i-1)
+			for _, n := range ids[i+1:] {
+				r = append(r, strconv.Itoa(n))
+			}
+			return r
+		}
+		// Canceled with time to spare: stop before the call, so the record
+		// is reported as not started rather than outcome unknown.
+		if err := ctx.Err(); err != nil {
+			return financeBatchStop(out, sid, false, rest(), err)
+		}
 		r, err := call(ctx, id, p.Email)
 		if err != nil {
 			msg, stop := financeRecordErr(err)
 			if stop != nil {
-				rest := make([]string, 0, len(ids)-i-1)
-				for _, n := range ids[i+1:] {
-					rest = append(rest, strconv.Itoa(n))
-				}
-				return financeBatchStop(out, sid, true, rest, stop)
+				return financeBatchStop(out, sid, true, rest(), stop)
 			}
 			out.Results = append(out.Results, domain.BatchItem{ID: sid, Message: msg})
 			continue
@@ -538,15 +547,17 @@ func (s *FinanceService) invoiceBatch(ctx context.Context, p domain.Perms, ids [
 
 // financeBatchStop ends a push or re-sync batch on a stop error (NetSuite
 // off, the entity unavailable, or the request's context ended). When
-// nothing has a result yet and no entity call was in flight, the error is
+// nothing has a result yet and current's call is known not to have run (no
+// call in flight, or the entity's own NetSuite-off answer), the error is
 // the batch's answer. Otherwise the records already answered keep their
 // results, so the caller knows what was pushed: current is reported
-// (outcome unknown when its push was in flight and may have run, even for
+// (outcome unknown when its call was in flight and may have run, even for
 // the first record) and the rest as not started.
 func financeBatchStop(out domain.BatchResult, current string, inFlight bool, rest []string,
 	stop error) (domain.BatchResult, error) {
 	ended := errors.Is(stop, context.Canceled) || errors.Is(stop, context.DeadlineExceeded)
-	if len(out.Results) == 0 && !(ended && inFlight) {
+	mayHaveRun := inFlight && (ended || errors.Is(stop, errEntityDown))
+	if len(out.Results) == 0 && !mayHaveRun {
 		return domain.BatchResult{}, stop
 	}
 	var cur, next *string
