@@ -8,9 +8,7 @@ endpoints:
       port: 8290
     type: REST
 
-    # Project only: the Engagement App Backend (same Choreo project) is the
-    # one caller. The service has no auth middleware of its own, so it must
-    # not be reachable from other projects.
     networkVisibilities:
       - Project
+      - Organization
     schemaFilePath: openapi.yaml
