@@ -36,11 +36,7 @@ func TestPlaceholdersAndLike(t *testing.T) {
 }
 
 func TestAgencyOf(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, mock := mockDB(t)
 	r := NewAgencyRepository(db)
 	mock.ExpectQuery(re("WHERE tae.wso2_email = ? AND tae.status = 'Active'")).WithArgs("agent@classic.example").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(2, "Birch Travels"))

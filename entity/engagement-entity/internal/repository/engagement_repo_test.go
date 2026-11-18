@@ -31,15 +31,8 @@ import (
 
 func engagementMocks(t *testing.T) (sqlmock.Sqlmock, sqlmock.Sqlmock, *engagementRepo) {
 	t.Helper()
-	alloc, allocMock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	travel, travelMock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { alloc.Close(); travel.Close() })
+	alloc, allocMock := mockDB(t)
+	travel, travelMock := mockDB(t)
 	return allocMock, travelMock, &engagementRepo{alloc: alloc, travel: travel}
 }
 

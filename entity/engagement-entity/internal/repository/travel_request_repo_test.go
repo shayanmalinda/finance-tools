@@ -34,11 +34,7 @@ func travelRe(s string) string { return regexp.QuoteMeta(s) }
 
 func travelNewDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	t.Helper()
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db, mock := mockDB(t)
 	return db, mock
 }
 

@@ -29,15 +29,8 @@ import (
 
 func newTestRouter(t *testing.T) (http.Handler, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
-	alloc, allocMock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	travel, travelMock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { alloc.Close(); travel.Close() })
+	alloc, allocMock := mockDB(t)
+	travel, travelMock := mockDB(t)
 	return NewRouter(Deps{Pools: &db.Pools{Allocation: alloc, Travel: travel}}), allocMock, travelMock
 }
 

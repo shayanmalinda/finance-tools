@@ -36,11 +36,7 @@ type dashboardMocks struct {
 func newDashboardMocks(t *testing.T) dashboardMocks {
 	t.Helper()
 	open := func() (*sql.DB, sqlmock.Sqlmock) {
-		db, mock, err := sqlmock.New()
-		if err != nil {
-			t.Fatalf("sqlmock.New: %v", err)
-		}
-		t.Cleanup(func() { db.Close() })
+		db, mock := mockDB(t)
 		return db, mock
 	}
 	a, am := open()

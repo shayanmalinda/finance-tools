@@ -36,15 +36,8 @@ type allocationMocks struct {
 
 func newAllocationMocks(t *testing.T) allocationMocks {
 	t.Helper()
-	a, am, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tr, tm, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { a.Close(); tr.Close() })
+	a, am := mockDB(t)
+	tr, tm := mockDB(t)
 	return allocationMocks{alloc: am, travel: tm, repo: &allocationRepo{alloc: a, travel: tr}}
 }
 
@@ -478,6 +471,20 @@ func TestAllocationUpdate_UnchangedStatusAddsNoTravel_UpdatedDatesGoToTravel(t *
 	if _, err := m.repo.Update(context.Background(), preRecord("Ready for Clearance", "Yes", "jane@example.com"),
 		domain.AllocationUpdateRequest{ClearanceStatus: &same, StartDate: &start, EndDate: &end, UpdatedBy: "mgr@example.com"}); err != nil {
 		t.Fatal(err)
+	}
+
+	// Already Confirmed with new dates only: travel is created on the
+	// clearance transition, so no travel row is added or changed.
+	m.alloc.ExpectBegin()
+	m.alloc.ExpectExec(re("UPDATE allocation SET")).WillReturnResult(sqlmock.NewResult(0, 1))
+	m.alloc.ExpectCommit()
+	m.alloc.ExpectQuery(re("WHERE a.id = ?")).
+		WillReturnRows(sqlmock.NewRows(allocationCols).AddRow(engagementAllocationRow(same, "Yes")...))
+	resp, err := m.repo.Update(context.Background(), preRecord("Confirmed", "Yes", "jane@example.com"),
+		domain.AllocationUpdateRequest{ClearanceStatus: &same, StartDate: &start, EndDate: &end,
+			UpdatedBy: "mgr@example.com"})
+	if err != nil || resp.TravelJobNumber != nil || resp.TravelCancelled {
+		t.Fatalf("dates only: %+v, %v", resp, err)
 	}
 	m.verify(t)
 }

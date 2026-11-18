@@ -30,11 +30,7 @@ import (
 
 func financeMock(t *testing.T) (sqlmock.Sqlmock, *financeRepo, *financeAllocRepo, *financeExpenseRepo) {
 	t.Helper()
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db, mock := mockDB(t)
 	return mock, &financeRepo{db: db}, &financeAllocRepo{db: db}, &financeExpenseRepo{db: db}
 }
 

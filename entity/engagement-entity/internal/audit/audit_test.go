@@ -47,11 +47,7 @@ func requestCtx(t *testing.T, user, requestID string, fn func(ctx context.Contex
 }
 
 func TestRecord_ActorAndRequestFromTheRequest(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, mock := mockDB(t)
 	mock.ExpectExec(regexp.QuoteMeta(insertSQL)).
 		WithArgs("jane@example.com", "user", "View", "visa", "5", nil, nil, "req-1", "engagement-app", nil, `{"own":true}`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -75,11 +71,7 @@ func TestRecord_ActorAndRequestFromTheRequest(t *testing.T) {
 }
 
 func TestTracker_ChangedFieldsMaskedAndStatusChange(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, mock := mockDB(t)
 	cols := []string{"id", "email", "document_no", "status"}
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM employee_travel_document WHERE id = ? FOR UPDATE`)).WithArgs(9).
 		WillReturnRows(sqlmock.NewRows(cols).AddRow(9, "c@example.com", []byte("N1234567"), "Active"))
@@ -104,11 +96,7 @@ func TestTracker_ChangedFieldsMaskedAndStatusChange(t *testing.T) {
 }
 
 func TestTracker_FundingOnlyEventWithMetadataIsRecordedWithoutRowChanges(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, mock := mockDB(t)
 	cols := []string{"id", "updated_by"}
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM engagement WHERE id = ? FOR UPDATE`)).WithArgs("E1").
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("E1", "mgr@example.com"))
@@ -132,11 +120,7 @@ func TestTracker_FundingOnlyEventWithMetadataIsRecordedWithoutRowChanges(t *test
 func TestDisabled_RecordsNothing(t *testing.T) {
 	SetEnabled(false)
 	defer SetEnabled(true)
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db, mock := mockDB(t)
 	ctx := context.Background()
 	tr, err := Track(ctx, db, "invoice", "id", `id = ?`, 1)
 	if err != nil {

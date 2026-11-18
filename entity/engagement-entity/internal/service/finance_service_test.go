@@ -45,6 +45,21 @@ type fakeFinanceRepo struct {
 	classBySuf  *int
 	inserted    []repository.FinanceInvoiceInsert
 	pushes      []audit.Event
+
+	// trip replaces the default trip; noTrip makes Trip return nil.
+	trip            *domain.FinanceTrip
+	noTrip          bool
+	perDiem         *domain.FinancePerDiem
+	perDiemIn       *domain.FinancePerDiemCreate
+	perDiemCode     string
+	deleteOK        bool
+	cards           []domain.FinanceTravelCard
+	cardIn          *domain.FinanceTravelCardCreate
+	payNumberExists bool
+	paymentIn       *domain.FinancePaymentCreate
+	updateOK        bool
+	paymentUpdate   *domain.FinancePaymentUpdate
+	resolveLost     bool
 }
 
 func (f *fakeFinanceRepo) log(s string) { f.calls = append(f.calls, s) }
@@ -55,6 +70,13 @@ func (f *fakeFinanceRepo) AuditPush(_ context.Context, e audit.Event) error {
 }
 
 func (f *fakeFinanceRepo) Trip(_ context.Context, jn string) (*domain.FinanceTrip, error) {
+	if f.noTrip {
+		return nil, nil
+	}
+	if f.trip != nil {
+		c := *f.trip
+		return &c, nil
+	}
 	return &domain.FinanceTrip{JobNumber: jn, TravellerEmail: "jane@example.com", AllocationID: fp("A1"), CustomerName: fp("Travel Customer"),
 		EngagementCode: fp("STALE")}, nil
 }
@@ -131,6 +153,54 @@ func (f *fakeFinanceRepo) InsertInvoices(_ context.Context, _, _ string, rows []
 	return []int{1}, nil
 }
 
+func (f *fakeFinanceRepo) PerDiem(context.Context, string, int) (*domain.FinancePerDiem, error) {
+	if f.perDiem == nil {
+		return nil, nil
+	}
+	c := *f.perDiem
+	return &c, nil
+}
+func (f *fakeFinanceRepo) InsertPerDiem(_ context.Context, _, code string,
+	in domain.FinancePerDiemCreate) (int, error) {
+	f.log("insert per diem")
+	f.perDiemCode, f.perDiemIn = code, &in
+	return 11, nil
+}
+func (f *fakeFinanceRepo) DeletePerDiem(context.Context, string, int) (bool, error) {
+	f.log("delete per diem")
+	return f.deleteOK, nil
+}
+func (f *fakeFinanceRepo) TravelCards(context.Context, string) ([]domain.FinanceTravelCard, error) {
+	return f.cards, nil
+}
+func (f *fakeFinanceRepo) InsertTravelCard(_ context.Context, _ string,
+	in domain.FinanceTravelCardCreate) (int, error) {
+	f.log("insert card")
+	f.cardIn = &in
+	return 21, nil
+}
+func (f *fakeFinanceRepo) PaymentNumberExists(context.Context, string) (bool, error) {
+	return f.payNumberExists, nil
+}
+func (f *fakeFinanceRepo) InsertPayment(_ context.Context, _ string, in domain.FinancePaymentCreate) (int, error) {
+	f.log("insert payment")
+	f.paymentIn = &in
+	return 31, nil
+}
+func (f *fakeFinanceRepo) UpdatePayment(_ context.Context, _ int, in domain.FinancePaymentUpdate) (bool, error) {
+	f.log("update payment")
+	f.paymentUpdate = &in
+	return f.updateOK, nil
+}
+func (f *fakeFinanceRepo) ResolvePaymentFailure(_ context.Context, _ int, _ string, found bool) (bool, error) {
+	if found {
+		f.log("resolve:found")
+	} else {
+		f.log("resolve:notfound")
+	}
+	return !f.resolveLost, nil
+}
+
 type fakeFinanceAlloc struct {
 	repository.FinanceAllocationRepository
 }
@@ -162,14 +232,17 @@ type fakeNetSuite struct {
 	po        *netsuite.PurchaseOrder
 	vb        *netsuite.VendorBill
 	created   int
+	lookups   int
 }
 
 func (f *fakeNetSuite) Enabled() bool                { return f.enabled }
 func (f *fakeNetSuite) PurchaseOrderTaxCode() string { return "7" }
 func (f *fakeNetSuite) LookupPurchaseOrders(context.Context, string) ([]netsuite.Record, error) {
+	f.lookups++
 	return f.found, f.lookupErr
 }
 func (f *fakeNetSuite) LookupVendorBills(context.Context, string) ([]netsuite.Record, error) {
+	f.lookups++
 	return f.found, f.lookupErr
 }
 func (f *fakeNetSuite) CreatePurchaseOrder(_ context.Context, po netsuite.PurchaseOrder) (string, error) {
