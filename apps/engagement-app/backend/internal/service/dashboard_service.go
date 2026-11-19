@@ -1,0 +1,909 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package service
+
+import (
+	"context"
+	"log/slog"
+	"math"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/hrentity"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
+)
+
+// DashboardService builds the Dashboard, Allocations Today and the Me
+// overview card. Every section is built only from data the caller can
+// already see with their legacy privileges; work queues ("Waiting on You")
+// use the privileges without the super admin groups (Perms.AllocOwn /
+// TravelOwn).
+type DashboardService interface {
+	Dashboard(ctx context.Context, p domain.Perms) (domain.Dashboard, error)
+	AllocationsToday(ctx context.Context, p domain.Perms, date string, businessUnitID int) (domain.DashboardAllocationsToday, error)
+	MeOverview(ctx context.Context, p domain.Perms) (domain.MeOverview, error)
+}
+
+type dashboardService struct {
+	entity engagemententity.DashboardAPI
+	people *travelPeople
+	now    func() time.Time
+}
+
+// NewDashboardService constructs a DashboardService. hr may be nil (no
+// traveller names); now may be nil (time.Now).
+func NewDashboardService(entity engagemententity.DashboardAPI, hr hrentity.Client, now func() time.Time) DashboardService {
+	if now == nil {
+		now = time.Now
+	}
+	s := &dashboardService{entity: entity, now: now}
+	if hr != nil {
+		s.people = newTravelPeople(hr)
+	}
+	return s
+}
+
+const dashboardDateLayout = "2006-01-02"
+
+// Labels of the Travel Cost series and types (prototype views-dashboard).
+const (
+	dashboardSeriesInvoices = "Travel Invoices"
+	dashboardSeriesPerDiems = "Per Diems"
+	dashboardSeriesCards    = "Credit Card Expenses"
+)
+
+// dashboardCardGroups are the travel finance groups that see card spend.
+var dashboardCardGroups = []string{
+	"app-travel-approver-finance",
+	"app-travel-approver-perdiem-finance",
+	"app-travel-user-finance",
+}
+
+// today is the current UTC day (the entity's sessions are UTC).
+func (s *dashboardService) today() time.Time {
+	y, m, d := s.now().UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// ── Privilege rules ─────────────────────────────────────────────────────────
+
+// dashboardKind is the engagement kind of an engagement type id.
+func dashboardKind(typeID int) string {
+	switch typeID {
+	case 1:
+		return "internal"
+	case 5:
+		return "marketing"
+	}
+	return "customer"
+}
+
+var dashboardEngagementTypeIDs = []int{1, 2, 3, 4, 5, 6, 7}
+
+// dashboardCanAllocateType is the legacy per-type allocate rule: 6, 16 or 21
+// to open the Allocate page, then 32 (post sale 4, 6), 33 (pre sale 3, 7), 6
+// (retired Paid 2) or 16 (internal 1, marketing 5).
+func dashboardCanAllocateType(p domain.PrivilegeSet, typeID int) bool {
+	if !p.Any(6, 16, 21) {
+		return false
+	}
+	switch typeID {
+	case 4, 6:
+		return p.Has(32)
+	case 3, 7:
+		return p.Has(33)
+	case 2:
+		return p.Has(6)
+	case 1, 5:
+		return p.Has(16)
+	}
+	return false
+}
+
+// dashboardSeesEngagementType is engRole: customer types need 3, 6, 32 or
+// 33; internal engagements and marketing events need 13 or 16.
+func dashboardSeesEngagementType(p domain.PrivilegeSet, typeID int) bool {
+	if dashboardKind(typeID) == "customer" {
+		return p.Any(3, 6, 32, 33)
+	}
+	return p.Any(13, 16)
+}
+
+// dashboardClearanceTypes are the engagement types on which the caller may
+// set an allocation's status (canEditStatus: the allocate rule for customer
+// types, 20 for internal and marketing) and see the engagement; not the
+// retired Paid type (2).
+func dashboardClearanceTypes(p domain.PrivilegeSet) []int {
+	var out []int
+	for _, t := range dashboardEngagementTypeIDs {
+		if t == 2 {
+			continue
+		}
+		edit := dashboardCanAllocateType(p, t)
+		if dashboardKind(t) != "customer" {
+			edit = p.Has(20)
+		}
+		if edit && dashboardSeesEngagementType(p, t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// dashboardHasCardRole reports whether the caller is in a travel finance group.
+func dashboardHasCardRole(p domain.Perms) bool {
+	for _, g := range dashboardCardGroups {
+		if domain.HasRole(p.TravelRoles, g) {
+			return true
+		}
+	}
+	return false
+}
+
+// ── Concurrency ─────────────────────────────────────────────────────────────
+
+// dashboardGroup runs entity calls in parallel and records the sections of
+// the ones that fail, so the others are still returned.
+type dashboardGroup struct {
+	wg          sync.WaitGroup
+	mu          sync.Mutex
+	failed      []string
+	err         error
+	calls       int
+	failedCalls int
+}
+
+func (g *dashboardGroup) Go(ctx context.Context, sections []string, fn func() error) {
+	g.calls++
+	g.wg.Add(1)
+	go func() {
+		defer g.wg.Done()
+		if err := fn(); err != nil {
+			slog.ErrorContext(ctx, "dashboard section failed", "sections", sections, "err", err)
+			g.mu.Lock()
+			g.failed = append(g.failed, sections...)
+			g.failedCalls++
+			if g.err == nil {
+				g.err = err
+			}
+			g.mu.Unlock()
+		}
+	}()
+}
+
+// Wait returns the failed sections, sorted, or the error when every call failed.
+func (g *dashboardGroup) Wait() ([]string, error) {
+	g.wg.Wait()
+	if g.calls > 0 && g.err != nil && len(g.failed) > 0 && g.allFailed() {
+		return nil, g.err
+	}
+	sort.Strings(g.failed)
+	if g.failed == nil {
+		g.failed = []string{}
+	}
+	return g.failed, nil
+}
+
+func (g *dashboardGroup) allFailed() bool { return g.failedCalls == g.calls }
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+
+func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domain.Dashboard, error) {
+	today := s.today()
+	todayStr := today.Format(dashboardDateLayout)
+	if p.IsAgent() {
+		agent, err := s.agent(ctx, p, todayStr, today)
+		if err != nil {
+			return domain.Dashboard{}, err
+		}
+		var people []*domain.Person
+		for i := range agent.Upcoming {
+			people = append(people, &agent.Upcoming[i].Traveller)
+		}
+		for i := range agent.PerDiemsOnOpenTrips {
+			people = append(people, &agent.PerDiemsOnOpenTrips[i].Traveller)
+		}
+		s.people.fillNames(ctx, people...)
+		return domain.Dashboard{Agent: agent, FailedSections: []string{}}, nil
+	}
+
+	var out domain.Dashboard
+	g := &dashboardGroup{}
+	gctx := ctx
+
+	// My Work: own allocations (Allocations 1, every employee) and own trips
+	// (My Travel Requests, Travel 49 / 36).
+	myAllocs, myTrips := p.Alloc.Has(1), p.Travel.Any(49, 36)
+	if myAllocs || myTrips {
+		g.Go(ctx, []string{"myWork"}, func() error {
+			mw, err := s.entity.DashboardMyWork(gctx, engagemententity.DashboardMyWorkFilter{
+				Email: p.Email, Today: todayStr, Trips: myTrips, TripLimit: 3,
+			})
+			if err != nil {
+				return err
+			}
+			out.MyWork = dashboardMyWork(mw, todayStr, myAllocs)
+			return nil
+		})
+	}
+
+	// Waiting on You.
+	plan := dashboardPlanQueues(p)
+	if plan.any() {
+		g.Go(ctx, []string{"waitingOnYou"}, func() error {
+			q, err := s.entity.DashboardQueues(gctx, plan.filter)
+			if err != nil {
+				return err
+			}
+			out.WaitingOnYou = plan.cards(q)
+			return nil
+		})
+	}
+
+	// Travel: the Travel Team (own Travel 1) and super admins. Travel Cost:
+	// travel finance groups only (own Travel 39 or 41).
+	tf := engagemententity.DashboardTravelFilter{Today: todayStr,
+		Trips: p.TravelOwn.Has(1) || domain.HasRole(p.TravelRoles, domain.TravelSuperAdminGroup)}
+	card := dashboardHasCardRole(p) && p.TravelOwn.Any(39, 41)
+	if card {
+		tf.CostInvoices = p.TravelOwn.Any(39, 30)
+		tf.CostPayments = p.TravelOwn.Any(41, 42)
+		tf.CostCards = true
+	}
+	cost := tf.CostInvoices || tf.CostPayments || tf.CostCards
+	if tf.Trips || cost {
+		var sections []string
+		if tf.Trips {
+			sections = append(sections, "travel")
+		}
+		if cost {
+			sections = append(sections, "travelCost")
+		}
+		g.Go(ctx, sections, func() error {
+			t, err := s.entity.DashboardTravel(gctx, tf)
+			if err != nil {
+				return err
+			}
+			if tf.Trips && t.Trips != nil {
+				out.Travel = dashboardTravel(t.Trips, today)
+			}
+			if cost {
+				out.TravelCost = dashboardTravelCost(t, today, card)
+			}
+			return nil
+		})
+	}
+
+	// Engagements (3 or 13), Available Consultants (9, 19 or 21),
+	// Allocations Over Time (1 and an allocation, report, approval or
+	// allocate privilege).
+	ef := engagemententity.DashboardEngagementsFilter{Today: todayStr}
+	showEngs := p.Alloc.Any(3, 13)
+	if showEngs {
+		for _, t := range dashboardEngagementTypeIDs {
+			if dashboardSeesEngagementType(p.Alloc, t) {
+				ef.EngagementTypes = append(ef.EngagementTypes, t)
+			}
+		}
+	}
+	ef.Bench = p.Alloc.Any(9, 19, 21)
+	ef.Trend = p.Alloc.Has(1) && (p.Alloc.Any(9, 19, 21, 22, 26, 29) ||
+		dashboardCanAllocateType(p.Alloc, 1) || dashboardCanAllocateType(p.Alloc, 3) || dashboardCanAllocateType(p.Alloc, 4))
+	if showEngs || ef.Bench || ef.Trend {
+		var sections []string
+		if showEngs {
+			sections = append(sections, "engagements")
+		}
+		if ef.Bench {
+			sections = append(sections, "availableConsultants")
+		}
+		if ef.Trend {
+			sections = append(sections, "allocationsOverTime")
+		}
+		g.Go(ctx, sections, func() error {
+			e, err := s.entity.DashboardEngagements(gctx, ef)
+			if err != nil {
+				return err
+			}
+			if showEngs {
+				out.Engagements = dashboardEngagements(e)
+			}
+			if ef.Bench {
+				out.AvailableConsultants = dashboardBench(e.Bench, today)
+			}
+			if ef.Trend && e.Trend != nil {
+				out.AllocationsOverTime = dashboardTrend(e.Trend, today)
+			}
+			return nil
+		})
+	}
+
+	failed, err := g.Wait()
+	if err != nil {
+		return domain.Dashboard{}, err
+	}
+	out.FailedSections = failed
+	if out.Travel != nil {
+		people := make([]*domain.Person, 0, len(out.Travel.Upcoming))
+		for i := range out.Travel.Upcoming {
+			people = append(people, &out.Travel.Upcoming[i].Traveller)
+		}
+		s.people.fillNames(ctx, people...)
+	}
+	return out, nil
+}
+
+// ── My Work ─────────────────────────────────────────────────────────────────
+
+// dashboardEngagementTitle is the prototype's engName: "Account – Title"
+// for a customer engagement whose title does not start with the account's
+// first word; otherwise the title.
+func dashboardEngagementTitle(id string, typeID *int, account, title *string) string {
+	t := strings.TrimSpace(dashboardStr(title))
+	a := strings.TrimSpace(dashboardStr(account))
+	if typeID != nil && dashboardKind(*typeID) == "customer" && a != "" {
+		if t == "" {
+			return a
+		}
+		first := strings.ToLower(strings.Fields(a)[0])
+		if !strings.HasPrefix(strings.ToLower(t), first) {
+			return a + " – " + t
+		}
+	}
+	if t == "" {
+		return id
+	}
+	return t
+}
+
+func dashboardStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool) domain.DashboardAllocationSummary {
+	return domain.DashboardAllocationSummary{
+		ID: a.ID, EngagementID: a.EngagementID,
+		EngagementTitle: dashboardEngagementTitle(a.EngagementID, a.EngagementTypeID, a.Account, a.Title),
+		StartDate:       a.StartDate, EndDate: a.EndDate, ClearanceStatus: a.ClearanceStatus, Current: current,
+	}
+}
+
+// dashboardSplitAllocations returns the current allocation (the first that
+// covers today) and the future ones, in start order. The entity returns
+// only allocations ending today or later.
+func dashboardSplitAllocations(list []engagemententity.DashboardOwnAllocation, today string) (*domain.DashboardAllocationSummary, []domain.DashboardAllocationSummary) {
+	var current *domain.DashboardAllocationSummary
+	next := []domain.DashboardAllocationSummary{}
+	for _, a := range list {
+		switch {
+		case a.StartDate > today:
+			next = append(next, dashboardAllocation(a, false))
+		case current == nil:
+			c := dashboardAllocation(a, true)
+			current = &c
+		}
+	}
+	return current, next
+}
+
+func dashboardTrips(list []engagemententity.DashboardTrip) []domain.DashboardTrip {
+	out := make([]domain.DashboardTrip, 0, len(list))
+	for _, t := range list {
+		out = append(out, domain.DashboardTrip{
+			JobNumber: t.JobNumber, Status: t.Status, Traveller: domain.Person{Email: t.TravellerEmail},
+			City: t.City, Country: t.Country, StartDate: t.StartDate, EndDate: t.EndDate, Agency: t.Agency,
+		})
+	}
+	return out
+}
+
+// dashboardMyWork shapes My Work; nil when there is nothing to show.
+func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs bool) *domain.DashboardMyWork {
+	out := &domain.DashboardMyWork{NextTrips: dashboardTrips(mw.Trips), UpcomingTripCount: mw.TripCount}
+	if allocs {
+		current, next := dashboardSplitAllocations(mw.Allocations, today)
+		out.CurrentAllocation = current
+		if len(next) > 0 {
+			out.NextAllocation = &next[0]
+		}
+		if t := mw.TeamAllocation; t != nil {
+			typ, code := dashboardStr(t.AllocationType), dashboardStr(t.EngagementCode)
+			out.TodayTeamAllocation = &domain.DashboardTeamAllocation{
+				ID: t.ID, Kind: "default", Label: code + ": " + typ, AllocationType: typ, EngagementCode: code,
+				Color: t.Color, StartDate: t.StartDate, EndDate: t.EndDate,
+				ClearanceStatus: dashboardStr(t.ClearanceStatus), Comment: t.Comment,
+			}
+		}
+	}
+	if out.CurrentAllocation == nil && out.NextAllocation == nil && out.TodayTeamAllocation == nil && len(out.NextTrips) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ── Waiting on You ──────────────────────────────────────────────────────────
+
+// dashboardQueuePlan is which cards apply to the caller and the entity
+// counts they need. Every gate uses the own privileges (no super admin),
+// except Ready for Clearance.
+type dashboardQueuePlan struct {
+	filter                                    engagemententity.DashboardQueuesFilter
+	pending, clearance, newTravel             bool
+	approvePo, approve, push, pay, failed     bool
+	failedInvoices, failedPayments, internals bool
+}
+
+func dashboardPlanQueues(p domain.Perms) dashboardQueuePlan {
+	ao, to := p.AllocOwn, p.TravelOwn
+	var pl dashboardQueuePlan
+	// Pending Approval only for people who can approve (legacy: 28 plus an
+	// engagement update privilege, for both queues), over the queues they see.
+	if ao.Has(28) && ao.Any(4, 14, 7, 17, 5) {
+		if ao.Has(26) {
+			pl.filter.PendingApprovalTypes = append(pl.filter.PendingApprovalTypes, 1)
+			pl.internals = true
+		}
+		if ao.Has(29) {
+			pl.filter.PendingApprovalTypes = append(pl.filter.PendingApprovalTypes, 5)
+		}
+	}
+	pl.pending = len(pl.filter.PendingApprovalTypes) > 0
+	pl.filter.ClearanceTypes = dashboardClearanceTypes(p.Alloc)
+	pl.clearance = len(pl.filter.ClearanceTypes) > 0
+	pl.newTravel = to.Has(1)
+	pl.filter.TravelRequests = pl.newTravel
+	pl.approvePo = to.Has(32)
+	// The finance step only for users without HR approval.
+	pl.approve = to.Has(33) && !to.Has(32)
+	pl.push = to.Has(34)
+	pl.pay = to.Has(40)
+	pl.failedInvoices, pl.failedPayments = to.Has(34), to.Has(40)
+	pl.failed = pl.failedInvoices || pl.failedPayments
+	pl.filter.Invoices = pl.approvePo || pl.approve || pl.push
+	pl.filter.Payments = pl.pay
+	return pl
+}
+
+func (pl dashboardQueuePlan) any() bool {
+	return pl.pending || pl.clearance || pl.newTravel || pl.approvePo || pl.approve || pl.push || pl.pay || pl.failed
+}
+
+func (pl dashboardQueuePlan) cards(q *engagemententity.DashboardQueues) []domain.DashboardCountCard {
+	out := []domain.DashboardCountCard{}
+	// route is the One WSO2 screen under /finance/engagement-app.
+	add := func(key, label string, n int, hot bool, route string) {
+		out = append(out, domain.DashboardCountCard{Key: key, Label: label, Count: n, Highlighted: hot,
+			List: domain.DashboardListLink{Path: "/finance/engagement-app/" + route}})
+	}
+	if pl.pending {
+		n := 0
+		for _, t := range pl.filter.PendingApprovalTypes {
+			n += q.PendingApproval[t]
+		}
+		route := "approvals/marketing"
+		if pl.internals {
+			route = "approvals/internal"
+		}
+		add("pendingApproval", "Pending Approval", n, true, route)
+	}
+	if pl.clearance {
+		// The list opens on the types counted, so the tile and list agree.
+		const st = "Ready for Clearance"
+		route := "allocations/engagement?clearanceStatus=" + url.PathEscape(st)
+		for _, t := range pl.filter.ClearanceTypes {
+			route += "&engagementTypeId=" + strconv.Itoa(t)
+		}
+		add("readyForClearance", st, q.Clearance[st], true, route)
+	}
+	if pl.newTravel {
+		add("newTravelRequests", "New Travel Requests", q.NewTravelRequests, true, "travel-requests/new")
+	}
+	if pl.approvePo {
+		add("approve-po", "Invoices to Approve (PO)", q.InvoicesPending, true, "invoices/po")
+	}
+	if pl.approve {
+		add("approve", "Invoices to Approve", q.InvoicesAcceptedByTravel, true, "invoices/finance")
+	}
+	if pl.push {
+		add("push", "Invoices to Push", q.InvoicesToPush, false, "invoices/push")
+	}
+	if pl.pay {
+		add("pay", "Per Diem Payments to Push", q.PaymentsToPush, false, "invoices/payments-push")
+	}
+	if pl.failed {
+		n := 0
+		if pl.failedInvoices {
+			n += q.InvoicesFailed
+		}
+		if pl.failedPayments {
+			n += q.PaymentsFailed
+		}
+		add("failed", "NS Sync Failures", n, false, "invoices/sync-failures")
+	}
+	return out
+}
+
+// ── Charts ──────────────────────────────────────────────────────────────────
+
+// dashboardMonths returns the 12 months ending with today's, as YYYY-MM.
+func dashboardMonths(today time.Time) []string {
+	first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+	out := make([]string, 12)
+	for i := 0; i < 12; i++ {
+		out[i] = first.AddDate(0, i-11, 0).Format("2006-01")
+	}
+	return out
+}
+
+// dashboardRound rounds to 2 decimals (the legacy getRoundOffNumber).
+func dashboardRound(v float64) float64 { return math.Round(v*100) / 100 }
+
+type dashboardRow struct {
+	label string
+	value float64
+	id    *int
+	color *string
+}
+
+// dashboardBuckets sorts rows by value (descending, then label), keeps the
+// top n with the rest summed as "Other" (n 0 keeps all), and sets each
+// bucket's percentage of the total.
+func dashboardBuckets(rows []dashboardRow, n int) []domain.DashboardBucket {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].value != rows[j].value {
+			return rows[i].value > rows[j].value
+		}
+		return rows[i].label < rows[j].label
+	})
+	if n > 0 && len(rows) > n {
+		other := dashboardRow{label: "Other"}
+		for _, r := range rows[n-1:] {
+			other.value += r.value
+		}
+		rows = append(rows[:n-1:n-1], other)
+	}
+	total := 0.0
+	for _, r := range rows {
+		total += r.value
+	}
+	out := make([]domain.DashboardBucket, 0, len(rows))
+	for _, r := range rows {
+		b := domain.DashboardBucket{Label: r.label, Value: dashboardRound(r.value), ID: r.id, Color: r.color}
+		if total > 0 {
+			b.Percent = dashboardRound(r.value / total * 100)
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func dashboardCountBuckets(counts []engagemententity.DashboardCount, n int) []domain.DashboardBucket {
+	rows := make([]dashboardRow, 0, len(counts))
+	for _, c := range counts {
+		rows = append(rows, dashboardRow{label: c.Label, value: float64(c.Count)})
+	}
+	return dashboardBuckets(rows, n)
+}
+
+// dashboardMonthSeries spreads month counts over the 12 months under one
+// series name, zero-filled.
+func dashboardMonthSeries(counts []engagemententity.DashboardCount, months []string, name string) []domain.DashboardSeriesPoint {
+	by := map[string]int{}
+	for _, c := range counts {
+		by[c.Label] += c.Count
+	}
+	out := make([]domain.DashboardSeriesPoint, 0, len(months))
+	for _, m := range months {
+		out = append(out, domain.DashboardSeriesPoint{Month: m, Values: map[string]float64{name: float64(by[m])}})
+	}
+	return out
+}
+
+// ── Travel ──────────────────────────────────────────────────────────────────
+
+func dashboardTravel(t *engagemententity.DashboardTravelTrips, today time.Time) *domain.DashboardTravel {
+	return &domain.DashboardTravel{
+		InProgress: t.InProgress, StartingIn30Days: t.StartingIn30Days, CompletedThisMonth: t.CompletedThisMonth,
+		Last12Months: t.Last12Months, Upcoming: dashboardTrips(t.Upcoming), UpcomingTotal: t.UpcomingTotal,
+		TopDestinations: dashboardCountBuckets(t.ByCountry, 6),
+		ByMonth:         dashboardMonthSeries(t.ByMonth, dashboardMonths(today), "Trips"),
+		ByAgency:        dashboardCountBuckets(t.ByAgency, 0),
+	}
+}
+
+// dashboardTravelCost sums the cost lines in USD. Lines without a USD amount
+// are reported in NotConverted, not added (there is no rate source without
+// new configuration).
+func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, card bool) *domain.DashboardTravelCost {
+	months := dashboardMonths(today)
+	inWindow := map[string]bool{}
+	for _, m := range months {
+		inWindow[m] = true
+	}
+	series := map[string]map[string]float64{}
+	byType := map[string]float64{}
+	type key struct{ source, currency string }
+	unconverted := map[key]float64{}
+	var inv, pd, cc float64
+	for _, l := range t.Cost {
+		if l.Source == engagemententity.DashboardCostCard && !card {
+			continue
+		}
+		if !inWindow[l.Month] {
+			continue
+		}
+		if l.Currency != "USD" {
+			unconverted[key{l.Source, l.Currency}] += l.Amount
+			continue
+		}
+		var name, typ string
+		switch l.Source {
+		case engagemententity.DashboardCostInvoice:
+			inv += l.Amount
+			name, typ = dashboardSeriesInvoices, l.CostType
+			if typ == "" {
+				typ = "Other"
+			}
+		case engagemententity.DashboardCostPerDiem:
+			pd += l.Amount
+			name, typ = dashboardSeriesPerDiems, dashboardSeriesPerDiems
+		case engagemententity.DashboardCostCard:
+			cc += l.Amount
+			name, typ = dashboardSeriesCards, dashboardSeriesCards
+		default:
+			continue
+		}
+		if series[l.Month] == nil {
+			series[l.Month] = map[string]float64{}
+		}
+		series[l.Month][name] += l.Amount
+		byType[typ] += l.Amount
+	}
+
+	out := &domain.DashboardTravelCost{
+		Currency: "USD", From: t.From, To: t.To,
+		Total: dashboardRound(inv + pd + cc), TravelInvoices: dashboardRound(inv), PerDiems: dashboardRound(pd),
+		ByMonth: make([]domain.DashboardSeriesPoint, 0, len(months)), NotConverted: []domain.DashboardUnconverted{},
+	}
+	if card {
+		v := dashboardRound(cc)
+		out.CreditCardExpenses = &v
+	}
+	for i, m := range months {
+		vals := map[string]float64{dashboardSeriesInvoices: 0, dashboardSeriesPerDiems: 0}
+		if card {
+			vals[dashboardSeriesCards] = 0
+		}
+		sum := 0.0
+		for k, v := range series[m] {
+			vals[k] = dashboardRound(v)
+			sum += v
+		}
+		out.ByMonth = append(out.ByMonth, domain.DashboardSeriesPoint{Month: m, Values: vals})
+		switch i {
+		case len(months) - 2:
+			out.LastMonth = dashboardRound(sum)
+		case len(months) - 1:
+			out.CurrentMonth = dashboardRound(sum)
+		}
+	}
+	rows := make([]dashboardRow, 0, len(byType))
+	for k, v := range byType {
+		rows = append(rows, dashboardRow{label: k, value: v})
+	}
+	out.ByType = dashboardBuckets(rows, 0)
+	for k, v := range unconverted {
+		out.NotConverted = append(out.NotConverted, domain.DashboardUnconverted{Source: k.source, Currency: k.currency, Amount: dashboardRound(v)})
+	}
+	sort.Slice(out.NotConverted, func(i, j int) bool {
+		a, b := out.NotConverted[i], out.NotConverted[j]
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		return a.Currency < b.Currency
+	})
+	return out
+}
+
+// ── Engagements, Available Consultants, Allocations Over Time ──────────────
+
+func dashboardEngagements(e *engagemententity.DashboardEngagements) *domain.DashboardEngagements {
+	out := &domain.DashboardEngagements{StartingIn30Days: []domain.DashboardEngagement{}, StartingIn30DaysTotal: e.StartingSoonTotal}
+	for _, x := range e.StartingSoon {
+		typeID := 0
+		if x.EngagementTypeID != nil {
+			typeID = *x.EngagementTypeID
+		}
+		kind := dashboardKind(typeID)
+		var account *string
+		if kind == "customer" {
+			account = x.Account
+		}
+		out.StartingIn30Days = append(out.StartingIn30Days, domain.DashboardEngagement{
+			ID: x.ID, Kind: kind, EngagementTypeID: typeID, EngagementTypeName: x.EngagementTypeName,
+			Account: account, Title: dashboardStr(x.Title), AllocationType: x.AllocationType,
+			EngagementCode: x.EngagementCode, City: x.City, Country: x.Country, StartDate: x.StartDate,
+			EndDate: x.EndDate, RequestStatus: x.RequestStatus, EngagementStatus: x.EngagementStatus,
+			Consultants: x.Consultants,
+		})
+	}
+	return out
+}
+
+func dashboardBench(rows []engagemententity.DashboardBenchRow, today time.Time) *domain.DashboardAvailableConsultants {
+	out := &domain.DashboardAvailableConsultants{
+		From: today.Format(dashboardDateLayout), To: today.AddDate(0, 0, 13).Format(dashboardDateLayout),
+	}
+	free := make([]dashboardRow, 0, len(rows))
+	for _, r := range rows {
+		out.Consultants += r.Consultants
+		out.Allocated += r.Allocated
+		if n := r.Consultants - r.Allocated; n > 0 {
+			free = append(free, dashboardRow{label: r.BusinessUnit, value: float64(n)})
+		}
+	}
+	out.Available = out.Consultants - out.Allocated
+	out.ByBusinessUnit = dashboardBuckets(free, 0)
+	return out
+}
+
+func dashboardTrend(t *engagemententity.DashboardTrend, today time.Time) *domain.DashboardAllocationsOverTime {
+	out := &domain.DashboardAllocationsOverTime{
+		ByMonth:        dashboardMonthSeries(t.ByMonth, dashboardMonths(today), "Allocations"),
+		ByBusinessUnit: dashboardCountBuckets(t.ByBusinessUnit, 0),
+	}
+	best := -1.0
+	for i := range out.ByMonth {
+		if v := out.ByMonth[i].Values["Allocations"]; v > best {
+			best = v
+			p := out.ByMonth[i]
+			out.BusiestMonth = &p
+		}
+	}
+	return out
+}
+
+// ── Travel agent ────────────────────────────────────────────────────────────
+
+func (s *dashboardService) agent(ctx context.Context, p domain.Perms, todayStr string, today time.Time) (*domain.DashboardAgent, error) {
+	a, err := s.entity.DashboardAgency(ctx, p.Agency.ID, todayStr)
+	if err != nil {
+		return nil, err
+	}
+	out := &domain.DashboardAgent{
+		Agency: p.Agency.Name, InProgress: a.InProgress, StartingIn7Days: a.StartingIn7Days,
+		CompletedWithoutInvoice: a.CompletedWithoutInvoice,
+		UpcomingTotal:           a.UpcomingTotal, Upcoming: []domain.DashboardAgentTrip{},
+		InvoicesByStatus:    dashboardCountBuckets(a.InvoicesByStatus, 0),
+		TripsByMonth:        dashboardMonthSeries(a.TripsByMonth, dashboardMonths(today), "Trips"),
+		PerDiemsOnOpenTrips: []domain.DashboardAgentPerDiem{},
+	}
+	for _, c := range a.InvoicesByStatus {
+		if c.Label == "Rejected by travel" || c.Label == "Rejected by finance" {
+			out.InvoicesRejected += c.Count
+		}
+	}
+	for _, t := range a.Upcoming {
+		out.Upcoming = append(out.Upcoming, domain.DashboardAgentTrip{
+			JobNumber: t.JobNumber, Status: t.Status, Traveller: domain.Person{Email: t.TravellerEmail},
+			City: t.City, Country: t.Country, StartDate: t.StartDate, EndDate: t.EndDate,
+		})
+	}
+	for _, pd := range a.PerDiemsOnOpenTrips {
+		out.PerDiemsOnOpenTrips = append(out.PerDiemsOnOpenTrips, domain.DashboardAgentPerDiem{
+			JobNumber: pd.JobNumber, Traveller: domain.Person{Email: pd.TravellerEmail},
+			StartDate: pd.StartDate, EndDate: pd.EndDate, Days: pd.Days, Currency: pd.Currency, Total: pd.Total,
+		})
+	}
+	return out, nil
+}
+
+// ── Allocations Today ───────────────────────────────────────────────────────
+
+// AllocationsToday runs the legacy Allocations dashboard. date "" or today
+// uses the legacy "today" queries; an earlier date the "past date" ones; a
+// later date is refused, as the legacy screen did.
+func (s *dashboardService) AllocationsToday(ctx context.Context, _ domain.Perms, date string, businessUnitID int) (domain.DashboardAllocationsToday, error) {
+	today := s.today().Format(dashboardDateLayout)
+	if date == "" {
+		date = today
+	}
+	if _, err := time.Parse(dashboardDateLayout, date); err != nil {
+		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "date must be a date (YYYY-MM-DD)."}
+	}
+	if date > today {
+		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "The date cannot be in the future."}
+	}
+	if businessUnitID < 0 {
+		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "businessUnitId must be a positive whole number."}
+	}
+	entityDate := date
+	if date == today {
+		entityDate = ""
+	}
+	r, err := s.entity.DashboardAllocationsToday(ctx, entityDate, businessUnitID)
+	if err != nil {
+		return domain.DashboardAllocationsToday{}, err
+	}
+	out := domain.DashboardAllocationsToday{Date: date, Consultants: r.Consultants}
+	if businessUnitID > 0 {
+		out.BusinessUnitID = &businessUnitID
+	}
+	et := make([]dashboardRow, 0, len(r.ByEngagementType))
+	for _, c := range r.ByEngagementType {
+		id := c.EngagementTypeID
+		et = append(et, dashboardRow{label: c.EngagementType, value: float64(c.Count), id: &id})
+		out.Allocations += c.Count
+	}
+	out.ByEngagementType = dashboardBuckets(et, 8)
+	typeRows := func(list []engagemententity.DashboardAllocationTypeCount, sum *int) []domain.DashboardBucket {
+		rows := make([]dashboardRow, 0, len(list))
+		for _, c := range list {
+			rows = append(rows, dashboardRow{label: c.AllocationType, value: float64(c.Count), color: c.Color})
+			*sum += c.Count
+		}
+		return dashboardBuckets(rows, 8)
+	}
+	out.PaidByAllocationType = typeRows(r.PaidByAllocationType, &out.Paid)
+	out.NonPaidByAllocationType = typeRows(r.NonPaidByAllocationType, &out.NonPaid)
+	return out, nil
+}
+
+// ── Me overview ─────────────────────────────────────────────────────────────
+
+// MeOverview is the Allocations & Trips card: the current and next own
+// active allocations (at most 3) and own trips not Cancelled ending today or
+// later (at most 3).
+func (s *dashboardService) MeOverview(ctx context.Context, p domain.Perms) (domain.MeOverview, error) {
+	out := domain.MeOverview{UpcomingAllocations: []domain.DashboardAllocationSummary{}, UpcomingTrips: []domain.DashboardTrip{}}
+	allocs, trips := p.Alloc.Has(1), p.Travel.Any(49, 36)
+	if !allocs && !trips {
+		return out, nil
+	}
+	today := s.today().Format(dashboardDateLayout)
+	mw, err := s.entity.DashboardMyWork(ctx, engagemententity.DashboardMyWorkFilter{
+		Email: p.Email, Today: today, Trips: trips, TripLimit: 3,
+	})
+	if err != nil {
+		return domain.MeOverview{}, err
+	}
+	if allocs {
+		current, next := dashboardSplitAllocations(mw.Allocations, today)
+		if current != nil {
+			out.UpcomingAllocations = append(out.UpcomingAllocations, *current)
+		}
+		for _, a := range next {
+			if len(out.UpcomingAllocations) == 3 {
+				break
+			}
+			out.UpcomingAllocations = append(out.UpcomingAllocations, a)
+		}
+	}
+	if trips {
+		out.UpcomingTrips = dashboardTrips(mw.Trips)
+	}
+	return out, nil
+}
