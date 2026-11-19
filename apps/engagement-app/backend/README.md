@@ -126,7 +126,7 @@ committed files.
 | `SERVER_PORT` | No | `8190` | – |
 | `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | `[app_allocation.email.emailServiceConfig] endpointUrl` |
 | `EMAIL_DISABLED` | Locally | `false` | `true` logs that an email would be sent (no addresses or subject) instead of sending it |
-| `IS_LIVE_EMAILS` | **Production: `true`** | `false` | `false` (staging): every email goes only to `EMAIL_TEST_RECIPIENTS`, with no CC (legacy `isSendTestingEmailsOnlyVal` + `allocationTestEmail`, now for both apps). `true` sends to the real recipients |
+| `IS_LIVE_EMAILS` | **Production: `true`** | `false` | `false` (staging): every email goes only to `EMAIL_TEST_RECIPIENTS`, with no CC, a `[STAGING] ` subject prefix and a `TEST_BANNER` naming the real recipients (rendered by the email service's Choreo Labs base) (legacy `isSendTestingEmailsOnlyVal` + `allocationTestEmail`, now for both apps). `true` sends to the real recipients |
 | `EMAIL_TEST_RECIPIENTS` | With email on and not live | – | Comma-separated addresses that receive every email on staging. Without them (and not live) the backend refuses to start, so staging can't mail real people |
 | `EMAIL_ALLOCATIONS_APP_UUID`, `EMAIL_TRAVEL_APP_UUID` | With email | – | `[app_allocation.email] appUuid`, `[app_travel.email.emailConfigurations] travelAppUUID` |
 | `EMAIL_ALLOCATIONS_FROM`, `EMAIL_TRAVEL_FROM` | With email | – | `allocationManagerEmail`, `travelAppEmail` |

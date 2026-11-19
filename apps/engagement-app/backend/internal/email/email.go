@@ -20,6 +20,7 @@ package email
 
 import (
 	"context"
+	"html"
 	"log/slog"
 	"net/mail"
 	"strconv"
@@ -83,8 +84,9 @@ type Config struct {
 
 // legacy globals added to every template.
 var (
-	appNames   = map[App]string{AppAllocations: "Allocations App", AppTravel: "Travel App"}
-	signatures = map[App]string{AppAllocations: "Cheers,<br> WSO2 Internal Apps Team", AppTravel: "Cheers,<br> Apps & Automations Team"}
+	appNames = map[App]string{AppAllocations: "Allocations App", AppTravel: "Travel App"}
+	// Choreo Labs rebrand (as the Certification Portal): user-facing text only.
+	signatures = map[App]string{AppAllocations: "Cheers,<br> Choreo Labs Internal Apps Team", AppTravel: "Cheers,<br> Apps & Automations Team"}
 )
 
 // HTTPSender sends through the email service.
@@ -131,6 +133,10 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 		Subject: subjectLine(m.Subject), TemplateID: m.TemplateID, ContentKeyValPairs: content,
 	}
 	if testing {
+		// Not live (staging): mark the email and show who it would have gone
+		// to, so testers can check the routing. Never set when live.
+		p.Subject = stagingSubjectPrefix + p.Subject
+		content["TEST_BANNER"] = stagingBanner(to, cc)
 		p.To, p.CC = append([]string(nil), s.cfg.TestRecipients...), []string{}
 	}
 	if err := s.rest.Post(ctx, "/send-smtp-email", p, nil); err != nil {
@@ -146,6 +152,25 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 // subjectLine replaces control characters (CR, LF, tab, ...) in a subject
 // with spaces: the subject embeds free text such as project names, and a line
 // break in it could add a mail header.
+// stagingSubjectPrefix marks every email sent while emails are not live.
+const stagingSubjectPrefix = "[STAGING] "
+
+// stagingBanner is the TEST_BANNER content (the email service's Choreo Labs
+// base renders it above the body): the real recipients, HTML-escaped.
+func stagingBanner(to, cc []string) string {
+	esc := func(list []string) string {
+		if len(list) == 0 {
+			return "none"
+		}
+		out := make([]string, len(list))
+		for i, a := range list {
+			out[i] = html.EscapeString(a)
+		}
+		return strings.Join(out, ", ")
+	}
+	return "Staging test email. In production it would go to: <b>To:</b> " + esc(to) + "; <b>CC:</b> " + esc(cc) + "."
+}
+
 func subjectLine(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

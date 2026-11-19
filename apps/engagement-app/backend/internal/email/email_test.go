@@ -58,6 +58,9 @@ func TestHTTPSender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got.Subject != "[Travel App] Travel Request (#TRV-1)" || got.ContentKeyValPairs["TEST_BANNER"] != "" {
+		t.Errorf("live email carries staging marks: subject %q, banner %q", got.Subject, got.ContentKeyValPairs["TEST_BANNER"])
+	}
 	if path != "/send-smtp-email" || got.AppUUID != "uuid-t" || got.From != "travel@wso2.com" ||
 		!reflect.DeepEqual(got.CC, []string{"f@wso2.com"}) || got.ContentKeyValPairs["APP_NAME"] != "Travel App" ||
 		got.ContentKeyValPairs["CURRENT_YEAR"] != "2026" || got.ContentKeyValPairs["title"] != "x" {
@@ -70,6 +73,11 @@ func TestHTTPSender(t *testing.T) {
 	_ = s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, CC: []string{"f@wso2.com"}})
 	if !reflect.DeepEqual(got.To, []string{"qa@wso2.com", "lead@wso2.com"}) || len(got.CC) != 0 {
 		t.Errorf("testing mode: to %v cc %v", got.To, got.CC)
+	}
+	// Marked as staging, with the real recipients in the banner; the live send above has neither.
+	if got.Subject != "[STAGING] " || got.ContentKeyValPairs["TEST_BANNER"] !=
+		"Staging test email. In production it would go to: <b>To:</b> t@wso2.com; <b>CC:</b> f@wso2.com." {
+		t.Errorf("staging marks: subject %q, banner %q", got.Subject, got.ContentKeyValPairs["TEST_BANNER"])
 	}
 }
 
