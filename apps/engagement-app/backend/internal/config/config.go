@@ -317,12 +317,19 @@ func (c *Config) Validate() error {
 	if c.Email.Enabled() {
 		emailURL = c.Email.ServiceURL
 	}
-	needsClient := map[string]string{
-		"SALES_ENTITY_BASE_URL": c.SalesEntityBaseURL,
-		"HR_ENTITY_URL":         c.HREntityURL,
-		"EMAIL_SERVICE_URL":     emailURL,
+	// The Engagement Entity is in another Choreo project, reached through its
+	// Organization endpoint with a subscription; only a local one runs open.
+	entityURL := ""
+	if !isLoopback(c.EngagementEntityBaseURL) {
+		entityURL = c.EngagementEntityBaseURL
 	}
-	for _, key := range []string{"SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL"} {
+	needsClient := map[string]string{
+		"ENGAGEMENT_ENTITY_BASE_URL": entityURL,
+		"SALES_ENTITY_BASE_URL":      c.SalesEntityBaseURL,
+		"HR_ENTITY_URL":              c.HREntityURL,
+		"EMAIL_SERVICE_URL":          emailURL,
+	}
+	for _, key := range []string{"ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL"} {
 		if needsClient[key] != "" && !c.Client.Configured() {
 			errs = append(errs, fmt.Errorf("ENTITY_CLIENT_ID and ENTITY_CLIENT_SECRET are required when %s is set", key))
 			break
@@ -336,6 +343,7 @@ func (c *Config) Validate() error {
 	}
 	for _, u := range []struct{ key, val string }{
 		{"ENTITY_TOKEN_URL", c.Client.TokenURL},
+		{"ENGAGEMENT_ENTITY_BASE_URL", c.EngagementEntityBaseURL},
 		{"CURRENCY_CONVERT_TOKEN_URL", currencyToken},
 		{"SALES_ENTITY_BASE_URL", c.SalesEntityBaseURL},
 		{"HR_ENTITY_URL", c.HREntityURL},
@@ -356,6 +364,16 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("FILE_STORAGE_ACCESS_KEY is required when FILE_STORAGE_ACCOUNT is set"))
 	}
 	return errors.Join(errs...)
+}
+
+// isLoopback reports whether raw is an http(s) URL to localhost.
+func isLoopback(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }
 
 func requireHTTPS(key, raw string) error {

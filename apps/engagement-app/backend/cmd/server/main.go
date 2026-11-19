@@ -106,7 +106,16 @@ func main() {
 		slog.Warn("FILE_STORAGE_ACCOUNT is not set: passport and visa image uploads and downloads answer 503")
 	}
 
-	entity := engagemententity.New(cfg.EngagementEntityBaseURL, nil)
+	// The entity is in another Choreo project, behind its Organization
+	// endpoint, so it takes the subscribed client pair. A NetSuite push can
+	// run for minutes, hence the longer timeout.
+	var entityHTTP *http.Client
+	if oauth != nil {
+		c := *oauth
+		c.Timeout = engagemententity.PushTimeout
+		entityHTTP = &c
+	}
+	entity := engagemententity.New(cfg.EngagementEntityBaseURL, entityHTTP)
 
 	handler := server.NewRouter(server.Deps{
 		Verifier:           verifier,
