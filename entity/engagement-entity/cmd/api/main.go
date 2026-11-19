@@ -28,6 +28,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/audit"
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/auth"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/config"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/db"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/netsuite"
@@ -81,8 +82,24 @@ func main() {
 		log.Println("WARNING: allocation_db.engagement.campaign_id is missing (run Resources/allocation_db_table_update_v1.0.0.sql): campaigns read as empty and Marketing Events cannot be saved with a campaign")
 	}
 
-	addr := ":" + cfg.ServerPort
-	srv := server.New(addr, server.Deps{Pools: pools, NetSuite: cfg.NetSuite})
+	gate := auth.Off
+	if cfg.Auth.Disabled {
+		log.Println("WARNING: AUTH_DISABLED is set: no gateway JWT is checked and the server listens on loopback only (local run)")
+	} else {
+		v, err := auth.NewVerifier(auth.Config{
+			Issuer:           cfg.Auth.Issuer,
+			JWKSURL:          cfg.Auth.JWKSURL,
+			AllowedClientIDs: cfg.Auth.AllowedClientIDs,
+			ClockSkew:        60 * time.Second,
+		}, nil)
+		if err != nil {
+			log.Fatalf("invalid configuration: %v", err)
+		}
+		gate = auth.Middleware(v)
+	}
+
+	addr := cfg.ListenAddr()
+	srv := server.New(addr, server.Deps{Pools: pools, NetSuite: cfg.NetSuite, Auth: gate})
 	if !cfg.NetSuite.PushEnabled {
 		log.Println("NetSuite push is disabled (NETSUITE_PUSH_ENABLED is not true): push and re-sync answer 503")
 	}

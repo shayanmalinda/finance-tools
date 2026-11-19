@@ -37,11 +37,17 @@ type Deps struct {
 	// NetSuite is the NetSuite account; pushing is off unless
 	// NetSuite.PushEnabled.
 	NetSuite config.NetSuiteConfig
+	// Auth admits callers: auth.Middleware with the gateway JWT verifier, or
+	// auth.Off for a local run and tests. Required.
+	Auth func(http.Handler) http.Handler
 }
 
-// NewRouter builds the dependency graph and routes. No auth: the component
-// is visible to its Choreo project only.
+// NewRouter builds the dependency graph and routes. Every route except
+// GET /health needs a gateway JWT from a listed client application (Deps.Auth).
 func NewRouter(d Deps) http.Handler {
+	if d.Auth == nil {
+		panic("server: Deps.Auth is required (auth.Off only for a local run or tests)")
+	}
 	pools := d.Pools
 	// ── Repositories ────────────────────────────────────────────────────────
 	agencyRepo := repository.NewAgencyRepository(pools.Travel)
@@ -92,15 +98,19 @@ func NewRouter(d Deps) http.Handler {
 	registerFinanceRoutes(mux, d)
 	registerDashboardRoutes(mux, d)
 
-	return middleware.CorrelationID(middleware.Actor(
-		// Logger wraps Recovery so a panicking request still gets its access
-		// line, with the 500 Recovery wrote.
+	// Logger wraps Recovery so a panicking request still gets its access
+	// line, with the 500 Recovery wrote, and wraps Auth so refused requests
+	// are logged too. Actor runs after Auth: X-User-Email is taken only from
+	// an admitted caller.
+	return middleware.CorrelationID(
 		middleware.Logger(
 			middleware.Recovery(
-				middleware.Timeout(30*time.Second, netsuite.Timeout+30*time.Second, isNetSuiteRoute)(mux),
+				d.Auth(middleware.Actor(
+					middleware.Timeout(30*time.Second, netsuite.Timeout+30*time.Second, isNetSuiteRoute)(mux),
+				)),
 			),
 		),
-	))
+	)
 }
 
 // isNetSuiteRoute picks the push and re-sync routes, which wait on NetSuite.

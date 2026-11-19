@@ -36,6 +36,7 @@ func clearEnv(t *testing.T) {
 		"NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID", "NETSUITE_CREATE_VENDOR_BILL_DEPLOY_ID",
 		"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID",
 		"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", "NETSUITE_GET_VENDOR_BILL_DEPLOY_ID",
+		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS",
 	} {
 		t.Setenv(k, "")
 	}
@@ -81,7 +82,7 @@ func TestValidateNamesEveryMissingSetting(t *testing.T) {
 }
 
 func TestValidateNetSuiteOnlyWhenPushEnabled(t *testing.T) {
-	c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}}
+	c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}, Auth: AuthConfig{Disabled: true}}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate() = %v, want nil", err)
 	}
@@ -89,6 +90,61 @@ func TestValidateNetSuiteOnlyWhenPushEnabled(t *testing.T) {
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(), "NETSUITE_ACCOUNT_ID") || !strings.Contains(err.Error(), "NETSUITE_PURCHASE_ORDER_TAX_CODE") {
 		t.Errorf("push enabled without credentials: err = %v", err)
+	}
+}
+
+// Auth fails closed: without AUTH_DISABLED the gateway JWKS URL (https) and
+// the allowed client ids are required.
+func TestValidateRequiresGatewayAuth(t *testing.T) {
+	base := func() *Config { return &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}} }
+	err := base().Validate()
+	if err == nil || !strings.Contains(err.Error(), "GATEWAY_JWT_JWKS_URL") || !strings.Contains(err.Error(), "ALLOWED_CLIENT_IDS") {
+		t.Errorf("no auth settings: err = %v", err)
+	}
+	c := base()
+	c.Auth = AuthConfig{JWKSURL: "http://gw.example/.wellknown/jwks", AllowedClientIDs: []string{"backend"}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "must be an https URL") {
+		t.Errorf("plain http JWKS: err = %v", err)
+	}
+	c.Auth.JWKSURL = "https://gw.example/.wellknown/jwks"
+	if err := c.Validate(); err != nil {
+		t.Errorf("complete auth: err = %v", err)
+	}
+	c = base()
+	c.Auth.Disabled = true
+	if err := c.Validate(); err != nil {
+		t.Errorf("AUTH_DISABLED: err = %v", err)
+	}
+}
+
+func TestLoadAuth(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("GATEWAY_JWT_JWKS_URL", " https://gw.example/.wellknown/jwks ")
+	t.Setenv("ALLOWED_CLIENT_IDS", " a, ,b ")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Auth.Disabled || c.Auth.Issuer != DefaultGatewayIssuer || c.Auth.JWKSURL != "https://gw.example/.wellknown/jwks" ||
+		len(c.Auth.AllowedClientIDs) != 2 || c.Auth.AllowedClientIDs[0] != "a" || c.Auth.AllowedClientIDs[1] != "b" {
+		t.Errorf("auth = %+v", c.Auth)
+	}
+	t.Setenv("AUTH_DISABLED", "maybe")
+	if _, err := Load(); err == nil {
+		t.Error("AUTH_DISABLED=maybe: want error")
+	}
+}
+
+// Disabling auth also binds the server to loopback, so a deployment that
+// sets it by mistake is unreachable, not open.
+func TestListenAddr(t *testing.T) {
+	c := &Config{ServerPort: "8290"}
+	if got := c.ListenAddr(); got != ":8290" {
+		t.Errorf("auth on: %q", got)
+	}
+	c.Auth.Disabled = true
+	if got := c.ListenAddr(); got != "127.0.0.1:8290" {
+		t.Errorf("auth off: %q", got)
 	}
 }
 

@@ -41,6 +41,8 @@ func Logger(next http.Handler) http.Handler {
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		log.Printf("%s %s correlationID=%s status=%d elapsed=%s", r.Method, r.URL.Path, CorrelationIDFromContext(r.Context()), rw.status, time.Since(start)) // #nosec G706
+		// The escaped path, quoted: a decoded path could carry a newline
+		// (%0A) and forge a log line.
+		log.Printf("%s %q correlationID=%s status=%d elapsed=%s", r.Method, r.URL.EscapedPath(), CorrelationIDFromContext(r.Context()), rw.status, time.Since(start))
 	})
 }
