@@ -1,0 +1,485 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
+)
+
+// fakeDashboardEntity records what the service asked for.
+type fakeDashboardEntity struct {
+	mu         sync.Mutex
+	myWork     *engagemententity.DashboardMyWorkFilter
+	queues     *engagemententity.DashboardQueuesFilter
+	travel     *engagemententity.DashboardTravelFilter
+	engs       *engagemententity.DashboardEngagementsFilter
+	agencyID   int
+	todayArgs  []string
+	allocDate  *string
+	fail       error
+	travelFail error
+
+	myWorkResp *engagemententity.DashboardMyWork
+	queuesResp *engagemententity.DashboardQueues
+	travelResp *engagemententity.DashboardTravel
+	engsResp   *engagemententity.DashboardEngagements
+}
+
+func (f *fakeDashboardEntity) DashboardAllocationsToday(_ context.Context, date string, _ int) (*engagemententity.DashboardAllocationsToday, error) {
+	f.allocDate = &date
+	c := "#abc"
+	return &engagemententity.DashboardAllocationsToday{
+		ByEngagementType:        []engagemententity.DashboardEngagementTypeCount{{EngagementTypeID: 1, EngagementType: "Internal Engagement", Count: 6}, {EngagementTypeID: 6, EngagementType: "Paid Post Sale", Count: 2}},
+		PaidByAllocationType:    []engagemententity.DashboardAllocationTypeCount{{AllocationType: "Implementation", Color: &c, Count: 2}},
+		NonPaidByAllocationType: []engagemententity.DashboardAllocationTypeCount{{AllocationType: "R&D", Count: 6}},
+		Consultants:             7,
+	}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardMyWork(_ context.Context, fl engagemententity.DashboardMyWorkFilter) (*engagemententity.DashboardMyWork, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.myWork = &fl
+	if f.myWorkResp != nil {
+		return f.myWorkResp, f.fail
+	}
+	return &engagemententity.DashboardMyWork{}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardQueues(_ context.Context, fl engagemententity.DashboardQueuesFilter) (*engagemententity.DashboardQueues, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queues = &fl
+	if f.queuesResp != nil {
+		return f.queuesResp, f.fail
+	}
+	return &engagemententity.DashboardQueues{}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardTravel(_ context.Context, fl engagemententity.DashboardTravelFilter) (*engagemententity.DashboardTravel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.travel = &fl
+	if f.travelFail != nil {
+		return nil, f.travelFail
+	}
+	if f.travelResp != nil {
+		return f.travelResp, f.fail
+	}
+	return &engagemententity.DashboardTravel{Trips: &engagemententity.DashboardTravelTrips{}}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardEngagements(_ context.Context, fl engagemententity.DashboardEngagementsFilter) (*engagemententity.DashboardEngagements, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.engs = &fl
+	if f.engsResp != nil {
+		return f.engsResp, f.fail
+	}
+	return &engagemententity.DashboardEngagements{Trend: &engagemententity.DashboardTrend{}}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardAgency(_ context.Context, id int, _ string) (*engagemententity.DashboardAgency, error) {
+	f.agencyID = id
+	return &engagemententity.DashboardAgency{
+		InvoicesByStatus: []engagemententity.DashboardCount{{Label: "Pending", Count: 2}, {Label: "Rejected by travel", Count: 1}, {Label: "Rejected by finance", Count: 1}},
+		Upcoming:         []engagemententity.DashboardTrip{{JobNumber: "TRV-1", TravellerEmail: "a@wso2.com"}},
+	}, f.fail
+}
+
+var dashboardNow = func() time.Time { return time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC) }
+
+func dashboardPerms(email string, alloc, allocOwn, travel, travelOwn []int, travelRoles ...string) domain.Perms {
+	return domain.Perms{
+		Email: email,
+		Alloc: domain.NewPrivilegeSet(alloc), AllocOwn: domain.NewPrivilegeSet(allocOwn),
+		Travel: domain.NewPrivilegeSet(travel), TravelOwn: domain.NewPrivilegeSet(travelOwn),
+		TravelRoles: travelRoles,
+	}
+}
+
+func dashboardRange(from, to int) []int {
+	var out []int
+	for i := from; i <= to; i++ {
+		out = append(out, i)
+	}
+	return out
+}
+
+var (
+	dashboardEmployeeAlloc  = []int{1}
+	dashboardEmployeeTravel = []int{19, 20, 21, 22, 23, 24, 36, 37, 38, 47, 48, 49}
+)
+
+// Employee: My Work (when there is something) and nothing else from this
+// endpoint (Allocations Today has its own).
+func TestDashboard_Employee(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.myWork == nil || !f.myWork.Trips || f.myWork.Email != "jane@wso2.com" || f.myWork.Today != "2026-11-05" {
+		t.Errorf("my work filter = %+v", f.myWork)
+	}
+	if f.queues != nil || f.travel != nil || f.engs != nil {
+		t.Errorf("unexpected calls: queues %+v travel %+v engs %+v", f.queues, f.travel, f.engs)
+	}
+	b, _ := json.Marshal(got)
+	if string(b) != `{"failedSections":[]}` {
+		t.Errorf("nothing to show must be only failedSections, got %s", b)
+	}
+}
+
+// Travel Team: super admin of both apps plus manager-po. Queues come only
+// from own (non super admin) privileges, except Ready for Clearance; no
+// finance, push or approval-of-engagements cards and no Travel Cost.
+func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
+	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{NewTravelRequests: 4, InvoicesPending: 2, InvoicesToPush: 9}}
+	poOwn := append(dashboardRange(1, 17), 25, 26, 27, 28, 30, 32, 41, 42, 45, 46)
+	svc := NewDashboardService(f, nil, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("employee@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, c := range got.WaitingOnYou {
+		keys = append(keys, c.Key)
+	}
+	if strings.Join(keys, ",") != "readyForClearance,newTravelRequests,approve-po" {
+		t.Errorf("cards = %v", keys)
+	}
+	if f.queues.Invoices != true || f.queues.Payments || len(f.queues.PendingApprovalTypes) != 0 ||
+		!reflect.DeepEqual(f.queues.ClearanceTypes, []int{1, 3, 4, 5, 6, 7}) {
+		t.Errorf("queues filter = %+v", f.queues)
+	}
+	if got.WaitingOnYou[1].Count != 4 || got.WaitingOnYou[2].Count != 2 || got.WaitingOnYou[2].List.Path != "/finance/engagement-app/invoices/po" {
+		t.Errorf("cards = %+v", got.WaitingOnYou)
+	}
+	if f.travel == nil || !f.travel.Trips || f.travel.CostInvoices || f.travel.CostPayments || f.travel.CostCards || got.TravelCost != nil {
+		t.Errorf("travel filter = %+v cost %+v", f.travel, got.TravelCost)
+	}
+	// Super admin sees every engagement type, bench and trend.
+	if f.engs == nil || len(f.engs.EngagementTypes) != 7 || !f.engs.Bench || !f.engs.Trend {
+		t.Errorf("engagements filter = %+v", f.engs)
+	}
+
+	// Super admin alone (no Travel Team group): Travel, but no travel queues.
+	f = &fakeDashboardEntity{}
+	got, err = NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("s@wso2.com",
+		dashboardRange(1, 25), []int{1}, dashboardRange(1, 49), dashboardEmployeeTravel, "app-travel-admin-super-stg", "wso2-employees"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.travel.Trips || f.travel.CostInvoices || got.TravelCost != nil || f.queues.TravelRequests || f.queues.Invoices || f.queues.Payments {
+		t.Errorf("super admin: travel %+v queues %+v", f.travel, f.queues)
+	}
+}
+
+// Finance approver: finance queues, Travel Cost with card spend; the finance
+// step only without HR approval (32).
+func TestDashboard_FinanceQueuesAndCardSpend(t *testing.T) {
+	approverFinance := []int{2, 3, 8, 28, 30, 33, 34, 35, 39, 40, 41, 42, 43, 44, 45}
+	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{
+		InvoicesAcceptedByTravel: 3, InvoicesToPush: 2, InvoicesFailed: 1, PaymentsToPush: 5, PaymentsFailed: 2,
+	}}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	p := dashboardPerms("analyst@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, approverFinance, approverFinance, "App-Travel-Approver-Finance-stg")
+	got, err := svc.Dashboard(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"approve": 3, "push": 2, "pay": 5, "failed": 3}
+	cards := map[string]int{}
+	for _, c := range got.WaitingOnYou {
+		if _, dup := cards[c.Key]; dup {
+			t.Errorf("card %s appears twice", c.Key)
+		}
+		cards[c.Key] = c.Count
+	}
+	if !reflect.DeepEqual(cards, want) {
+		t.Errorf("cards = %v, want %v", cards, want)
+	}
+	// Travel Cost with card spend, but no Travel section.
+	if !f.travel.CostCards || !f.travel.CostInvoices || f.travel.Trips {
+		t.Errorf("travel filter = %+v", f.travel)
+	}
+
+	// With own HR approval (32), the finance step is not theirs.
+	p.TravelOwn = domain.NewPrivilegeSet(append(approverFinance, 32))
+	got, _ = svc.Dashboard(context.Background(), p)
+	for _, c := range got.WaitingOnYou {
+		if c.Key == "approve" {
+			t.Error("approve card shown to a holder of 32")
+		}
+	}
+}
+
+// Approvers: Pending Approval (own 28 / 31, always highlighted) and Ready
+// for Clearance over the types they may set the status of.
+func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
+	internalMgr := append(append([]int{1, 11}, dashboardRange(13, 21)...), 26, 27, 28)
+	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{
+		PendingApproval: map[int]int{1: 2, 5: 9}, Clearance: map[string]int{"Ready for Clearance": 4},
+	}}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", internalMgr, internalMgr, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.queues.PendingApprovalTypes, []int{1}) || !reflect.DeepEqual(f.queues.ClearanceTypes, []int{1, 5}) {
+		t.Errorf("queues filter = %+v", f.queues)
+	}
+	if len(got.WaitingOnYou) != 2 {
+		t.Fatalf("cards = %+v", got.WaitingOnYou)
+	}
+	pa, ready := got.WaitingOnYou[0], got.WaitingOnYou[1]
+	if pa.Key != "pendingApproval" || pa.Count != 2 || !pa.Highlighted || pa.List.Path != "/finance/engagement-app/approvals/internal" {
+		t.Errorf("pending approval = %+v", pa)
+	}
+	if ready.Count != 4 || !ready.Highlighted || ready.List.Path != "/finance/engagement-app/allocations/engagement?clearanceStatus=Ready%20for%20Clearance&engagementTypeId=1&engagementTypeId=5" {
+		t.Errorf("ready = %+v", ready)
+	}
+	// Engagements only of internal kinds; trend for allocation-list holders.
+	if !reflect.DeepEqual(f.engs.EngagementTypes, []int{1, 5}) || !f.engs.Bench || !f.engs.Trend {
+		t.Errorf("engagements filter = %+v", f.engs)
+	}
+
+	// An approver without an engagement update privilege cannot approve: no tile.
+	approver := []int{1, 26, 27, 28, 29, 30, 31}
+	if got, _ := svc.Dashboard(context.Background(), dashboardPerms("ap@wso2.com", approver, approver, nil, nil)); len(got.WaitingOnYou) != 0 {
+		t.Errorf("approver-only cards = %+v", got.WaitingOnYou)
+	}
+
+	// A manager without 28 has no Pending Approval.
+	mgr := internalMgr[:len(internalMgr)-1]
+	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", mgr, mgr, nil, nil))
+	if len(got.WaitingOnYou) != 1 || got.WaitingOnYou[0].Key != "readyForClearance" {
+		t.Errorf("manager cards = %+v", got.WaitingOnYou)
+	}
+
+	// A pre-sale group alone cannot allocate (legacy quirk): no clearance queue.
+	if types := dashboardClearanceTypes(domain.NewPrivilegeSet([]int{33})); len(types) != 0 {
+		t.Errorf("pre-sale only: %v", types)
+	}
+	if types := dashboardClearanceTypes(domain.NewPrivilegeSet([]int{1, 2, 3, 6, 9, 10, 33})); !reflect.DeepEqual(types, []int{3, 7}) {
+		t.Errorf("customer manager + pre sale: %v", types)
+	}
+}
+
+// Available Consultants is gated on 9, 19 or 21 alone, not on 3 or 13.
+func TestDashboard_AvailableConsultantsWithoutEngagements(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("rm@wso2.com", []int{21}, []int{21}, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.engs == nil || !f.engs.Bench || f.engs.Trend || len(f.engs.EngagementTypes) != 0 {
+		t.Fatalf("engagements filter = %+v", f.engs)
+	}
+	if got.AvailableConsultants == nil || got.Engagements != nil {
+		t.Errorf("available = %+v engagements = %+v", got.AvailableConsultants, got.Engagements)
+	}
+}
+
+func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	p := dashboardPerms("agent@acorn.com", nil, nil, []int{3, 4, 6, 18, 26, 27, 28, 30, 31}, []int{3, 4, 6, 18, 26, 27, 28, 30, 31})
+	p.Agency = &domain.TravelAgency{ID: 3, Name: "Acorn Travels"}
+	got, err := NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Agent == nil || got.MyWork != nil || got.Travel != nil || got.WaitingOnYou != nil || f.agencyID != 3 {
+		t.Fatalf("got %+v (agency %d)", got, f.agencyID)
+	}
+	a := got.Agent
+	if a.Agency != "Acorn Travels" || a.InvoicesRejected != 2 || len(a.TripsByMonth) != 12 || len(a.Upcoming) != 1 {
+		t.Errorf("agent = %+v", a)
+	}
+	b, _ := json.Marshal(a.Upcoming[0])
+	if strings.Contains(string(b), "agency") {
+		t.Errorf("agents get no agency field: %s", b)
+	}
+}
+
+func TestDashboard_EntityErrorFailsTheRequest(t *testing.T) {
+	f := &fakeDashboardEntity{fail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
+	_, err := NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil))
+	var up *apierror.UpstreamError
+	if !errors.As(err, &up) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// One failing section is reported; the others are still returned.
+func TestDashboard_FailedSectionKeepsTheOthers(t *testing.T) {
+	f := &fakeDashboardEntity{travelFail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
+	got, err := NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(),
+		dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{1, 2, 49}, []int{1, 2, 49}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.FailedSections, []string{"travel"}) || got.Travel != nil || f.myWork == nil {
+		t.Errorf("failed %v travel %v", got.FailedSections, got.Travel)
+	}
+}
+
+func TestDashboard_MyWork(t *testing.T) {
+	six, one := 6, 1
+	acme, title, purpose := "Acme Corp", "API rollout", "Platform upgrade"
+	ready := "Ready for Clearance"
+	typ, code := "R&D", "RND-GEN"
+	f := &fakeDashboardEntity{myWorkResp: &engagemententity.DashboardMyWork{
+		Allocations: []engagemententity.DashboardOwnAllocation{
+			{ID: "A1", EngagementID: "E1", EngagementTypeID: &six, Account: &acme, Title: &title, StartDate: "2026-11-01", EndDate: "2026-11-20"},
+			{ID: "A2", EngagementID: "E2", EngagementTypeID: &one, Account: &acme, Title: &purpose, StartDate: "2026-11-03", EndDate: "2026-11-09"},
+			{ID: "A3", EngagementID: "E3", EngagementTypeID: &one, Title: &purpose, StartDate: "2026-12-01", EndDate: "2026-12-09", ClearanceStatus: &ready},
+		},
+		TeamAllocation: &engagemententity.DashboardTeamAllocation{ID: "A9", AllocationType: &typ, EngagementCode: &code, StartDate: "2026-11-01", EndDate: "2026-11-30"},
+		Trips:          []engagemententity.DashboardTrip{{JobNumber: "TRV-2026-11-0001", TravellerEmail: "jane@wso2.com"}},
+		TripCount:      2,
+	}}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mw := got.MyWork
+	if mw == nil || mw.CurrentAllocation == nil || mw.CurrentAllocation.ID != "A1" || !mw.CurrentAllocation.Current {
+		t.Fatalf("my work = %+v", mw)
+	}
+	if mw.CurrentAllocation.EngagementTitle != "Acme Corp – API rollout" {
+		t.Errorf("title = %q", mw.CurrentAllocation.EngagementTitle)
+	}
+	if mw.NextAllocation == nil || mw.NextAllocation.ID != "A3" || mw.NextAllocation.EngagementTitle != "Platform upgrade" {
+		t.Errorf("next = %+v", mw.NextAllocation)
+	}
+	if mw.TodayTeamAllocation == nil || mw.TodayTeamAllocation.Label != "RND-GEN: R&D" || mw.TodayTeamAllocation.Kind != "default" {
+		t.Errorf("team = %+v", mw.TodayTeamAllocation)
+	}
+	if len(mw.NextTrips) != 1 || mw.UpcomingTripCount != 2 || mw.NextTrips[0].Traveller.Email != "jane@wso2.com" {
+		t.Errorf("trips = %+v", mw.NextTrips)
+	}
+
+	// Me overview: current first, then the future ones; at most three.
+	ov, err := svc.MeOverview(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ov.UpcomingAllocations) != 2 || ov.UpcomingAllocations[0].ID != "A1" || ov.UpcomingAllocations[1].ID != "A3" || len(ov.UpcomingTrips) != 1 {
+		t.Errorf("overview = %+v", ov)
+	}
+	if f.myWork.TripLimit != 3 {
+		t.Errorf("trip limit = %d", f.myWork.TripLimit)
+	}
+	// Without My Travel Requests no trips are read.
+	if _, err := svc.MeOverview(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil)); err != nil || f.myWork.Trips {
+		t.Errorf("trips read without 49/36: %+v, %v", f.myWork, err)
+	}
+}
+
+func TestDashboard_TravelCostInUSD(t *testing.T) {
+	cost := []engagemententity.DashboardCostLine{
+		{Source: "invoice", Month: "2026-11", CostType: "Air Ticket", Currency: "USD", Amount: 1000},
+		{Source: "invoice", Month: "2026-10", CostType: "Hotel", Currency: "USD", Amount: 500.555},
+		{Source: "invoice", Month: "2026-10", CostType: "Hotel", Currency: "LKR", Amount: 90000},
+		{Source: "invoice", Month: "2025-11", CostType: "Hotel", Currency: "USD", Amount: 77}, // outside the window
+		{Source: "perDiem", Month: "2026-10", Currency: "USD", Amount: 400},
+		{Source: "perDiem", Month: "2026-09", Currency: "GBP", Amount: 70},
+		{Source: "card", Month: "2026-10", Currency: "USD", Amount: 100},
+	}
+	tr := &engagemententity.DashboardTravel{From: "2025-12-01", To: "2026-12-01", Cost: cost}
+	today := dashboardNow()
+
+	c := dashboardTravelCost(tr, today, true)
+	if c.Total != 2000.56 || c.TravelInvoices != 1500.56 || c.PerDiems != 400 || c.CreditCardExpenses == nil || *c.CreditCardExpenses != 100 {
+		t.Errorf("totals = %+v", c)
+	}
+	if c.LastMonth != 1000.56 || c.CurrentMonth != 1000 || len(c.ByMonth) != 12 || c.ByMonth[11].Month != "2026-11" {
+		t.Errorf("months = last %v current %v %+v", c.LastMonth, c.CurrentMonth, c.ByMonth)
+	}
+	if c.ByMonth[10].Values["Credit Card Expenses"] != 100 || c.ByMonth[0].Values["Per Diems"] != 0 {
+		t.Errorf("series = %+v", c.ByMonth[10])
+	}
+	if len(c.ByType) != 4 || c.ByType[0].Label != "Air Ticket" {
+		t.Errorf("byType = %+v", c.ByType)
+	}
+	if len(c.NotConverted) != 2 || c.NotConverted[0] != (domain.DashboardUnconverted{Source: "invoice", Currency: "LKR", Amount: 90000}) {
+		t.Errorf("notConverted = %+v", c.NotConverted)
+	}
+
+	// Without a card role, card lines are ignored and the series has no card key.
+	c = dashboardTravelCost(tr, today, false)
+	if c.CreditCardExpenses != nil || c.Total != 1900.56 {
+		t.Errorf("no card: %+v", c)
+	}
+	if _, ok := c.ByMonth[10].Values["Credit Card Expenses"]; ok {
+		t.Error("card series without a card role")
+	}
+}
+
+func TestDashboardBuckets_TopNWithOther(t *testing.T) {
+	rows := []dashboardRow{{label: "a", value: 5}, {label: "b", value: 3}, {label: "c", value: 1}, {label: "d", value: 1}}
+	got := dashboardBuckets(rows, 3)
+	if len(got) != 3 || got[2].Label != "Other" || got[2].Value != 2 || got[0].Percent != 50 {
+		t.Errorf("buckets = %+v", got)
+	}
+}
+
+func TestDashboardAllocationsTodayService(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	p := dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil)
+
+	got, err := svc.AllocationsToday(context.Background(), p, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *f.allocDate != "" || got.Date != "2026-11-05" || got.BusinessUnitID != nil {
+		t.Errorf("today: entity date %q, %+v", *f.allocDate, got)
+	}
+	if got.Allocations != 8 || got.Paid != 2 || got.NonPaid != 6 || got.Consultants != 7 {
+		t.Errorf("kpis = %+v", got)
+	}
+	if got.ByEngagementType[0].Label != "Internal Engagement" || *got.ByEngagementType[0].ID != 1 || got.ByEngagementType[0].Percent != 75 {
+		t.Errorf("by engagement type = %+v", got.ByEngagementType)
+	}
+	if *got.PaidByAllocationType[0].Color != "#abc" {
+		t.Errorf("paid = %+v", got.PaidByAllocationType)
+	}
+
+	// Today given explicitly is still the "today" variant; a past date is passed on.
+	if _, err := svc.AllocationsToday(context.Background(), p, "2026-11-05", 4); err != nil || *f.allocDate != "" {
+		t.Errorf("explicit today: %q, %v", *f.allocDate, err)
+	}
+	if got, err := svc.AllocationsToday(context.Background(), p, "2026-10-01", 4); err != nil || *f.allocDate != "2026-10-01" || *got.BusinessUnitID != 4 {
+		t.Errorf("past: %q, %v", *f.allocDate, err)
+	}
+	var ve *apierror.ValidationError
+	if _, err := svc.AllocationsToday(context.Background(), p, "2026-11-06", 0); !errors.As(err, &ve) {
+		t.Errorf("future date: %v", err)
+	}
+}
