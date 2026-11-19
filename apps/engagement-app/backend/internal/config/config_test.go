@@ -38,7 +38,7 @@ func setMinimalEnv(t *testing.T) {
 	for _, k := range allKeys {
 		t.Setenv(k, "")
 	}
-	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "http://engagement-entity:8290/")
+	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "http://localhost:8290/")
 	t.Setenv("JWT_AUDIENCES", "client-a")
 	t.Setenv("EMAIL_DISABLED", "true")
 }
@@ -54,7 +54,7 @@ func TestLoadMinimal(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if c.EngagementEntityBaseURL != "http://engagement-entity:8290" {
+	if c.EngagementEntityBaseURL != "http://localhost:8290" {
 		t.Errorf("EngagementEntityBaseURL = %q, want trailing slash trimmed", c.EngagementEntityBaseURL)
 	}
 	if c.JWT.Issuer != DefaultIssuer || c.JWT.JWKSURL != DefaultJWKSURL || c.JWT.UserinfoURL != DefaultUserinfoURL {
@@ -213,6 +213,39 @@ func TestValidateOutboundServicesNeedClient(t *testing.T) {
 	c, _ = Load()
 	if err := c.Validate(); err != nil {
 		t.Errorf("Validate() = %v", err)
+	}
+}
+
+// The Engagement Entity is in another Choreo project: a deployed one is
+// reached over https with the subscribed client pair; only a local one is
+// called without a token.
+func TestValidateEntityNeedsClientUnlessLocal(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "https://entity.example/engagement")
+	c, _ := Load()
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ENGAGEMENT_ENTITY_BASE_URL") {
+		t.Errorf("remote entity without client: Validate() = %v", err)
+	}
+	t.Setenv("ENTITY_CLIENT_ID", "id")
+	t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+	c, _ = Load()
+	if err := c.Validate(); err != nil {
+		t.Errorf("remote entity with client: Validate() = %v", err)
+	}
+
+	t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", "http://entity.example/engagement")
+	c, _ = Load()
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ENGAGEMENT_ENTITY_BASE_URL must be an https URL") {
+		t.Errorf("plain http entity: Validate() = %v", err)
+	}
+
+	for _, local := range []string{"http://localhost:8290", "http://127.0.0.1:8290", "http://[::1]:8290"} {
+		setMinimalEnv(t)
+		t.Setenv("ENGAGEMENT_ENTITY_BASE_URL", local)
+		c, _ = Load()
+		if err := c.Validate(); err != nil {
+			t.Errorf("local entity %s: Validate() = %v", local, err)
+		}
 	}
 }
 
