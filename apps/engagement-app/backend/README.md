@@ -99,7 +99,7 @@ gofmt -l .           # must print nothing
 Settings come from environment variables; locally from a git-ignored `.env`
 (copy `.env.local`). `ENGAGEMENT_ENTITY_BASE_URL`, `JWT_AUDIENCES` and
 `EMAIL_SERVICE_URL` (or `EMAIL_DISABLED=true`) are required to start, plus
-`ENTITY_CLIENT_ID` and `ENTITY_CLIENT_SECRET` (always, except with a local
+`OUTBOUND_CLIENT_ID` and `OUTBOUND_CLIENT_SECRET` (always, except with a local
 Engagement Entity). Every other service is
 optional: unset, the backend starts and the screens that need it answer 503. Service and token
 URLs must be https (http only on localhost). Never put real values in
@@ -110,9 +110,9 @@ committed files.
 | `ENGAGEMENT_ENTITY_BASE_URL` | Yes | – | Organization endpoint of the Engagement Entity (another Choreo project; subscribe the client pair to it); locally `http://localhost:8290` |
 | `SALES_ENTITY_BASE_URL` | For accounts, opportunities, line items and campaigns | – | Choreo connection to the Go Sales Entity Service |
 | `HR_ENTITY_URL` | For employee and organisation lookups | – | `[app_allocation.entity] hrEntityEndpoint` |
-| `ENTITY_CLIENT_ID` | Yes, unless the Engagement Entity is on localhost; also needed for `SALES_ENTITY_BASE_URL`, `HR_ENTITY_URL` and `EMAIL_SERVICE_URL` (email on) | – | `[app_allocation.entity.clientAuthConfig] clientId` (one pair for every outbound WSO2 service, as legacy) |
-| `ENTITY_CLIENT_SECRET` | Same (secret) | – | `[app_allocation.entity.clientAuthConfig] clientSecret` |
-| `ENTITY_TOKEN_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | `[app_allocation.entity.clientAuthConfig] tokenUrl` |
+| `OUTBOUND_CLIENT_ID` | Yes, unless the Engagement Entity is on localhost; also needed for `SALES_ENTITY_BASE_URL`, `HR_ENTITY_URL`, `EMAIL_SERVICE_URL` (email on) and `CURRENCY_CONVERT_SERVICE_URL` | – | `[app_allocation.entity.clientAuthConfig] clientId`. One pair for every outbound service: its Dev Portal app must be subscribed to all of them |
+| `OUTBOUND_CLIENT_SECRET` | Same (secret) | – | `[app_allocation.entity.clientAuthConfig] clientSecret` |
+| `OUTBOUND_TOKEN_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | `[app_allocation.entity.clientAuthConfig] tokenUrl` |
 | `JWT_ISSUER` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | WSO2 Asgardeo organisation |
 | `JWT_JWKS_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/jwks` | – |
 | `JWT_USERINFO_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/userinfo` | – |
@@ -134,8 +134,7 @@ committed files.
 | `EMAIL_SUPPRESSED` | No | – | `noEmailsTo` (comma-separated) |
 | `APP_BASE_URL` | No | `https://one.wso2.com` | Link written into emails (`frontendAppBaseUrl`) |
 | `EMAIL_CC_TRAVELLER` | No | `false` | `isSendEmailToTraveller` |
-| `CURRENCY_CONVERT_SERVICE_URL` | For per diem payment add and edit | – (503) | `[app_travel.utils] currencyConvertServiceEndpoint` (uses the shared client pair) |
-| `CURRENCY_CONVERT_CLIENT_ID` / `_SECRET` / `_TOKEN_URL` | Only if the shared pair is not subscribed to it | shared pair | `[app_travel.utils.clientAuthConfig]` |
+| `CURRENCY_CONVERT_SERVICE_URL` | For per diem payment add and edit | – (503) | `[app_travel.utils] currencyConvertServiceEndpoint` (uses the outbound client pair) |
 | `TRAVEL_VISA_NOT_APPLICABLE_ID`, `TRAVEL_NO_VALID_VISA_ID` | Staging only | `332`, `333` (production) | Legacy webapp `Config.js` visa sentinels (staging 40, 41) |
 | `FILE_STORAGE_ACCOUNT` | For passport and visa images | – (uploads 503) | `[app_travel.file.fileServer] accountName` |
 | `FILE_STORAGE_ACCESS_KEY` | With the account (secret) | – | env `FILE_STORAGE_ACCESS_KEY` of the legacy Travel backend |

@@ -150,9 +150,7 @@ func (e EmailConfig) Enabled() bool { return e.ServiceURL != "" && !e.Disabled }
 // Unset URL: adding or editing a per diem payment answers 503.
 type CurrencyConfig struct {
 	URL string
-	// Client defaults to the shared client-credentials pair; the legacy
-	// Travel backend used its own [app_travel.utils.clientAuthConfig], which
-	// can be set here when the shared pair is not subscribed to the service.
+	// Client is the shared outbound client-credentials pair (OUTBOUND_*).
 	Client OAuthClient
 }
 
@@ -207,18 +205,11 @@ func Load() (*Config, error) {
 		}
 	}
 	shared := OAuthClient{
-		TokenURL:     getEnvOrDefault("ENTITY_TOKEN_URL", DefaultTokenURL),
-		ClientID:     strings.TrimSpace(os.Getenv("ENTITY_CLIENT_ID")),
-		ClientSecret: os.Getenv("ENTITY_CLIENT_SECRET"),
+		TokenURL:     getEnvOrDefault("OUTBOUND_TOKEN_URL", DefaultTokenURL),
+		ClientID:     strings.TrimSpace(os.Getenv("OUTBOUND_CLIENT_ID")),
+		ClientSecret: os.Getenv("OUTBOUND_CLIENT_SECRET"),
 	}
 	currency := CurrencyConfig{URL: trimURL(os.Getenv("CURRENCY_CONVERT_SERVICE_URL")), Client: shared}
-	if id := strings.TrimSpace(os.Getenv("CURRENCY_CONVERT_CLIENT_ID")); id != "" {
-		currency.Client = OAuthClient{
-			TokenURL:     getEnvOrDefault("CURRENCY_CONVERT_TOKEN_URL", shared.TokenURL),
-			ClientID:     id,
-			ClientSecret: os.Getenv("CURRENCY_CONVERT_CLIENT_SECRET"),
-		}
-	}
 	companies := map[string][]string{}
 	if raw := strings.TrimSpace(os.Getenv("EMAIL_COMPANY_RECIPIENTS")); raw != "" {
 		var m map[string]string
@@ -324,27 +315,23 @@ func (c *Config) Validate() error {
 		entityURL = c.EngagementEntityBaseURL
 	}
 	needsClient := map[string]string{
-		"ENGAGEMENT_ENTITY_BASE_URL": entityURL,
-		"SALES_ENTITY_BASE_URL":      c.SalesEntityBaseURL,
-		"HR_ENTITY_URL":              c.HREntityURL,
-		"EMAIL_SERVICE_URL":          emailURL,
+		"ENGAGEMENT_ENTITY_BASE_URL":   entityURL,
+		"SALES_ENTITY_BASE_URL":        c.SalesEntityBaseURL,
+		"HR_ENTITY_URL":                c.HREntityURL,
+		"EMAIL_SERVICE_URL":            emailURL,
+		"CURRENCY_CONVERT_SERVICE_URL": c.Currency.URL,
 	}
-	for _, key := range []string{"ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL"} {
+	for _, key := range []string{"ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL", "CURRENCY_CONVERT_SERVICE_URL"} {
 		if needsClient[key] != "" && !c.Client.Configured() {
-			errs = append(errs, fmt.Errorf("ENTITY_CLIENT_ID and ENTITY_CLIENT_SECRET are required when %s is set", key))
+			errs = append(errs, fmt.Errorf("OUTBOUND_CLIENT_ID and OUTBOUND_CLIENT_SECRET are required when %s is set", key))
 			break
 		}
 	}
 	// These carry the client secret or the bearer tokens it buys, so they
 	// must not go out in clear text. Unset ones are optional.
-	currencyToken := c.Currency.Client.TokenURL
-	if currencyToken == c.Client.TokenURL {
-		currencyToken = "" // the shared one, checked as ENTITY_TOKEN_URL
-	}
 	for _, u := range []struct{ key, val string }{
-		{"ENTITY_TOKEN_URL", c.Client.TokenURL},
+		{"OUTBOUND_TOKEN_URL", c.Client.TokenURL},
 		{"ENGAGEMENT_ENTITY_BASE_URL", c.EngagementEntityBaseURL},
-		{"CURRENCY_CONVERT_TOKEN_URL", currencyToken},
 		{"SALES_ENTITY_BASE_URL", c.SalesEntityBaseURL},
 		{"HR_ENTITY_URL", c.HREntityURL},
 		{"EMAIL_SERVICE_URL", emailURL},
@@ -356,9 +343,6 @@ func (c *Config) Validate() error {
 		if err := requireHTTPS(u.key, u.val); err != nil {
 			errs = append(errs, err)
 		}
-	}
-	if c.Currency.URL != "" && !c.Currency.Client.Configured() {
-		errs = append(errs, errors.New("CURRENCY_CONVERT_SERVICE_URL needs ENTITY_CLIENT_ID/SECRET (or CURRENCY_CONVERT_CLIENT_ID/SECRET)"))
 	}
 	if c.Files.Enabled() && c.Files.AccessKey == "" {
 		errs = append(errs, errors.New("FILE_STORAGE_ACCESS_KEY is required when FILE_STORAGE_ACCOUNT is set"))
