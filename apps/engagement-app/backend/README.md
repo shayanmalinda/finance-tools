@@ -120,6 +120,7 @@ committed files.
 | `GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_JWKS_URL` | Only if the gateway's JWT is not issued by Asgardeo | – | Choreo gateway backend JWT issuer and keys (to confirm on staging) |
 | `GATEWAY_JWT_AUDIENCES` | Only if the gateway's JWT names another audience | `JWT_AUDIENCES` | The `aud` of the gateway's JWT (comma-separated list allowed) |
 | `JWT_CLOCK_SKEW_SECONDS` | No | `60` | – |
+| `REPORT_MAX_CONCURRENT` | No | `2` | Unpaged report downloads one pod builds at once (each is held in memory); one more answers 503 with `Retry-After: 10` |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |
 | `SERVER_PORT` | No | `8190` | – |
 | `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | `[app_allocation.email.emailServiceConfig] endpointUrl` |

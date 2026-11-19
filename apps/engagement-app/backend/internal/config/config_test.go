@@ -31,6 +31,7 @@ var allKeys = []string{
 	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
 	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
+	"REPORT_MAX_CONCURRENT",
 }
 
 func setMinimalEnv(t *testing.T) {
@@ -268,6 +269,24 @@ func TestCurrencyUsesTheOutboundPair(t *testing.T) {
 	}
 	if c.Currency.Client != c.Client || c.Currency.Client.ClientID != "id" {
 		t.Errorf("currency client = %+v, outbound = %+v", c.Currency.Client, c.Client)
+	}
+}
+
+func TestLoadReportMaxConcurrent(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil || c.ReportMaxConcurrent != 2 {
+		t.Fatalf("default: %v, %v", c, err)
+	}
+	t.Setenv("REPORT_MAX_CONCURRENT", "4")
+	if c, err = Load(); err != nil || c.ReportMaxConcurrent != 4 {
+		t.Errorf("4: %v, %v", c.ReportMaxConcurrent, err)
+	}
+	for _, bad := range []string{"0", "-1", "x"} {
+		t.Setenv("REPORT_MAX_CONCURRENT", bad)
+		if _, err := Load(); err == nil {
+			t.Errorf("REPORT_MAX_CONCURRENT=%s: want error", bad)
+		}
 	}
 }
 

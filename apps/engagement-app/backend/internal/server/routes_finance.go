@@ -85,6 +85,6 @@ func registerFinanceRoutes(a *area) {
 	a.handle("GET /netsuite-sync-failures", travel(34, 40), h.SyncFailures)
 
 	// Reports (UI-only privileges 39 and 41 in the legacy app).
-	a.handleAudited("GET /reports/invoices", travel(39), auditExport("invoice", "invoices"), h.InvoiceReport)
-	a.handleAudited("GET /reports/per-diem-payments", travel(41), auditExport("per_diem_payment", "per-diem-payments"), h.PaymentReport)
+	a.handleReport("GET /reports/invoices", travel(39), auditExport("invoice", "invoices"), h.InvoiceReport)
+	a.handleReport("GET /reports/per-diem-payments", travel(41), auditExport("per_diem_payment", "per-diem-payments"), h.PaymentReport)
 }

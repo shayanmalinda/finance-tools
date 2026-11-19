@@ -70,6 +70,11 @@ type Config struct {
 	// from a browser. Empty means none (never a wildcard). Behind the Choreo
 	// gateway CORS is the gateway's; locally set http://localhost:3000.
 	CORSAllowedOrigins []string
+
+	// ReportMaxConcurrent caps the unpaged report downloads one pod builds at
+	// once (REPORT_MAX_CONCURRENT, default 2); each holds a whole report in
+	// memory.
+	ReportMaxConcurrent int
 }
 
 // JWTConfig is how the caller's token is verified. There is no switch that
@@ -184,6 +189,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportMax, err := getPositiveInt("REPORT_MAX_CONCURRENT", 2)
+	if err != nil {
+		return nil, err
+	}
 	visaNA, err := getPositiveInt("TRAVEL_VISA_NOT_APPLICABLE_ID", 332)
 	if err != nil {
 		return nil, err
@@ -265,9 +274,10 @@ func Load() (*Config, error) {
 			Account:   strings.TrimSpace(os.Getenv("FILE_STORAGE_ACCOUNT")),
 			AccessKey: strings.TrimSpace(os.Getenv("FILE_STORAGE_ACCESS_KEY")),
 		},
-		Travel:             TravelConfig{VisaNotApplicableID: visaNA, NoValidVisaID: noVisa},
-		Currency:           currency,
-		CORSAllowedOrigins: getList("CORS_ALLOWED_ORIGINS"),
+		Travel:              TravelConfig{VisaNotApplicableID: visaNA, NoValidVisaID: noVisa},
+		Currency:            currency,
+		CORSAllowedOrigins:  getList("CORS_ALLOWED_ORIGINS"),
+		ReportMaxConcurrent: reportMax,
 	}, nil
 }
 

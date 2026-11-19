@@ -34,6 +34,13 @@ func (a *area) handleAudited(pattern string, gate domain.Gate, event auditEventF
 	a.mux.Handle(pattern, middleware.Require(a.Access, gate)(middleware.Audit(a.Entity, event)(h)))
 }
 
+// handleReport is handleAudited for an unpaged report: after the privilege
+// check, at most Deps.ReportMaxConcurrent run at once on this pod (503 with
+// Retry-After when full), since each holds the whole report in memory.
+func (a *area) handleReport(pattern string, gate domain.Gate, event auditEventFunc, h http.HandlerFunc) {
+	a.mux.Handle(pattern, middleware.Require(a.Access, gate)(a.Reports(middleware.Audit(a.Entity, event)(h))))
+}
+
 // auditOne is a view or download of the record named by path value param.
 func auditOne(action, entityType, param string) auditEventFunc {
 	return func(r *http.Request) (domain.AuditEvent, bool) {

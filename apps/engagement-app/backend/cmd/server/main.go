@@ -118,17 +118,18 @@ func main() {
 	entity := engagemententity.New(cfg.EngagementEntityBaseURL, entityHTTP)
 
 	handler := server.NewRouter(server.Deps{
-		Verifier:           verifier,
-		Userinfo:           oidc.NewUserinfoClient(cfg.JWT.UserinfoURL, nil),
-		Entity:             entity,
-		Sales:              sales,
-		HR:                 hr,
-		Email:              sender,
-		Files:              files,
-		Recipients:         cfg.Email,
-		Travel:             cfg.Travel,
-		Currency:           cfg.Currency,
-		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
+		Verifier:            verifier,
+		Userinfo:            oidc.NewUserinfoClient(cfg.JWT.UserinfoURL, nil),
+		Entity:              entity,
+		Sales:               sales,
+		HR:                  hr,
+		Email:               sender,
+		Files:               files,
+		Recipients:          cfg.Email,
+		Travel:              cfg.Travel,
+		Currency:            cfg.Currency,
+		CORSAllowedOrigins:  cfg.CORSAllowedOrigins,
+		ReportMaxConcurrent: cfg.ReportMaxConcurrent,
 	})
 	srv := server.New(":"+cfg.ServerPort, handler)
 
