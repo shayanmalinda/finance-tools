@@ -66,7 +66,7 @@ func main() {
 	// legacy Allocations backend does.
 	var oauth *http.Client
 	if cfg.Client.Configured() {
-		oauth = rest.NewOAuthHTTPClient(cfg.Client.TokenURL, cfg.Client.ClientID, cfg.Client.ClientSecret)
+		oauth = rest.NewOAuthHTTPClient(cfg.Client.TokenURL, cfg.Client.ClientID, cfg.Client.ClientSecret, cfg.Client.Scopes)
 	}
 
 	var sales salesentity.Client = salesentity.Unconfigured{}

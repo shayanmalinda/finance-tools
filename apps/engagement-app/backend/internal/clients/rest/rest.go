@@ -72,9 +72,10 @@ func New(service, baseURL string, httpClient *http.Client) *Client {
 
 // NewOAuthHTTPClient returns an http.Client that fetches, caches and renews
 // an OAuth2 client-credentials token, for dependencies in other Choreo
-// projects reached through a Choreo connection.
-func NewOAuthHTTPClient(tokenURL, clientID, clientSecret string) *http.Client {
-	cc := clientcredentials.Config{ClientID: clientID, ClientSecret: clientSecret, TokenURL: tokenURL}
+// projects reached through a Choreo connection. scopes, when given, are
+// requested in the token; empty sends no scope parameter.
+func NewOAuthHTTPClient(tokenURL, clientID, clientSecret string, scopes []string) *http.Client {
+	cc := clientcredentials.Config{ClientID: clientID, ClientSecret: clientSecret, TokenURL: tokenURL, Scopes: scopes}
 	// The token source fetches with the HTTP client on the construction
 	// context, so give it one with a timeout; otherwise a stalled token
 	// endpoint blocks every request behind the token mutex.

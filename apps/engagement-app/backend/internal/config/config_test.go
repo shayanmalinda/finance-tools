@@ -17,6 +17,7 @@
 package config
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ var allKeys = []string{
 	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
 	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
-	"REPORT_MAX_CONCURRENT",
+	"REPORT_MAX_CONCURRENT", "OUTBOUND_SCOPES",
 }
 
 func setMinimalEnv(t *testing.T) {
@@ -267,8 +268,25 @@ func TestCurrencyUsesTheOutboundPair(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Errorf("with the outbound pair: Validate() = %v", err)
 	}
-	if c.Currency.Client != c.Client || c.Currency.Client.ClientID != "id" {
+	if !reflect.DeepEqual(c.Currency.Client, c.Client) || c.Currency.Client.ClientID != "id" {
 		t.Errorf("currency client = %+v, outbound = %+v", c.Currency.Client, c.Client)
+	}
+}
+
+// OUTBOUND_SCOPES: commas or spaces, trimmed, de-duplicated; empty is none.
+func TestLoadOutboundScopes(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil || c.Client.Scopes != nil {
+		t.Fatalf("unset: %v, %v", c.Client.Scopes, err)
+	}
+	t.Setenv("OUTBOUND_SCOPES", " engagement:read, engagement:write  engagement:read,,\tengagement:finance ")
+	if c, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"engagement:read", "engagement:write", "engagement:finance"}
+	if !reflect.DeepEqual(c.Client.Scopes, want) || !reflect.DeepEqual(c.Currency.Client.Scopes, want) {
+		t.Errorf("scopes = %v, currency %v", c.Client.Scopes, c.Currency.Client.Scopes)
 	}
 }
 

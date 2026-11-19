@@ -112,6 +112,7 @@ committed files.
 | `HR_ENTITY_URL` | For employee and organisation lookups | – | `[app_allocation.entity] hrEntityEndpoint` |
 | `OUTBOUND_CLIENT_ID` | Yes, unless the Engagement Entity is on localhost; also needed for `SALES_ENTITY_BASE_URL`, `HR_ENTITY_URL`, `EMAIL_SERVICE_URL` (email on) and `CURRENCY_CONVERT_SERVICE_URL` | – | `[app_allocation.entity.clientAuthConfig] clientId`. One pair for every outbound service: its Dev Portal app must be subscribed to all of them |
 | `OUTBOUND_CLIENT_SECRET` | Same (secret) | – | `[app_allocation.entity.clientAuthConfig] clientSecret` |
+| `OUTBOUND_SCOPES` | When an API enforces scopes | – (no `scope` parameter) | OAuth scopes requested in the outbound token, comma or space separated. One token serves every outbound service, so list the scopes of every subscribed API that enforces them (for the Engagement Entity, its coarse scopes: see `entity/engagement-entity/docs/scopes.md`) |
 | `OUTBOUND_TOKEN_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | `[app_allocation.entity.clientAuthConfig] tokenUrl` |
 | `JWT_ISSUER` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | WSO2 Asgardeo organisation |
 | `JWT_JWKS_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/jwks` | – |

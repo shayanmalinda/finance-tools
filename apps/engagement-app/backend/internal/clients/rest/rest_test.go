@@ -173,3 +173,40 @@ func TestDo_LogsNoRedirectTarget(t *testing.T) {
 		t.Errorf("logs = %s", out)
 	}
 }
+
+// The token request carries scope= when scopes are set and no scope
+// parameter when they are not.
+func TestNewOAuthHTTPClient_Scopes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scopes []string
+		want   string
+		sent   bool
+	}{
+		"set":   {[]string{"engagement:read", "engagement:finance"}, "engagement:read engagement:finance", true},
+		"empty": {nil, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got string
+			var sent bool
+			tokens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = r.ParseForm()
+				got, sent = r.PostForm.Get("scope"), r.PostForm.Has("scope")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"access_token":"t","token_type":"Bearer","expires_in":3600}`))
+			}))
+			defer tokens.Close()
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+			defer api.Close()
+
+			c := NewOAuthHTTPClient(tokens.URL, "id", "secret", tc.scopes)
+			resp, err := c.Get(api.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if sent != tc.sent || got != tc.want {
+				t.Errorf("scope sent %v = %q, want %v %q", sent, got, tc.sent, tc.want)
+			}
+		})
+	}
+}

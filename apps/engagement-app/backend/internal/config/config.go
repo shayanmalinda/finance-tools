@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/oidc"
 )
@@ -106,6 +107,11 @@ type OAuthClient struct {
 	TokenURL     string
 	ClientID     string
 	ClientSecret string
+	// Scopes are requested in the client-credentials token
+	// (OUTBOUND_SCOPES). Empty sends no scope parameter. One token serves
+	// every outbound service, so the list must cover every subscribed API
+	// that enforces scopes.
+	Scopes []string
 }
 
 // Configured reports whether the pair is complete.
@@ -217,6 +223,7 @@ func Load() (*Config, error) {
 		TokenURL:     getEnvOrDefault("OUTBOUND_TOKEN_URL", DefaultTokenURL),
 		ClientID:     strings.TrimSpace(os.Getenv("OUTBOUND_CLIENT_ID")),
 		ClientSecret: os.Getenv("OUTBOUND_CLIENT_SECRET"),
+		Scopes:       scopeList(os.Getenv("OUTBOUND_SCOPES")),
 	}
 	currency := CurrencyConfig{URL: trimURL(os.Getenv("CURRENCY_CONVERT_SERVICE_URL")), Client: shared}
 	companies := map[string][]string{}
@@ -392,6 +399,20 @@ func getEnvOrDefault(key, defaultVal string) string {
 
 // getList splits a comma-separated variable, dropping empty entries.
 func getList(key string) []string { return splitList(os.Getenv(key)) }
+
+// scopeList splits OAuth scopes on commas and whitespace, trimmed and
+// de-duplicated, in the order given.
+func scopeList(v string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 func splitList(v string) []string {
 	var out []string

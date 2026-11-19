@@ -35,7 +35,7 @@ func financeCurrency(c config.CurrencyConfig) service.FinanceCurrencyConverter {
 		slog.Warn("CURRENCY_CONVERT_SERVICE_URL is not set: per diem payment add and edit answer 503")
 		return nil
 	}
-	return service.NewFinanceCurrencyClient(c.URL, rest.NewOAuthHTTPClient(c.Client.TokenURL, c.Client.ClientID, c.Client.ClientSecret))
+	return service.NewFinanceCurrencyClient(c.URL, rest.NewOAuthHTTPClient(c.Client.TokenURL, c.Client.ClientID, c.Client.ClientSecret, c.Client.Scopes))
 }
 
 // registerFinanceRoutes registers the finance screen area's routes. The area
