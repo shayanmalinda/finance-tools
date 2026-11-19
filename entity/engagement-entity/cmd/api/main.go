@@ -38,7 +38,9 @@ import (
 
 func main() {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Fatalf("load .env: %v", err)
+		// Not the parser's error: it can quote the offending line, secret
+		// value and all.
+		log.Fatal("load .env: the file could not be read or parsed; check its syntax")
 	}
 
 	cfg, err := config.Load()
@@ -47,6 +49,13 @@ func main() {
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("invalid configuration: %v", err)
+	}
+
+	switch cfg.DB.TLS {
+	case "skip-verify":
+		log.Println("WARNING: DB_TLS=skip-verify does not verify the MySQL certificate: non-production only. Use DB_TLS_CA (and DB_TLS_SERVER_NAME) instead")
+	case "false":
+		log.Println("WARNING: DB_TLS=false connects to MySQL without TLS: local only")
 	}
 
 	pools, err := db.New(cfg)
@@ -71,11 +80,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("read travelapp schema: %v", err)
 	}
+	if err := audit.CheckTables(allocAudit, travelAudit, cfg.AuditOptional); err != nil {
+		log.Fatalf("invalid database: %v", err)
+	}
 	audit.SetEnabled(allocAudit && travelAudit)
 	if !audit.Enabled() {
-		log.Println("WARNING: audit_event is missing in allocation_db or travelapp (run " +
-			"allocation_db_table_update_v1.1.0.sql and travelapp_table_update_v1.0.0.sql): " +
-			"audit events are not recorded")
+		log.Println("WARNING: AUDIT_OPTIONAL is set and audit_event is missing: audit events are not recorded (local run only)")
 	}
 	repository.SetEngagementCampaignColumn(hasCampaign)
 	if !hasCampaign {

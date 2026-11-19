@@ -19,8 +19,11 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -93,19 +96,56 @@ func normalizeDSN(dsn string, readOnly bool) string {
 	return cfg.FormatDSN()
 }
 
+// customTLSName is the go-sql-driver TLS config registered for DB_TLS_CA
+// and DB_TLS_SERVER_NAME.
+const customTLSName = "engagement-entity"
+
+// TLSConfigFor is the verified TLS config DB_TLS_CA and DB_TLS_SERVER_NAME
+// ask for, or nil when neither is set (the driver's tls=true then verifies
+// against the system roots). An unreadable CA file or one with no PEM
+// certificate is an error, never a fallback to an unverified connection.
+func TLSConfigFor(d config.DBConfig) (*tls.Config, error) {
+	if !d.CustomTLS() {
+		return nil, nil
+	}
+	c := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: d.TLSServerName}
+	if d.TLSCA != "" {
+		pem, err := os.ReadFile(d.TLSCA) // #nosec G304 -- the path is deployment configuration
+		if err != nil {
+			return nil, fmt.Errorf("DB_TLS_CA: read %s: %w", d.TLSCA, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("DB_TLS_CA: %s has no PEM certificate", d.TLSCA)
+		}
+		c.RootCAs = pool
+	}
+	return c, nil
+}
+
 // New opens one pool per schema with the one database user and pings each. On any failure the pools
 // already opened are closed. The caller is responsible for calling Close.
 func New(cfg *config.Config) (*Pools, error) {
-	p := &Pools{}
-	var err error
-	if p.Allocation, err = open(config.AllocationSchema, cfg.DB.DSN(config.AllocationSchema), false, readWritePool); err != nil {
+	dbc := cfg.DB
+	tc, err := TLSConfigFor(dbc)
+	if err != nil {
 		return nil, err
 	}
-	if p.Travel, err = open(config.TravelSchema, cfg.DB.DSN(config.TravelSchema), false, readWritePool); err != nil {
+	if tc != nil {
+		if err := mysql.RegisterTLSConfig(customTLSName, tc); err != nil {
+			return nil, fmt.Errorf("register MySQL TLS config: %w", err)
+		}
+		dbc.TLS = customTLSName
+	}
+	p := &Pools{}
+	if p.Allocation, err = open(config.AllocationSchema, dbc.DSN(config.AllocationSchema), false, readWritePool); err != nil {
+		return nil, err
+	}
+	if p.Travel, err = open(config.TravelSchema, dbc.DSN(config.TravelSchema), false, readWritePool); err != nil {
 		p.Close()
 		return nil, err
 	}
-	if p.Expense, err = open(config.ExpenseSchema, cfg.DB.DSN(config.ExpenseSchema), true, smallPool); err != nil {
+	if p.Expense, err = open(config.ExpenseSchema, dbc.DSN(config.ExpenseSchema), true, smallPool); err != nil {
 		p.Close()
 		return nil, err
 	}

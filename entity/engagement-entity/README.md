@@ -78,7 +78,10 @@ Never put real values in committed files.
 | `DB_USER` | Yes | – | One user for all schemas: read/write on `allocation_db` and `travelapp`; `SELECT` on `expense_app` (Infra) |
 | `DB_PASSWORD` | Yes (secret) | – | That user's password |
 | `DB_PORT` | No | `3306` | – |
-| `DB_TLS` | No | empty = verified TLS (`tls=true`) | Set `false` only for a local MySQL without TLS |
+| `DB_TLS` | No | empty = verified TLS (`tls=true`) | Set `false` only for a local MySQL without TLS. `skip-verify` does not check the certificate: non-production only (a startup warning says so) |
+| `DB_TLS_CA` | When the MySQL certificate is from an internal CA | – | Path to a PEM CA bundle, mounted with Choreo "File and Certificate Mount". Verified TLS against it (TLS 1.2+); an unreadable file or one with no certificate stops startup |
+| `DB_TLS_SERVER_NAME` | When connecting by IP | – | The host name the MySQL certificate carries, when `DB_HOST` is an IP the certificate doesn't list |
+| `AUDIT_OPTIONAL` | Locally | `false` | `true` lets the entity start without the `audit_event` tables; otherwise startup fails and names the migration to run |
 | `SERVER_PORT` | No | `8290` | – |
 | `GATEWAY_JWT_JWKS_URL` | Yes, unless `AUTH_DISABLED` | – | The Choreo gateway's keys, `https://<gateway-domain>/.wellknown/jwks` (staging `https://apis-stg.wso2.com/.wellknown/jwks`) |
 | `GATEWAY_JWT_ISSUER` | No | `wso2.org/products/am` | `iss` of the gateway's JWT |
@@ -199,9 +202,19 @@ Each script holds one statement, so it runs with Ctrl+Enter or as a script.
 |---|---|
 | `Resources/allocation_db_table_update_v1.0.0.sql` | Adds nullable `engagement.campaign_id VARCHAR(18)` (Salesforce Campaign of a Marketing Event). The engagement and finance queries read the column, so run it before deploying. Run it once; a second run fails with a duplicate-column error. |
 | `Resources/allocation_db_table_update_v1.1.0.sql` | Adds the `audit_event` table to allocation_db. Safe to re-run. |
-| `Resources/travelapp_table_update_v1.0.0.sql` | Adds the `audit_event` table to travelapp. Safe to re-run. Until both schemas have it, no audit events are recorded (a startup warning says so). |
+| `Resources/travelapp_table_update_v1.0.0.sql` | Adds the `audit_event` table to travelapp. Safe to re-run. Until both schemas have it, the entity refuses to start (unless `AUDIT_OPTIONAL=true`, local runs only). |
 
 ## Deployment
+
+Go-live checklist (production, and staging configured the same way):
+
+- Both `audit_event` migrations above have run; the entity does not start
+  without them.
+- MySQL TLS is verified: `DB_TLS` empty, with `DB_TLS_CA` (the internal CA,
+  mounted as a file) and `DB_TLS_SERVER_NAME` when `DB_HOST` is an IP. Never
+  `skip-verify`.
+- `GATEWAY_JWT_JWKS_URL` and `ALLOWED_CLIENT_IDS` are set; `AUTH_DISABLED`
+  and `AUDIT_OPTIONAL` are not.
 
 Choreo builds the component with its Go buildpack. `project.toml` points the
 buildpack at `./cmd/api` (`GOOGLE_BUILDABLE`), as

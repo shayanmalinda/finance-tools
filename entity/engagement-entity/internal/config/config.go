@@ -53,6 +53,10 @@ type Config struct {
 	// Auth is how callers are admitted (see package auth).
 	Auth AuthConfig
 
+	// AuditOptional lets the entity start without the audit_event tables
+	// (AUDIT_OPTIONAL, local runs only); otherwise startup fails without them.
+	AuditOptional bool
+
 	ServerPort string
 }
 
@@ -86,9 +90,20 @@ type DBConfig struct {
 	Password string
 	// TLS is the go-sql-driver tls= value. Empty means verified TLS
 	// (tls=true), as in the GRC compliance entity. A local MySQL without TLS
-	// sets DB_TLS=false.
+	// sets DB_TLS=false; skip-verify is for non-production only.
 	TLS string
+	// TLSCA is a PEM CA bundle (DB_TLS_CA, mounted as a file) that signs the
+	// MySQL server certificate, for a server whose CA is internal.
+	TLSCA string
+	// TLSServerName is the name the certificate must carry
+	// (DB_TLS_SERVER_NAME), for connecting by IP to a server whose
+	// certificate names a host.
+	TLSServerName string
 }
+
+// CustomTLS reports whether DB_TLS_CA or DB_TLS_SERVER_NAME asks for a
+// verified TLS config of our own.
+func (d DBConfig) CustomTLS() bool { return d.TLSCA != "" || d.TLSServerName != "" }
 
 // DSN returns the go-sql-driver DSN for schema. The db package normalises it
 // further (UTC, TLS default, read-only session).
@@ -172,6 +187,14 @@ func Load() (*Config, error) {
 		}
 		authOff = b
 	}
+	auditOptional := false
+	if v := strings.TrimSpace(os.Getenv("AUDIT_OPTIONAL")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, errors.New("AUDIT_OPTIONAL must be true or false")
+		}
+		auditOptional = b
+	}
 	var allowed []string
 	for _, id := range strings.Split(os.Getenv("ALLOWED_CLIENT_IDS"), ",") {
 		if id = strings.TrimSpace(id); id != "" {
@@ -208,8 +231,12 @@ func Load() (*Config, error) {
 			User:     os.Getenv("DB_USER"),
 			Password: os.Getenv("DB_PASSWORD"),
 			TLS:      strings.TrimSpace(os.Getenv("DB_TLS")),
+
+			TLSCA:         strings.TrimSpace(os.Getenv("DB_TLS_CA")),
+			TLSServerName: strings.TrimSpace(os.Getenv("DB_TLS_SERVER_NAME")),
 		},
-		NetSuite: ns,
+		NetSuite:      ns,
+		AuditOptional: auditOptional,
 		Auth: AuthConfig{
 			Disabled:         authOff,
 			Issuer:           getEnvOrDefault("GATEWAY_JWT_ISSUER", DefaultGatewayIssuer),
@@ -238,6 +265,9 @@ func (c *Config) Validate() error {
 	}
 	if c.DB.Password == "" {
 		errs = append(errs, errors.New("DB_PASSWORD is required"))
+	}
+	if c.DB.CustomTLS() && c.DB.TLS != "" && c.DB.TLS != "true" {
+		errs = append(errs, errors.New("DB_TLS must be empty or true when DB_TLS_CA or DB_TLS_SERVER_NAME is set"))
 	}
 	if !c.Auth.Disabled {
 		if c.Auth.JWKSURL == "" {
