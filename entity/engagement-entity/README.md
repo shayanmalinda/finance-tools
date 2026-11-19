@@ -82,7 +82,7 @@ Never put real values in committed files.
 | `SERVER_PORT` | No | `8290` | – |
 | `GATEWAY_JWT_JWKS_URL` | Yes, unless `AUTH_DISABLED` | – | The Choreo gateway's keys, `https://<gateway-domain>/.wellknown/jwks` (staging `https://apis-stg.wso2.com/.wellknown/jwks`) |
 | `GATEWAY_JWT_ISSUER` | No | `wso2.org/products/am` | `iss` of the gateway's JWT |
-| `ALLOWED_CLIENT_IDS` | Yes, unless `AUTH_DISABLED` | – | Comma-separated client ids let in: the Engagement App Backend's `OUTBOUND_CLIENT_ID`. Read from `azp`, else `client_id`, else `http://wso2.org/claims/client_id` |
+| `ALLOWED_CLIENT_IDS` | Yes, unless `AUTH_DISABLED` | – | Comma-separated client ids let in: the Engagement App Backend's `OUTBOUND_CLIENT_ID`. Read from `client_id`, else `azp`, else `http://wso2.org/claims/client_id`, the same order as the Customer Entity's `AUTH_INTERNAL_CLIENT_IDS` (cs-tools-membership-scope `entity-service`) |
 | `AUTH_DISABLED` | Locally | `false` | `true` skips the JWT check and binds to `127.0.0.1` |
 | `NETSUITE_PUSH_ENABLED` | No | `false` | `true` turns NetSuite on (invoice and per diem push, re-sync lookups, Marketing Event creation); then the settings below are required |
 | `NETSUITE_ACCOUNT_ID` | When on | – | `[finance_entity_service.netsuite.netSuiteConfigs] accountId` |

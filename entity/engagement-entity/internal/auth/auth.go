@@ -40,9 +40,10 @@ import (
 const AssertionHeader = "X-JWT-Assertion"
 
 // clientIDClaims are where a gateway JWT names the calling application,
-// tried in order: azp (OIDC), client_id (RFC 9068), and the WSO2 API
-// Manager's application claim.
-var clientIDClaims = []string{"azp", "client_id", "http://wso2.org/claims/client_id"}
+// tried in order: client_id, then azp, as the Customer Entity
+// (cs-tools-membership-scope entity-service, AUTH_INTERNAL_CLIENT_IDS) reads
+// it, then the WSO2 API Manager's application claim.
+var clientIDClaims = []string{"client_id", "azp", "http://wso2.org/claims/client_id"}
 
 // Config is what verification needs.
 type Config struct {

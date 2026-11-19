@@ -114,6 +114,8 @@ func TestMiddleware(t *testing.T) {
 	}{
 		{"valid, azp", http.MethodGet, "/engagements", g.sign(claims(nil), g.kid), http.StatusNoContent},
 		{"valid, client_id claim", http.MethodGet, "/engagements", g.sign(claims(jwt.MapClaims{"azp": nil, "client_id": testBackend}), g.kid), http.StatusNoContent},
+		{"client_id wins over azp", http.MethodGet, "/engagements", g.sign(claims(jwt.MapClaims{"client_id": testBackend, "azp": "someone-elses-app"}), g.kid), http.StatusNoContent},
+		{"client_id not allowed, azp allowed", http.MethodGet, "/engagements", g.sign(claims(jwt.MapClaims{"client_id": "someone-elses-app"}), g.kid), http.StatusForbidden},
 		{"valid, WSO2 claim", http.MethodGet, "/engagements", g.sign(claims(jwt.MapClaims{"azp": nil, "http://wso2.org/claims/client_id": testBackend}), g.kid), http.StatusNoContent},
 		{"missing header", http.MethodGet, "/engagements", "", http.StatusUnauthorized},
 		{"wrong issuer", http.MethodGet, "/engagements", g.sign(claims(jwt.MapClaims{"iss": "https://evil.example"}), g.kid), http.StatusUnauthorized},
