@@ -27,10 +27,10 @@ var allKeys = []string{
 	"SERVER_PORT", "JWT_ISSUER", "JWT_JWKS_URL", "JWT_USERINFO_URL", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL",
 	"GATEWAY_JWT_AUDIENCES", "EMAIL_DISABLED",
 	"JWT_AUDIENCES", "JWT_CLOCK_SKEW_SECONDS", "ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL",
-	"ENTITY_TOKEN_URL", "ENTITY_CLIENT_ID", "ENTITY_CLIENT_SECRET", "EMAIL_SERVICE_URL", "APP_BASE_URL",
+	"OUTBOUND_TOKEN_URL", "OUTBOUND_CLIENT_ID", "OUTBOUND_CLIENT_SECRET", "EMAIL_SERVICE_URL", "APP_BASE_URL",
 	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
-	"CURRENCY_CONVERT_SERVICE_URL",
+	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
 }
 
 func setMinimalEnv(t *testing.T) {
@@ -89,8 +89,8 @@ func TestValidateRequiresEmailOrOptOut(t *testing.T) {
 	// Set together, the opt-out wins: emails stay off.
 	t.Setenv("EMAIL_DISABLED", "true")
 	t.Setenv("EMAIL_SERVICE_URL", "https://email.example")
-	t.Setenv("ENTITY_CLIENT_ID", "id")
-	t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+	t.Setenv("OUTBOUND_CLIENT_ID", "id")
+	t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
 	c, err = Load()
 	if err != nil {
 		t.Fatal(err)
@@ -165,14 +165,14 @@ func TestValidateRejectsInsecureJWKS(t *testing.T) {
 // URLs that carry the client secret or a bearer token must be https; http
 // is allowed only on localhost for local runs.
 func TestValidateRejectsInsecureOutboundURLs(t *testing.T) {
-	for _, key := range []string{"ENTITY_TOKEN_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL",
+	for _, key := range []string{"OUTBOUND_TOKEN_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL", "EMAIL_SERVICE_URL",
 		"CURRENCY_CONVERT_SERVICE_URL"} {
 		t.Run(key, func(t *testing.T) {
 			setMinimalEnv(t)
 			t.Setenv("EMAIL_DISABLED", "") // email on, so its URL is checked
 			t.Setenv("EMAIL_SERVICE_URL", "https://email.example")
-			t.Setenv("ENTITY_CLIENT_ID", "id")
-			t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+			t.Setenv("OUTBOUND_CLIENT_ID", "id")
+			t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
 			t.Setenv(key, "http://svc.example/x")
 			c, _ := Load()
 			if err := c.Validate(); err == nil || !strings.Contains(err.Error(), key+" must be an https URL") {
@@ -205,11 +205,11 @@ func TestValidateOutboundServicesNeedClient(t *testing.T) {
 	setMinimalEnv(t)
 	t.Setenv("SALES_ENTITY_BASE_URL", "https://sales.example")
 	c, _ := Load()
-	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ENTITY_CLIENT_ID") {
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "OUTBOUND_CLIENT_ID") {
 		t.Errorf("Validate() = %v", err)
 	}
-	t.Setenv("ENTITY_CLIENT_ID", "id")
-	t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+	t.Setenv("OUTBOUND_CLIENT_ID", "id")
+	t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
 	c, _ = Load()
 	if err := c.Validate(); err != nil {
 		t.Errorf("Validate() = %v", err)
@@ -226,8 +226,8 @@ func TestValidateEntityNeedsClientUnlessLocal(t *testing.T) {
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ENGAGEMENT_ENTITY_BASE_URL") {
 		t.Errorf("remote entity without client: Validate() = %v", err)
 	}
-	t.Setenv("ENTITY_CLIENT_ID", "id")
-	t.Setenv("ENTITY_CLIENT_SECRET", "secret")
+	t.Setenv("OUTBOUND_CLIENT_ID", "id")
+	t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
 	c, _ = Load()
 	if err := c.Validate(); err != nil {
 		t.Errorf("remote entity with client: Validate() = %v", err)
@@ -246,6 +246,28 @@ func TestValidateEntityNeedsClientUnlessLocal(t *testing.T) {
 		if err := c.Validate(); err != nil {
 			t.Errorf("local entity %s: Validate() = %v", local, err)
 		}
+	}
+}
+
+// One outbound pair serves every service, the currency service included;
+// the old per-service CURRENCY_CONVERT_CLIENT_* pair is no longer read.
+func TestCurrencyUsesTheOutboundPair(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("CURRENCY_CONVERT_SERVICE_URL", "https://currency.example")
+	t.Setenv("CURRENCY_CONVERT_CLIENT_ID", "old-id")
+	t.Setenv("CURRENCY_CONVERT_CLIENT_SECRET", "old-secret")
+	c, _ := Load()
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "OUTBOUND_CLIENT_ID and OUTBOUND_CLIENT_SECRET are required when CURRENCY_CONVERT_SERVICE_URL is set") {
+		t.Errorf("without the outbound pair: Validate() = %v", err)
+	}
+	t.Setenv("OUTBOUND_CLIENT_ID", "id")
+	t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
+	c, _ = Load()
+	if err := c.Validate(); err != nil {
+		t.Errorf("with the outbound pair: Validate() = %v", err)
+	}
+	if c.Currency.Client != c.Client || c.Currency.Client.ClientID != "id" {
+		t.Errorf("currency client = %+v, outbound = %+v", c.Currency.Client, c.Client)
 	}
 }
 
