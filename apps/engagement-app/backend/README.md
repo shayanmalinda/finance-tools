@@ -4,7 +4,7 @@ Go backend that One WSO2 calls for the Engagement App (Release 1: the legacy
 Allocations and Travel apps merged into One WSO2). It owns the access checks
 (the legacy privileges), workflow, email and file storage, and calls:
 
-- the **Engagement Entity** (`entity/engagement-entity`, same Choreo project):
+- the **Engagement Entity** (`entity/engagement-entity`, another Choreo project, called through its Organization endpoint with the client pair):
   every read and write of the legacy databases and NetSuite;
 - the **Sales Entity Service** (digiops-sales): accounts, opportunities,
   campaigns;
@@ -99,18 +99,18 @@ gofmt -l .           # must print nothing
 Settings come from environment variables; locally from a git-ignored `.env`
 (copy `.env.local`). `ENGAGEMENT_ENTITY_BASE_URL`, `JWT_AUDIENCES` and
 `EMAIL_SERVICE_URL` (or `EMAIL_DISABLED=true`) are required to start, plus
-`ENTITY_CLIENT_ID` and `ENTITY_CLIENT_SECRET` when email is on or
-`SALES_ENTITY_BASE_URL` or `HR_ENTITY_URL` is set. Every other service is
+`ENTITY_CLIENT_ID` and `ENTITY_CLIENT_SECRET` (always, except with a local
+Engagement Entity). Every other service is
 optional: unset, the backend starts and the screens that need it answer 503. Service and token
 URLs must be https (http only on localhost). Never put real values in
 committed files.
 
 | Variable | Required? | Default | Where to get it (legacy key) |
 |---|---|---|---|
-| `ENGAGEMENT_ENTITY_BASE_URL` | Yes | – | Choreo connection to the Engagement Entity (same project); locally `http://localhost:8290` |
+| `ENGAGEMENT_ENTITY_BASE_URL` | Yes | – | Organization endpoint of the Engagement Entity (another Choreo project; subscribe the client pair to it); locally `http://localhost:8290` |
 | `SALES_ENTITY_BASE_URL` | For accounts, opportunities, line items and campaigns | – | Choreo connection to the Go Sales Entity Service |
 | `HR_ENTITY_URL` | For employee and organisation lookups | – | `[app_allocation.entity] hrEntityEndpoint` |
-| `ENTITY_CLIENT_ID` | When `SALES_ENTITY_BASE_URL`, `HR_ENTITY_URL` or `EMAIL_SERVICE_URL` (email on) is set | – | `[app_allocation.entity.clientAuthConfig] clientId` (one pair for every outbound WSO2 service, as legacy) |
+| `ENTITY_CLIENT_ID` | Yes, unless the Engagement Entity is on localhost; also needed for `SALES_ENTITY_BASE_URL`, `HR_ENTITY_URL` and `EMAIL_SERVICE_URL` (email on) | – | `[app_allocation.entity.clientAuthConfig] clientId` (one pair for every outbound WSO2 service, as legacy) |
 | `ENTITY_CLIENT_SECRET` | Same (secret) | – | `[app_allocation.entity.clientAuthConfig] clientSecret` |
 | `ENTITY_TOKEN_URL` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | `[app_allocation.entity.clientAuthConfig] tokenUrl` |
 | `JWT_ISSUER` | No | `https://api.asgardeo.io/t/wso2/oauth2/token` | WSO2 Asgardeo organisation |
