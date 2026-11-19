@@ -85,8 +85,9 @@ type Config struct {
 // legacy globals added to every template.
 var (
 	appNames = map[App]string{AppAllocations: "Allocations App", AppTravel: "Travel App"}
-	// Choreo Labs rebrand (as the Certification Portal): user-facing text only.
-	signatures = map[App]string{AppAllocations: "Cheers,<br> Choreo Labs Internal Apps Team", AppTravel: "Cheers,<br> Apps & Automations Team"}
+	// Choreo Labs rebrand (as the Certification Portal): every internal app
+	// signs as the Choreo Labs Digital Team.
+	signatures = map[App]string{AppAllocations: digitalTeamSignature, AppTravel: digitalTeamSignature}
 )
 
 // HTTPSender sends through the email service.
@@ -152,6 +153,9 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 // subjectLine replaces control characters (CR, LF, tab, ...) in a subject
 // with spaces: the subject embeds free text such as project names, and a line
 // break in it could add a mail header.
+// digitalTeamSignature closes every email (CLOSING_AND_SIGNATURE).
+const digitalTeamSignature = "Cheers,<br> Choreo Labs Digital Team"
+
 // stagingSubjectPrefix marks every email sent while emails are not live.
 const stagingSubjectPrefix = "[STAGING] "
 

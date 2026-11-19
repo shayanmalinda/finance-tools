@@ -58,6 +58,9 @@ func TestHTTPSender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got.ContentKeyValPairs["CLOSING_AND_SIGNATURE"] != "Cheers,<br> Choreo Labs Digital Team" {
+		t.Errorf("signature = %q", got.ContentKeyValPairs["CLOSING_AND_SIGNATURE"])
+	}
 	if got.Subject != "[Travel App] Travel Request (#TRV-1)" || got.ContentKeyValPairs["TEST_BANNER"] != "" {
 		t.Errorf("live email carries staging marks: subject %q, banner %q", got.Subject, got.ContentKeyValPairs["TEST_BANNER"])
 	}

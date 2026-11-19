@@ -40,7 +40,7 @@ const (
 // into the email_auditlog content as the legacy app did.
 const (
 	travelAppName   = "Travel App"
-	travelSignature = "Cheers,<br> Apps & Automations Team"
+	travelSignature = digitalTeamSignature
 )
 
 // TravelSettings are the legacy emailConfigurations the travel emails read.
