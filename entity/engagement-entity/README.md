@@ -204,6 +204,13 @@ Each script holds one statement, so it runs with Ctrl+Enter or as a script.
 | `Resources/allocation_db_table_update_v1.1.0.sql` | Adds the `audit_event` table to allocation_db. Safe to re-run. |
 | `Resources/travelapp_table_update_v1.0.0.sql` | Adds the `audit_event` table to travelapp. Safe to re-run. Until both schemas have it, the entity refuses to start (unless `AUDIT_OPTIONAL=true`, local runs only). |
 
+## Scopes (planned)
+
+Per-operation OAuth scopes on top of the client allow-list are planned in
+[`docs/scopes.md`](docs/scopes.md): scope names, the route-to-scope table
+(fine-grained and coarse), enforcement at the Choreo gateway and in the
+entity (`ENFORCE_SCOPES`), and the rollout order. Not enforced yet.
+
 ## Deployment
 
 Go-live checklist (production, and staging configured the same way):
