@@ -100,6 +100,7 @@ func main() {
 			Issuer:           cfg.Auth.Issuer,
 			JWKSURL:          cfg.Auth.JWKSURL,
 			AllowedClientIDs: cfg.Auth.AllowedClientIDs,
+			ClientIDClaims:   cfg.Auth.ClientIDClaims,
 			ClockSkew:        60 * time.Second,
 		}, nil)
 		if err != nil {

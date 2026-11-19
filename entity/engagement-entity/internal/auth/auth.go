@@ -39,11 +39,13 @@ import (
 // AssertionHeader is where the Choreo gateway forwards its JWT.
 const AssertionHeader = "X-JWT-Assertion"
 
-// clientIDClaims are where a gateway JWT names the calling application,
-// tried in order: client_id, then azp, as the Customer Entity
+// DefaultClientIDClaims are where a gateway JWT names the calling
+// application, tried in order: client_id, then azp, as the Customer Entity
 // (cs-tools-membership-scope entity-service, AUTH_INTERNAL_CLIENT_IDS) reads
-// it, then the WSO2 API Manager's application claim.
-var clientIDClaims = []string{"client_id", "azp", "http://wso2.org/claims/client_id"}
+// it from the same Choreo gateway, then the WSO2 API Manager's application
+// claim. Config.ClientIDClaims (CLIENT_ID_CLAIMS) replaces the list when the
+// gateway names the client elsewhere.
+var DefaultClientIDClaims = []string{"client_id", "azp", "http://wso2.org/claims/client_id"}
 
 // Config is what verification needs.
 type Config struct {
@@ -54,6 +56,9 @@ type Config struct {
 	JWKSURL string
 	// AllowedClientIDs are the applications let through.
 	AllowedClientIDs []string
+	// ClientIDClaims are the claims that name the calling application, tried
+	// in order; empty uses DefaultClientIDClaims.
+	ClientIDClaims []string
 	// ClockSkew is the leeway on exp, nbf and iat.
 	ClockSkew time.Duration
 }
@@ -83,7 +88,31 @@ func NewVerifier(cfg Config, httpClient *http.Client) (*Verifier, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Verifier{cfg: cfg, keys: newKeySet(cfg.JWKSURL, httpClient)}, nil
+	if len(cfg.ClientIDClaims) == 0 {
+		cfg.ClientIDClaims = DefaultClientIDClaims
+	}
+	return &Verifier{cfg: cfg, keys: newKeySet(cfg.JWKSURL, secureRedirects(httpClient))}, nil
+}
+
+// maxJWKSRedirects bounds the redirects a JWKS fetch follows.
+const maxJWKSRedirects = 5
+
+// secureRedirects returns a copy of c whose every redirect hop must pass the
+// same https (http only on loopback) rule as the configured JWKS URL, so the
+// JWKS host can't hand the key fetch to a plaintext hop where the keys could
+// be swapped.
+func secureRedirects(c *http.Client) *http.Client {
+	out := *c
+	out.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxJWKSRedirects {
+			return errors.New("auth: too many JWKS redirects")
+		}
+		if !SecureOrLoopback(req.URL) {
+			return fmt.Errorf("auth: JWKS redirect to a non-https URL %q", req.URL.Redacted())
+		}
+		return nil
+	}
+	return &out
 }
 
 // Verify checks rawToken and returns the calling application's client id.
@@ -106,7 +135,7 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (string, error) 
 	}
 	var present []string
 	client := ""
-	for _, name := range clientIDClaims {
+	for _, name := range v.cfg.ClientIDClaims {
 		s, _ := claims[name].(string)
 		if s = strings.TrimSpace(s); s == "" {
 			continue

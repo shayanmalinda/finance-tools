@@ -164,3 +164,44 @@ func TestNewVerifierFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// A gateway that names the client in another claim is configured with
+// ClientIDClaims, without a code change; the default list then no longer applies.
+func TestVerifier_ConfiguredClientIDClaims(t *testing.T) {
+	g := newFakeGateway(t)
+	v, err := NewVerifier(Config{Issuer: testIssuer, JWKSURL: g.srv.URL + "/jwks", AllowedClientIDs: []string{testBackend},
+		ClientIDClaims: []string{"http://wso2.org/claims/applicationUUId"}}, g.srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := g.sign(claims(jwt.MapClaims{"azp": nil, "http://wso2.org/claims/applicationUUId": testBackend}), g.kid)
+	if got, err := v.Verify(t.Context(), tok); err != nil || got != testBackend {
+		t.Fatalf("configured claim: client %q, err %v", got, err)
+	}
+	if _, err := v.Verify(t.Context(), g.sign(claims(nil), g.kid)); err == nil {
+		t.Fatal("azp was accepted although CLIENT_ID_CLAIMS names only applicationUUId")
+	}
+}
+
+// Every redirect hop of the JWKS fetch must pass the https (http only on
+// loopback) rule, not only the configured URL.
+func TestSecureRedirects(t *testing.T) {
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://jwks.example/keys", http.StatusFound)
+	}))
+	defer jwks.Close()
+	c := secureRedirects(jwks.Client())
+	if _, err := c.Get(jwks.URL); err == nil {
+		t.Fatal("redirect to plaintext http was followed")
+	}
+	for _, target := range []string{"https://jwks.example/keys", "http://127.0.0.1:8443/keys"} {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		if err := c.CheckRedirect(req, nil); err != nil {
+			t.Errorf("%s: %v", target, err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "https://jwks.example/keys", nil)
+	if err := c.CheckRedirect(req, make([]*http.Request, maxJWKSRedirects)); err == nil {
+		t.Error("redirect chain longer than the limit was followed")
+	}
+}

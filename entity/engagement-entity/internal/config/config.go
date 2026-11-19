@@ -71,6 +71,9 @@ type AuthConfig struct {
 	Issuer           string
 	JWKSURL          string
 	AllowedClientIDs []string
+	// ClientIDClaims (CLIENT_ID_CLAIMS) are the claims naming the calling
+	// application, in order; empty uses the auth package's default.
+	ClientIDClaims []string
 }
 
 // ListenAddr is where the server listens: every interface, or only
@@ -201,6 +204,12 @@ func Load() (*Config, error) {
 			allowed = append(allowed, id)
 		}
 	}
+	var claims []string
+	for _, c := range strings.Split(os.Getenv("CLIENT_ID_CLAIMS"), ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			claims = append(claims, c)
+		}
+	}
 	ns := NetSuiteConfig{PushEnabled: push}
 	if push {
 		ns.AccountID = strings.TrimSpace(os.Getenv("NETSUITE_ACCOUNT_ID"))
@@ -242,6 +251,7 @@ func Load() (*Config, error) {
 			Issuer:           getEnvOrDefault("GATEWAY_JWT_ISSUER", DefaultGatewayIssuer),
 			JWKSURL:          strings.TrimSpace(os.Getenv("GATEWAY_JWT_JWKS_URL")),
 			AllowedClientIDs: allowed,
+			ClientIDClaims:   claims,
 		},
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8290"),
 	}, nil

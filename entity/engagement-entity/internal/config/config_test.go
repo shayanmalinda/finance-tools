@@ -36,7 +36,7 @@ func clearEnv(t *testing.T) {
 		"NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID", "NETSUITE_CREATE_VENDOR_BILL_DEPLOY_ID",
 		"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID",
 		"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", "NETSUITE_GET_VENDOR_BILL_DEPLOY_ID",
-		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS",
+		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS", "CLIENT_ID_CLAIMS",
 		"DB_TLS_CA", "DB_TLS_SERVER_NAME", "AUDIT_OPTIONAL",
 	} {
 		t.Setenv(k, "")
@@ -129,6 +129,14 @@ func TestLoadAuth(t *testing.T) {
 	if c.Auth.Disabled || c.Auth.Issuer != DefaultGatewayIssuer || c.Auth.JWKSURL != "https://gw.example/.wellknown/jwks" ||
 		len(c.Auth.AllowedClientIDs) != 2 || c.Auth.AllowedClientIDs[0] != "a" || c.Auth.AllowedClientIDs[1] != "b" {
 		t.Errorf("auth = %+v", c.Auth)
+	}
+	if len(c.Auth.ClientIDClaims) != 0 {
+		t.Errorf("CLIENT_ID_CLAIMS unset: claims = %v, want empty (the auth default)", c.Auth.ClientIDClaims)
+	}
+	t.Setenv("CLIENT_ID_CLAIMS", " http://wso2.org/claims/applicationUUId , ,azp ")
+	if c, err = Load(); err != nil || len(c.Auth.ClientIDClaims) != 2 ||
+		c.Auth.ClientIDClaims[0] != "http://wso2.org/claims/applicationUUId" || c.Auth.ClientIDClaims[1] != "azp" {
+		t.Errorf("CLIENT_ID_CLAIMS: claims = %v, err %v", c.Auth.ClientIDClaims, err)
 	}
 	t.Setenv("AUTH_DISABLED", "maybe")
 	if _, err := Load(); err == nil {
