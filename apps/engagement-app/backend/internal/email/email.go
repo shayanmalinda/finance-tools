@@ -73,10 +73,10 @@ type Config struct {
 	AppUUID map[App]string
 	// From per app (legacy allocationManagerEmail / travelAppEmail).
 	From map[App]string
-	// TestRecipient, when set, receives every email instead of the real
-	// recipients and CC is dropped (legacy isSendTestingEmailsOnlyVal=1 with
-	// allocationTestEmail).
-	TestRecipient string
+	// TestRecipients, when set (emails not live: IS_LIVE_EMAILS=false),
+	// receive every email instead of the real recipients and CC is dropped
+	// (legacy isSendTestingEmailsOnlyVal=1 with allocationTestEmail).
+	TestRecipients []string
 	// Suppressed addresses never receive email (legacy noEmailsTo).
 	Suppressed []string
 }
@@ -125,13 +125,13 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	content["CLOSING_AND_SIGNATURE"] = signatures[m.App]
 	content["CURRENT_YEAR"] = strconv.Itoa(s.now().UTC().Year())
 
-	testing := s.cfg.TestRecipient != ""
+	testing := len(s.cfg.TestRecipients) > 0
 	p := payload{
 		AppUUID: s.cfg.AppUUID[m.App], To: to, CC: cc, From: s.cfg.From[m.App],
 		Subject: subjectLine(m.Subject), TemplateID: m.TemplateID, ContentKeyValPairs: content,
 	}
 	if testing {
-		p.To, p.CC = []string{s.cfg.TestRecipient}, []string{}
+		p.To, p.CC = append([]string(nil), s.cfg.TestRecipients...), []string{}
 	}
 	if err := s.rest.Post(ctx, "/send-smtp-email", p, nil); err != nil {
 		slog.ErrorContext(ctx, "email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)

@@ -85,11 +85,11 @@ func main() {
 	var sender email.Sender = email.LogSender{}
 	if e := cfg.Email; e.Enabled() {
 		sender = email.New(email.Config{
-			ServiceURL:    e.ServiceURL,
-			AppUUID:       map[email.App]string{email.AppAllocations: e.AllocationsAppUUID, email.AppTravel: e.TravelAppUUID},
-			From:          map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
-			TestRecipient: e.TestRecipient,
-			Suppressed:    e.Suppressed,
+			ServiceURL:     e.ServiceURL,
+			AppUUID:        map[email.App]string{email.AppAllocations: e.AllocationsAppUUID, email.AppTravel: e.TravelAppUUID},
+			From:           map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
+			TestRecipients: testRecipients(e),
+			Suppressed:     e.Suppressed,
 		}, rest.New("email", e.ServiceURL, oauth))
 	} else {
 		slog.Warn("EMAIL_DISABLED is set: emails are logged, not sent")
@@ -178,4 +178,13 @@ func newVerifier(c config.JWTConfig) (*oidc.MultiVerifier, error) {
 		vs = append(vs, gw)
 	}
 	return oidc.NewMultiVerifier(vs...)
+}
+
+// testRecipients are where every email goes when emails are not live (the
+// default outside production); live, nil sends to the real recipients.
+func testRecipients(e config.EmailConfig) []string {
+	if e.Live {
+		return nil
+	}
+	return e.TestRecipients
 }

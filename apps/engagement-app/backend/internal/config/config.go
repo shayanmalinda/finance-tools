@@ -132,8 +132,13 @@ type EmailConfig struct {
 	TravelAppUUID      string
 	AllocationsFrom    string
 	TravelFrom         string
-	// TestRecipient set: every email goes to it alone (testing mode).
-	TestRecipient string
+	// Live (IS_LIVE_EMAILS, default false) sends emails to their real
+	// recipients; set it only in production. Not live, every email goes to
+	// TestRecipients alone (legacy isSendTestingEmailsOnlyVal +
+	// allocationTestEmail, now for both apps), so staging never mails real people.
+	Live bool
+	// TestRecipients (EMAIL_TEST_RECIPIENTS) receive every email when not Live.
+	TestRecipients []string
 	// Suppressed addresses never receive email (noEmailsTo).
 	Suppressed []string
 	// CCTraveller copies the traveller on travel request emails
@@ -213,6 +218,12 @@ func Load() (*Config, error) {
 			return nil, errors.New("EMAIL_DISABLED must be true or false")
 		}
 	}
+	liveEmails := false
+	if v := strings.TrimSpace(os.Getenv("IS_LIVE_EMAILS")); v != "" {
+		if liveEmails, err = strconv.ParseBool(v); err != nil {
+			return nil, errors.New("IS_LIVE_EMAILS must be true or false")
+		}
+	}
 	ccTraveller := false
 	if v := strings.TrimSpace(os.Getenv("EMAIL_CC_TRAVELLER")); v != "" {
 		if ccTraveller, err = strconv.ParseBool(v); err != nil {
@@ -265,7 +276,8 @@ func Load() (*Config, error) {
 			TravelAppUUID:           strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_APP_UUID")),
 			AllocationsFrom:         strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_FROM")),
 			TravelFrom:              strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_FROM")),
-			TestRecipient:           strings.TrimSpace(os.Getenv("EMAIL_TEST_RECIPIENT")),
+			Live:                    liveEmails,
+			TestRecipients:          getList("EMAIL_TEST_RECIPIENTS"),
 			Suppressed:              getList("EMAIL_SUPPRESSED"),
 			CCTraveller:             ccTraveller,
 			AllocationsGroup:        strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_GROUP")),
@@ -318,6 +330,16 @@ func (c *Config) Validate() error {
 	}
 	if c.Email.ServiceURL == "" && !c.Email.Disabled {
 		errs = append(errs, errors.New("EMAIL_SERVICE_URL is required (set EMAIL_DISABLED=true to only log emails)"))
+	}
+	// Not live (the default), emails go only to the test recipients: without
+	// any, refuse to start rather than mail real people from staging.
+	if c.Email.Enabled() && !c.Email.Live && len(c.Email.TestRecipients) == 0 {
+		errs = append(errs, errors.New("EMAIL_TEST_RECIPIENTS is required unless IS_LIVE_EMAILS=true (production only)"))
+	}
+	for _, r := range c.Email.TestRecipients {
+		if !strings.Contains(r, "@") || strings.ContainsAny(r, " \t\r\n<>;") {
+			errs = append(errs, fmt.Errorf("EMAIL_TEST_RECIPIENTS: %q is not an email address", r))
+		}
 	}
 	// With EMAIL_DISABLED the email URL is never used, so it needs neither
 	// the client pair nor https.

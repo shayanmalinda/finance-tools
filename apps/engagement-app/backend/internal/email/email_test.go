@@ -64,11 +64,11 @@ func TestHTTPSender(t *testing.T) {
 		t.Errorf("payload = %+v (path %s)", got, path)
 	}
 
-	// Testing mode: one recipient, no CC.
-	cfg.TestRecipient = "qa@wso2.com"
+	// Not live (staging): only the test recipients, no CC.
+	cfg.TestRecipients = []string{"qa@wso2.com", "lead@wso2.com"}
 	s = New(cfg, rest.New("email", srv.URL, srv.Client()))
 	_ = s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, CC: []string{"f@wso2.com"}})
-	if !reflect.DeepEqual(got.To, []string{"qa@wso2.com"}) || len(got.CC) != 0 {
+	if !reflect.DeepEqual(got.To, []string{"qa@wso2.com", "lead@wso2.com"}) || len(got.CC) != 0 {
 		t.Errorf("testing mode: to %v cc %v", got.To, got.CC)
 	}
 }
