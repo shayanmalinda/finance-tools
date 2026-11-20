@@ -175,14 +175,16 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (string, error) 
 		return "", ErrNotAllowed
 	}
 	if len(v.cfg.APIContexts) > 0 {
-		api := ""
+		api, found := "", false
 		for _, name := range v.cfg.APIContextClaims {
 			if s, _ := claims[name].(string); strings.TrimSpace(s) != "" {
-				api = strings.TrimRight(strings.TrimSpace(s), "/")
+				api, found = strings.TrimRight(strings.TrimSpace(s), "/"), true
 				break
 			}
 		}
-		if !slices.ContainsFunc(v.cfg.APIContexts, func(c string) bool { return strings.TrimRight(c, "/") == api }) {
+		// A missing or blank claim never matches, even a configured "/" (which
+		// normalises to "" like an absent claim would).
+		if !found || !slices.ContainsFunc(v.cfg.APIContexts, func(c string) bool { return strings.TrimRight(strings.TrimSpace(c), "/") == api }) {
 			// Claim names only, as above.
 			log.Printf("auth: refused a gateway JWT not issued for this API (API context claims checked: %s)", strings.Join(v.cfg.APIContextClaims, ","))
 			return "", ErrWrongAPI

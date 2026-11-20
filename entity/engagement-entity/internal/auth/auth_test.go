@@ -251,3 +251,26 @@ func TestVerifier_APIContextBinding(t *testing.T) {
 		t.Errorf("unbound verifier: %v", err)
 	}
 }
+
+// A configured "/" normalises to "", like an absent claim: a missing or blank
+// API context claim must still be refused, while an explicit "/" matches.
+func TestVerifier_APIContextRootNeedsTheClaim(t *testing.T) {
+	g := newFakeGateway(t)
+	const ctxClaim = "http://wso2.org/claims/apicontext"
+	v, err := NewVerifier(Config{Issuer: testIssuer, JWKSURL: g.srv.URL + "/jwks", AllowedClientIDs: []string{testBackend},
+		APIContexts: []string{"/"}}, g.srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tok := range map[string]string{
+		"no claim":    g.sign(claims(nil), g.kid),
+		"blank claim": g.sign(claims(jwt.MapClaims{ctxClaim: " "}), g.kid),
+	} {
+		if _, err := v.Verify(t.Context(), tok); !errors.Is(err, ErrWrongAPI) {
+			t.Errorf("%s: err = %v, want ErrWrongAPI", name, err)
+		}
+	}
+	if _, err := v.Verify(t.Context(), g.sign(claims(jwt.MapClaims{ctxClaim: "/"}), g.kid)); err != nil {
+		t.Errorf("explicit \"/\": %v", err)
+	}
+}

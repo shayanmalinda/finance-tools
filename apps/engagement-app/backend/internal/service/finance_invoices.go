@@ -435,9 +435,12 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 			for _, row := range rows {
 				if decided[row.ID] {
 					items.Invoices = append(items.Invoices, financeInvoiceItem(row, nil))
+					// Once only: a row inserted between reads shifts the page
+					// boundary, so the same invoice can come back on the next page.
+					delete(decided, row.ID)
 				}
 			}
-			if len(rows) == 0 || offset+len(rows) >= total {
+			if len(decided) == 0 || len(rows) == 0 || offset+len(rows) >= total {
 				break
 			}
 		}

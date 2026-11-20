@@ -47,16 +47,18 @@ type finEntity struct {
 	// pageInvoices makes FinanceInvoices honour Limit and Offset; invPages counts calls.
 	pageInvoices bool
 	invPages     int
-	payFilters   []engagemententity.FinancePaymentFilter
-	decision     engagemententity.FinanceInvoiceDecision
-	decisions    []engagemententity.FinanceDecisionResult
-	addedPD      engagemententity.FinancePerDiemCreate
-	addedPay     engagemententity.FinancePaymentCreate
-	pushErr      error
-	invErr       error
-	pushed       []int
-	deleted      bool
-	subsidiary   string
+	// afterPage runs after each paged read (e.g. to insert a row between reads).
+	afterPage  func(f *finEntity)
+	payFilters []engagemententity.FinancePaymentFilter
+	decision   engagemententity.FinanceInvoiceDecision
+	decisions  []engagemententity.FinanceDecisionResult
+	addedPD    engagemententity.FinancePerDiemCreate
+	addedPay   engagemententity.FinancePaymentCreate
+	pushErr    error
+	invErr     error
+	pushed     []int
+	deleted    bool
+	subsidiary string
 }
 
 func (f *finEntity) FinanceTrip(context.Context, string) (engagemententity.FinanceTrip, error) {
@@ -94,7 +96,12 @@ func (f *finEntity) FinanceInvoices(_ context.Context, fl engagemententity.Finan
 	if fl.Limit > 0 && f.pageInvoices {
 		lo := min(fl.Offset, len(f.invoices))
 		hi := min(lo+fl.Limit, len(f.invoices))
-		return f.invoices[lo:hi], len(f.invoices), nil
+		page := append([]engagemententity.FinanceInvoice(nil), f.invoices[lo:hi]...)
+		total := len(f.invoices)
+		if f.afterPage != nil {
+			f.afterPage(f)
+		}
+		return page, total, nil
 	}
 	return f.invoices, len(f.invoices), nil
 }
@@ -568,5 +575,35 @@ func TestFinanceDecideEmailPagesInvoices(t *testing.T) {
 	}
 	if e.invPages < 3 {
 		t.Errorf("read %d pages, want every page of 1200 invoices", e.invPages)
+	}
+}
+
+// A row inserted between page reads shifts the newest-first page boundary, so
+// the last invoice of one page comes back first on the next: it is listed once.
+func TestFinanceDecideEmailListsEachInvoiceOnce(t *testing.T) {
+	ctx := context.Background()
+	var all []engagemententity.FinanceInvoice
+	for i := 1; i <= 1200; i++ {
+		all = append(all, engagemententity.FinanceInvoice{ID: i, InvoiceNumber: fmt.Sprintf("INV-%04d", i), InvoiceCurrency: "USD", InvoiceAmount: 1, JobNumber: "TRV-B"})
+	}
+	e := &finEntity{trip: openTrip(), pageInvoices: true, invoices: all,
+		decisions: []engagemententity.FinanceDecisionResult{{ID: 500, OK: true, JobNumber: fsp("TRV-B")}, {ID: 1150, OK: true, JobNumber: fsp("TRV-B")}}}
+	inserted := false
+	e.afterPage = func(f *finEntity) {
+		if !inserted {
+			inserted = true
+			f.invoices = append([]engagemententity.FinanceInvoice{{ID: 9999, InvoiceNumber: "INV-NEW", JobNumber: "TRV-B"}}, f.invoices...)
+		}
+	}
+	s, mail := newFin(e, nil)
+	if _, err := s.ApproveInvoices(ctx, perms("f@wso2.com", 33), []int{500, 1150}); err != nil {
+		t.Fatal(err)
+	}
+	items := mail.sent[0].Content["items_html"]
+	if n := strings.Count(items, "INV-0500"); n != 1 {
+		t.Errorf("INV-0500 listed %d times, want once", n)
+	}
+	if !strings.Contains(items, "INV-1150") {
+		t.Error("INV-1150 missing")
 	}
 }
