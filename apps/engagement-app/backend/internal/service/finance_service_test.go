@@ -216,7 +216,7 @@ func TestFinanceAddPerDiem(t *testing.T) {
 		t.Errorf("added %+v, returned %+v", e.addedPD, pd)
 	}
 	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "New per diems have been added" ||
-		mail.sent[0].Subject != "[Travel App] Travel Request (#"+job+")" {
+		mail.sent[0].Subject != "[Engagement App] Travel Request (#"+job+")" {
 		t.Errorf("mail = %+v", mail.sent)
 	}
 
@@ -448,7 +448,7 @@ func TestFinanceEmailAudit(t *testing.T) {
 		StartDate: "2026-11-06", StartTime: "09:00", EndDate: "2026-11-07", EndTime: "18:00", Currency: "GBP", Rate: 70}); err != nil {
 		t.Fatal(err)
 	}
-	if len(audited) != 1 || audited[0].Subject != "[Travel App] Travel Request (#"+job+")" {
+	if len(audited) != 1 || audited[0].Subject != "[Engagement App] Travel Request (#"+job+")" {
 		t.Errorf("audited = %+v", audited)
 	}
 }

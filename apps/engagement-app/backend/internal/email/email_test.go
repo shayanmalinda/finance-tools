@@ -66,14 +66,14 @@ func TestHTTPSender(t *testing.T) {
 	s := New(cfg, rest.New("email", srv.URL, srv.Client()))
 	s.now = func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }
 	msg := Message{App: AppTravel, To: []string{"t@wso2.com"}, CC: []string{"t@wso2.com", "f@wso2.com"},
-		Subject: "[Travel App] Travel Request (#TRV-1)", TemplateID: "noContent",
+		Subject: "[Engagement App] Travel Request (#TRV-1)", TemplateID: "noContent",
 		Content: map[string]string{"description": "Trip <b>assigned</b>", "travel_agent_name": "Acorn"}}
 	if err := s.Send(context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
 	// The Email Service gets the finished HTML, base64-encoded, at /send-email.
 	want, err := Render("noContent", map[string]string{"description": "Trip <b>assigned</b>", "travel_agent_name": "Acorn",
-		"APP_NAME": "Travel App", "CLOSING_AND_SIGNATURE": "Cheers,<br> Choreo Labs Digital Team", "CURRENT_YEAR": "2026"}, "")
+		"APP_NAME": "Engagement App", "CLOSING_AND_SIGNATURE": "Cheers,<br> Choreo Labs Digital Team", "CURRENT_YEAR": "2026"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestHTTPSender(t *testing.T) {
 		}
 	}
 	// Live: no staging marks.
-	if got.Subject != "[Travel App] Travel Request (#TRV-1)" || strings.Contains(page, "Staging test email") {
+	if got.Subject != "[Engagement App] Travel Request (#TRV-1)" || strings.Contains(page, "Staging test email") {
 		t.Errorf("live email carries staging marks: subject %q", got.Subject)
 	}
 
@@ -104,7 +104,7 @@ func TestHTTPSender(t *testing.T) {
 		t.Errorf("testing mode: to %v cc %v", got.To, got.CC)
 	}
 	page = decoded(t, got)
-	if got.Subject != "[STAGING] [Travel App] Travel Request (#TRV-1)" ||
+	if got.Subject != "[STAGING] [Engagement App] Travel Request (#TRV-1)" ||
 		!strings.Contains(page, "Staging test email. In production it would go to: <b>To:</b> t@wso2.com; <b>CC:</b> f&amp;o@wso2.com.") {
 		t.Errorf("staging marks: subject %q", got.Subject)
 	}
@@ -150,10 +150,10 @@ func TestHTTPSender_SubjectHasNoLineBreaks(t *testing.T) {
 	defer srv.Close()
 	s := New(Config{ServiceURL: srv.URL}, rest.New("email", srv.URL, srv.Client()))
 	if err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, TemplateID: "noContent",
-		Subject: "[Allocations] x\r\nBcc: evil@x.com\tend"}); err != nil {
+		Subject: "[Engagement App] x\r\nBcc: evil@x.com\tend"}); err != nil {
 		t.Fatal(err)
 	}
-	if got.Subject != "[Allocations] x  Bcc: evil@x.com end" {
+	if got.Subject != "[Engagement App] x  Bcc: evil@x.com end" {
 		t.Errorf("subject = %q", got.Subject)
 	}
 }

@@ -29,11 +29,16 @@ import (
 // TestWritePreviews renders one realistic sample of every template, built by
 // the real message builders, into $EMAIL_PREVIEW_DIR (plus subjects.json) to
 // review the design in a browser. Skipped unless EMAIL_PREVIEW_DIR is set.
-func TestWritePreviews(t *testing.T) {
-	dir := os.Getenv("EMAIL_PREVIEW_DIR")
-	if dir == "" {
-		t.Skip("EMAIL_PREVIEW_DIR not set")
-	}
+// previewSample is one email built by its real builder; staging renders it
+// as a not-live email (banner and subject prefix).
+type previewSample struct {
+	name    string
+	m       Message
+	staging bool
+}
+
+// previewSamples are one realistic email per template (and per finance kind).
+func previewSamples() (time.Time, []previewSample) {
 	now := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
 	base := "https://one-stg.wso2.com"
 	eng := EngagementEmailData{
@@ -83,11 +88,7 @@ func TestWritePreviews(t *testing.T) {
 
 	fin := FinanceRecipients{TravelLogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com",
 		CompanyRecipients: map[string][]string{"WSO2 - USA": {"finance-usa@example.com"}}, AppBaseURL: base}
-	samples := []struct {
-		name    string
-		m       Message
-		staging bool
-	}{
+	samples := []previewSample{
 		{"customerEngagement", EngagementMessage(EngagementCreated, eng, rec, "requester@example.com"), true},
 		{"customerEngagementCancelled", EngagementMessage(EngagementCancelled, eng, rec, "requester@example.com"), false},
 		{"internalEngagement", EngagementMessage(EngagementCreated, internal, rec, "requester@example.com"), false},
@@ -113,6 +114,58 @@ func TestWritePreviews(t *testing.T) {
 			Reason:   "The hotel invoice covers two extra nights outside the trip dates.",
 			Invoices: []FinanceInvoiceItem{{Number: "CT-INV-20432", CostType: "Hotel", Currency: "USD", Amount: 980}}}), false},
 	}
+	return now, samples
+}
+
+// renderSample renders a sample as the sender would: the page and subject.
+func renderSample(s previewSample, now time.Time) (page, subject string, err error) {
+	content := map[string]string{}
+	for k, v := range s.m.Content {
+		content[k] = v
+	}
+	content["APP_NAME"] = appNames[s.m.App]
+	content["CLOSING_AND_SIGNATURE"] = signatures[s.m.App]
+	content["CURRENT_YEAR"] = strconv.Itoa(now.Year())
+	banner, subject := "", subjectLine(s.m.Subject)
+	if s.staging {
+		to, cc := FilterRecipients(s.m.To, s.m.CC, nil)
+		banner, subject = stagingBanner(to, cc), stagingSubjectPrefix+subject
+	}
+	page, err = Render(s.m.TemplateID, content, banner)
+	return page, subject, err
+}
+
+// Every email names the Engagement App (subject tag, APP_NAME, footer), never
+// the legacy Allocations or Travel apps, and the footer says they merged.
+func TestSamples_EngagementAppNaming(t *testing.T) {
+	now, samples := previewSamples()
+	for _, s := range samples {
+		page, subject, err := renderSample(s, now)
+		if err != nil {
+			t.Fatalf("%s: %v", s.name, err)
+		}
+		if !strings.Contains(subject, "[Engagement App] ") {
+			t.Errorf("%s: subject %q lacks the Engagement App tag", s.name, subject)
+		}
+		for _, gone := range []string{"Allocations App", "Travel App", "Allocation App", "[Allocations]", "[Travel App]"} {
+			if strings.Contains(page, gone) || strings.Contains(subject, gone) {
+				t.Errorf("%s: still says %q", s.name, gone)
+			}
+		}
+		for _, want := range []string{"automated message from the Engagement App", "The Allocations and Travel apps are now the Engagement App."} {
+			if !strings.Contains(page, want) {
+				t.Errorf("%s: lacks %q", s.name, want)
+			}
+		}
+	}
+}
+
+func TestWritePreviews(t *testing.T) {
+	dir := os.Getenv("EMAIL_PREVIEW_DIR")
+	if dir == "" {
+		t.Skip("EMAIL_PREVIEW_DIR not set")
+	}
+	now, samples := previewSamples()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -122,19 +175,7 @@ func TestWritePreviews(t *testing.T) {
 			t.Errorf("%s: builder produced template %q", s.name, s.m.TemplateID)
 			continue
 		}
-		content := map[string]string{}
-		for k, v := range s.m.Content {
-			content[k] = v
-		}
-		content["APP_NAME"] = appNames[s.m.App]
-		content["CLOSING_AND_SIGNATURE"] = signatures[s.m.App]
-		content["CURRENT_YEAR"] = strconv.Itoa(now.Year())
-		banner, subject := "", subjectLine(s.m.Subject)
-		if s.staging {
-			to, cc := FilterRecipients(s.m.To, s.m.CC, nil)
-			banner, subject = stagingBanner(to, cc), stagingSubjectPrefix+subject
-		}
-		page, err := Render(s.m.TemplateID, content, banner)
+		page, subject, err := renderSample(s, now)
 		if err != nil {
 			t.Fatal(err)
 		}

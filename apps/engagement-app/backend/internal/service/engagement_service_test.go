@@ -255,7 +255,7 @@ func TestEngagementCreate_Customer(t *testing.T) {
 		t.Fatalf("d %+v mails %d", d, len(mail.sent))
 	}
 	m := mail.sent[0]
-	if m.Subject != "[Allocations] Consultant request for E09999 : Acme - Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
+	if m.Subject != "[Engagement App] Consultant request for E09999 : Acme - Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
 		!reflect.DeepEqual(m.To, []string{"consultant@wso2.com", "allocations@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("mail = %+v", m)
 	}

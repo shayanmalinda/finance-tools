@@ -614,14 +614,14 @@ func TestTravelAssign_InProgressSendsAssignedEmail(t *testing.T) {
 		t.Fatalf("sent %d emails", len(f.mail.sent))
 	}
 	m := f.mail.sent[0]
-	if m.TemplateID != "assignRequests" || m.Subject != "[Travel App] Travel Request (#TRV-2026-10-1246)" ||
+	if m.TemplateID != "assignRequests" || m.Subject != "[Engagement App] Travel Request (#TRV-2026-10-1246)" ||
 		m.To[0] != "travel-logistics@wso2.com" || len(m.CC) != 0 || m.Content["title"] != "New Travel Request Assigned" ||
 		m.Content["travel_agent_name"] != "Acorn Travels" || m.Content["visa_type"] != "Business/Visit" ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
 		t.Errorf("email = %+v", m)
 	}
 	if len(f.entity.audits) != 1 || f.entity.audits[0].Recipients != "travel-logistics@wso2.com" ||
-		!strings.Contains(f.entity.audits[0].ContentKeyValPairs, `"APP_NAME":"Travel App"`) {
+		!strings.Contains(f.entity.audits[0].ContentKeyValPairs, `"APP_NAME":"Engagement App"`) {
 		t.Errorf("audits = %+v", f.entity.audits)
 	}
 }

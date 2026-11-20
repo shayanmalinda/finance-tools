@@ -65,7 +65,7 @@ func TestAllocationMessage_ConfirmedListsVisasAndCopiesTravel(t *testing.T) {
 	if want := []string{"allocations@wso2.com", "jane@wso2.com", "lead@wso2.com", "mgr@wso2.com", "travel@wso2.com"}; !reflect.DeepEqual(m.To, want) {
 		t.Errorf("to = %v", m.To)
 	}
-	if m.Subject != "Re: [Allocations] Consultant request for E07201 : Acme - Acme <PoC>" {
+	if m.Subject != "Re: [Engagement App] Consultant request for E07201 : Acme - Acme <PoC>" {
 		t.Errorf("subject = %s", m.Subject)
 	}
 	c := m.Content

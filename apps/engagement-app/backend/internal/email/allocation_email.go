@@ -279,7 +279,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 		App:              AppAllocations,
 		To:               to,
 		CC:               []string{},
-		Subject:          "Re: [Allocations] Consultant request for " + d.EngagementID + " : " + d.CustomerName + " - " + d.OpportunityName,
+		Subject:          "Re: [Engagement App] Consultant request for " + d.EngagementID + " : " + d.CustomerName + " - " + d.OpportunityName,
 		TemplateID:       templateID,
 		Content:          content,
 		NotificationType: allocNotificationPrefix + ": " + c,

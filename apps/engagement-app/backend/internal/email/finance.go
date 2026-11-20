@@ -88,7 +88,7 @@ func financeEntityRecipients(r FinanceRecipients, company string) (to, cc []stri
 }
 
 // FinanceTravelMessage builds a travel finance email for jobNumber:
-// subject "[Travel App] Travel Request (#job)", template travelFinanceUpdate,
+// subject "[Engagement App] Travel Request (#job)", template travelFinanceUpdate,
 // To the travel logistics group plus the traveller company's finance
 // recipients (the finance group when the company is unknown). tab is the trip
 // page tab the action link opens (per-diems, invoices); items are the records
@@ -109,7 +109,7 @@ func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany
 		App:        AppTravel,
 		To:         to,
 		CC:         cc,
-		Subject:    "[Travel App] Travel Request (#" + jobNumber + ")",
+		Subject:    "[Engagement App] Travel Request (#" + jobNumber + ")",
 		TemplateID: FinanceTemplate,
 		Content: map[string]string{
 			"title":             texts[0],

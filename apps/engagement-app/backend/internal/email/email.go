@@ -48,8 +48,8 @@ type Message struct {
 	App App
 	To  []string
 	CC  []string
-	// Subject as the legacy app wrote it, e.g. "[Allocations] Consultant
-	// request for E07201 : Acme - PoC".
+	// Subject, e.g. "[Engagement App] Consultant request for E07201 : Acme -
+	// PoC" (the legacy app's subject with the Engagement App tag).
 	Subject string
 	// TemplateID is the template in templates/ (Render).
 	TemplateID string
@@ -84,7 +84,8 @@ type Config struct {
 
 // legacy globals added to every template.
 var (
-	appNames = map[App]string{AppAllocations: "Allocations App", AppTravel: "Travel App"}
+	// Both apps' emails now come from the Engagement App (APP_NAME).
+	appNames = map[App]string{AppAllocations: engagementAppName, AppTravel: engagementAppName}
 	// Choreo Labs rebrand (as the Certification Portal): every internal app
 	// signs as the Choreo Labs Digital Team.
 	signatures = map[App]string{AppAllocations: digitalTeamSignature, AppTravel: digitalTeamSignature}
@@ -153,6 +154,10 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 		"toCount", len(to), "ccCount", len(cc), "testingRedirect", testing)
 	return nil
 }
+
+// engagementAppName is the app every email names: the Allocations and Travel
+// apps are now the Engagement App.
+const engagementAppName = "Engagement App"
 
 // digitalTeamSignature closes every email (CLOSING_AND_SIGNATURE).
 const digitalTeamSignature = "Cheers,<br> Choreo Labs Digital Team"
