@@ -87,6 +87,15 @@ It sends the finished HTML, base64-encoded, to the Email Service
 email is signed by the Choreo Labs Digital Team. An unknown template id is an
 error, never a blank email.
 
+The templates are a single-column, 600px card (navy header, detail list,
+orange action button) that goes full width on screens under 620px; layout is
+table-based with inline styles so Gmail and Outlook render it. To review a
+change, render one sample of every template with the real message builders:
+
+```bash
+EMAIL_PREVIEW_DIR=/tmp/email-previews go test -run TestWritePreviews ./internal/email
+```
+
 ## Prerequisites
 
 - Go `1.25+`

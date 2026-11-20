@@ -80,8 +80,8 @@ func bannerRow(banner string) string {
 	if banner == "" {
 		return ""
 	}
-	return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 16px;"><tr>` +
-		`<td style="background-color: #fff4e5; border: 1px solid #f5c26b; border-radius: 6px; padding: 10px 14px; ` +
-		`font-family: 'Roboto', Helvetica, sans-serif; font-size: 13px; line-height: 18px; color: #663c00;">` +
+	return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; margin: 0 0 24px;"><tr>` +
+		`<td bgcolor="#fff4e5" style="background-color: #fff4e5; border: 1px solid #f5c26b; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px 16px; ` +
+		`font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #663c00;">` +
 		banner + `</td></tr></table>`
 }

@@ -38,12 +38,14 @@ func TestRender_EveryTemplate(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, want := range []string{"<title>Choreo Labs</title>", "© 2026 Choreo Labs. All Rights Reserved", "Choreo Labs Digital Team", "Body text",
-				"choreo-labs-logo-light-400px.png", "choreo-labs-logo-navy-400px.png", `href="https://choreolabs.com/"`, `alt="Choreo Labs Logo"`} {
+				"choreo-labs-logo-light-400px.png", "choreo-labs-logo-navy-400px.png", `href="https://choreolabs.com/"`, `alt="Choreo Labs Logo"`,
+				// Responsive: a viewport, a 600px card that goes full width on small screens.
+				`<meta name="viewport" content="width=device-width, initial-scale=1">`, "max-width: 600px;", "@media only screen and (max-width: 620px)"} {
 				if !strings.Contains(page, want) {
 					t.Errorf("lacks %q", want)
 				}
 			}
-			for _, gone := range []string{bodyMarker, "WSO2, Inc. All Rights Reserved", "<title>WSO2", "WSO2-Logo", `alt="WSO2 Logo"`, `href="https://wso2.com/"`} {
+			for _, gone := range []string{bodyMarker, "WSO2, Inc. All Rights Reserved", "<title>WSO2", "WSO2-Logo", `alt="WSO2 Logo"`, `href="https://wso2.com/"`, "twitter-dark", "Roboto"} {
 				if strings.Contains(page, gone) {
 					t.Errorf("still has %q", gone)
 				}

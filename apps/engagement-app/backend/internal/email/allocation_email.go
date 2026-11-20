@@ -40,8 +40,8 @@ const (
 	allocAllocationCancelled   = "Allocation Cancelled"
 	allocPartnerEmailPrefix    = "partner-allocations-group"
 	allocNotificationPrefix    = "Allocation"
-	allocVisaParagraphStyle    = `font-family: 'Roboto', Helvetica,sans-serif;font-size: 16px;line-height: 26px;color: #465868;text-align: left;margin-bottom: 5px;font-weight: 400;margin-top: 0;`
-	allocVisaWarningStyle      = `font-family: 'Roboto', Helvetica,sans-serif;font-size: 16px;line-height: 26px;color: red;text-align: left;margin-bottom: 5px;font-weight: 400;margin-top: 0;`
+	allocVisaParagraphStyle    = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 14px;line-height: 22px;color: #262626;text-align: left;margin: 0;font-weight: 400;`
+	allocVisaWarningStyle      = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 13px;line-height: 20px;color: #b42318;text-align: left;margin: 0 0 8px;font-weight: 500;display: block;`
 	allocVisaAvailableComment  = "Visa available for the allocation period"
 	allocVisaUnavailableComent = "Visa not available"
 )
