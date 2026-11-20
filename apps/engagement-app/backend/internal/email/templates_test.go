@@ -37,12 +37,13 @@ func TestRender_EveryTemplate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"<title>Choreo Labs</title>", "© 2026 Choreo Labs. All Rights Reserved", "Choreo Labs Digital Team", "Body text"} {
+			for _, want := range []string{"<title>Choreo Labs</title>", "© 2026 Choreo Labs. All Rights Reserved", "Choreo Labs Digital Team", "Body text",
+				"choreo-labs-logo-light-400px.png", "choreo-labs-logo-navy-400px.png", `href="https://choreolabs.com/"`, `alt="Choreo Labs Logo"`} {
 				if !strings.Contains(page, want) {
 					t.Errorf("lacks %q", want)
 				}
 			}
-			for _, gone := range []string{bodyMarker, "WSO2, Inc. All Rights Reserved", "<title>WSO2"} {
+			for _, gone := range []string{bodyMarker, "WSO2, Inc. All Rights Reserved", "<title>WSO2", "WSO2-Logo", `alt="WSO2 Logo"`, `href="https://wso2.com/"`} {
 				if strings.Contains(page, gone) {
 					t.Errorf("still has %q", gone)
 				}
