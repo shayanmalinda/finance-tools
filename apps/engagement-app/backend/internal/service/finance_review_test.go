@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,7 +179,8 @@ func (addEntity) FinanceCostTypes(context.Context) ([]engagemententity.FinanceCo
 func (addEntity) FinanceAddInvoices(_ context.Context, jn string, in engagemententity.FinanceInvoicesCreate) ([]engagemententity.FinanceInvoice, error) {
 	out := make([]engagemententity.FinanceInvoice, len(in.Invoices))
 	for i, v := range in.Invoices {
-		out[i] = engagemententity.FinanceInvoice{ID: i + 1, InvoiceNumber: v.InvoiceNumber, JobNumber: jn}
+		out[i] = engagemententity.FinanceInvoice{ID: i + 1, InvoiceNumber: v.InvoiceNumber, JobNumber: jn, CostTypeID: v.CostTypeID,
+			Month: v.Month, InvoiceCurrency: v.InvoiceCurrency, InvoiceAmount: v.InvoiceAmount}
 	}
 	return out, nil
 }
@@ -198,6 +200,16 @@ func TestFinanceAddInvoicesReadsTheCompanyOnce(t *testing.T) {
 	}
 	if len(m.sent) != 3 || hr.n != 1 {
 		t.Errorf("emails %d, HR lookups %d; want 3 and 1", len(m.sent), hr.n)
+	}
+	// Each email shows its own invoice, the cost type named from its id.
+	for i, want := range []string{"A1", "A2", "A3"} {
+		items := m.sent[i].Content["items_html"]
+		if !strings.Contains(items, ">"+want+"<") || !strings.Contains(items, ">Air Ticket<") || !strings.Contains(items, ">Nov<") {
+			t.Errorf("email %d items:\n%s", i, items)
+		}
+	}
+	if !strings.Contains(m.sent[2].Content["items_html"], "USD 30.0") {
+		t.Error("third email lacks its amount")
 	}
 }
 

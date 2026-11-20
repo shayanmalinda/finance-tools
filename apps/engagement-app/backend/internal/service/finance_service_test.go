@@ -49,6 +49,7 @@ type finEntity struct {
 	addedPD    engagemententity.FinancePerDiemCreate
 	addedPay   engagemententity.FinancePaymentCreate
 	pushErr    error
+	invErr     error
 	pushed     []int
 	deleted    bool
 	subsidiary string
@@ -82,6 +83,9 @@ func (f *finEntity) FinancePaymentBasis(context.Context, string) (engagemententi
 }
 func (f *finEntity) FinanceInvoices(_ context.Context, fl engagemententity.FinanceInvoiceFilter) ([]engagemententity.FinanceInvoice, int, error) {
 	f.invFilter = fl
+	if f.invErr != nil {
+		return nil, 0, f.invErr
+	}
 	return f.invoices, len(f.invoices), nil
 }
 func (f *finEntity) FinanceInvoiceCounts(context.Context, int) (engagemententity.FinanceInvoiceCounts, error) {
@@ -418,16 +422,16 @@ func TestFinancePaymentsAndFailures(t *testing.T) {
 func TestFinanceRecipients(t *testing.T) {
 	r := email.FinanceRecipients{TravelLogisticsGroup: "log@wso2.com", FinanceGroup: "fin@wso2.com", AppBaseURL: "https://one.wso2.com/",
 		CompanyRecipients: map[string][]string{"WSO2 - UK": {"uk1@wso2.com", "ukpay@wso2.com"}, "WSO2 Inc": {"us@wso2.com"}}}
-	m := email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, " wso2 - uk ", "invoices")
+	m := email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, " wso2 - uk ", "invoices", email.FinanceItems{})
 	if strings.Join(m.To, ",") != "log@wso2.com,uk1@wso2.com" || strings.Join(m.CC, ",") != "ukpay@wso2.com" ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/"+job+"/invoices" || m.TemplateID != "travelFinanceUpdate" {
 		t.Errorf("uk = %+v", m)
 	}
-	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "WSO2 Inc", "invoices")
+	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "WSO2 Inc", "invoices", email.FinanceItems{})
 	if strings.Join(m.To, ",") != "log@wso2.com,us@wso2.com" || strings.Join(m.CC, ",") != "fin@wso2.com" {
 		t.Errorf("single address = %+v", m)
 	}
-	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "", "invoices")
+	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "", "invoices", email.FinanceItems{})
 	if strings.Join(m.To, ",") != "log@wso2.com,fin@wso2.com" || len(m.CC) != 0 {
 		t.Errorf("no company = %+v", m)
 	}
@@ -471,5 +475,66 @@ func TestFinancePushingState(t *testing.T) {
 	pay := s.paymentOf(p, engagemententity.FinancePayment{NSStatus: fsp("Pushing"), TravelStatus: fsp("In Progress")})
 	if pay.NetSuite.Status != domain.NetSuitePushing || pay.Status != "Complete" || pay.Actions.Push || pay.Actions.Edit {
 		t.Errorf("payment = %+v", pay)
+	}
+}
+
+// The approve/reject email lists only the invoices of this batch decided on
+// the trip it is about (the last OK job), with the rejection reason; when the
+// lookup fails the email still goes, without the list.
+func TestFinanceDecideEmailItems(t *testing.T) {
+	ctx := context.Background()
+	e := &finEntity{trip: openTrip(),
+		decisions: []engagemententity.FinanceDecisionResult{
+			{ID: 1, OK: true, JobNumber: fsp("TRV-B")}, {ID: 2, OK: true, JobNumber: fsp("TRV-A")},
+			{ID: 3, Message: fsp("Problem"), JobNumber: fsp("TRV-B")}, {ID: 4, OK: true, JobNumber: fsp("TRV-B")}},
+		invoices: []engagemententity.FinanceInvoice{
+			{ID: 1, InvoiceNumber: "INV-1", CostTypeName: fsp("Hotel"), InvoiceCurrency: "USD", InvoiceAmount: 980, JobNumber: "TRV-B"},
+			{ID: 3, InvoiceNumber: "INV-3", InvoiceCurrency: "USD", InvoiceAmount: 10, JobNumber: "TRV-B"},
+			{ID: 4, InvoiceNumber: "INV-4", CostTypeName: fsp("Air Ticket"), InvoiceCurrency: "LKR", InvoiceAmount: 45000, JobNumber: "TRV-B"},
+			{ID: 9, InvoiceNumber: "INV-9", InvoiceCurrency: "USD", InvoiceAmount: 1, JobNumber: "TRV-B"}}}
+	s, mail := newFin(e, nil)
+	if _, err := s.RejectInvoices(ctx, perms("f@wso2.com", 33), []int{1, 2, 3, 4}, " Wrong amount "); err != nil {
+		t.Fatal(err)
+	}
+	if len(mail.sent) != 1 || mail.sent[0].ReferenceID != "TRV-B" || e.invFilter.JobNumber != "TRV-B" {
+		t.Fatalf("mail = %+v, filter %+v", mail.sent, e.invFilter)
+	}
+	items := mail.sent[0].Content["items_html"]
+	for _, want := range []string{"INV-1", "Hotel", "USD 980.0", "INV-4", "LKR 45000.0", "Wrong amount"} {
+		if !strings.Contains(items, want) {
+			t.Errorf("items lack %q:\n%s", want, items)
+		}
+	}
+	for _, gone := range []string{"INV-3", "INV-9"} {
+		if strings.Contains(items, gone) {
+			t.Errorf("items include %s (not decided OK in this batch)", gone)
+		}
+	}
+
+	e.invErr = errors.New("entity down")
+	mail.sent = nil
+	if _, err := s.ApproveInvoices(ctx, perms("f@wso2.com", 33), []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	if len(mail.sent) != 1 || strings.Contains(mail.sent[0].Content["items_html"], "INV-") {
+		t.Errorf("lookup failed: mail = %+v", mail.sent)
+	}
+}
+
+// The per diem and invoice added emails show the record that was added, the
+// invoice's cost type by name.
+func TestFinanceAddedEmailItems(t *testing.T) {
+	ctx := context.Background()
+	e := &finEntity{trip: openTrip()}
+	s, mail := newFin(e, nil)
+	if _, err := s.AddPerDiem(ctx, perms("po@wso2.com", 26), job, domain.PerDiemCreate{
+		StartDate: "2026-11-06", StartTime: "13:00", EndDate: "2026-11-16", EndTime: "18:00", Currency: "gbp", Rate: 70}); err != nil {
+		t.Fatal(err)
+	}
+	items := mail.sent[0].Content["items_html"]
+	for _, want := range []string{"GBP", "70.0", "6 Nov 2026, 13:00", "16 Nov 2026, 18:00", ">11<", "GBP 735.0"} {
+		if !strings.Contains(items, want) {
+			t.Errorf("per diem items lack %q", want)
+		}
 	}
 }

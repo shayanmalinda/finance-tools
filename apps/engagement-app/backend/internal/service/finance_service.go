@@ -237,10 +237,10 @@ func (s *FinanceService) travellerCompany(ctx context.Context, traveller string)
 	return strings.TrimSpace(financeDeref(s.people.get(ctx, traveller).Company))
 }
 
-// notify sends a travel finance email; a failure is logged, never returned
-// (legacy: the action stands).
-func (s *FinanceService) notify(ctx context.Context, kind, jobNumber, traveller, tab string) {
-	m := email.FinanceTravelMessage(s.recipients, kind, jobNumber, s.travellerCompany(ctx, traveller), tab)
+// notify sends a travel finance email with the records it is about; a
+// failure is logged, never returned (legacy: the action stands).
+func (s *FinanceService) notify(ctx context.Context, kind, jobNumber, traveller, tab string, items email.FinanceItems) {
+	m := email.FinanceTravelMessage(s.recipients, kind, jobNumber, s.travellerCompany(ctx, traveller), tab, items)
 	ctx = context.WithoutCancel(ctx)
 	if err := s.mail.Send(ctx, m); err != nil {
 		slog.ErrorContext(ctx, "finance email not sent", "kind", kind, "job", jobNumber, "err", err)
@@ -370,7 +370,12 @@ func (s *FinanceService) AddPerDiem(ctx context.Context, p domain.Perms, jobNumb
 	if err != nil {
 		return domain.PerDiem{}, err
 	}
-	s.notify(ctx, email.FinancePerDiemsAdded, jobNumber, trip.TravellerEmail, "per-diems")
+	if created.NoOfDays != nil {
+		days = *created.NoOfDays
+	}
+	s.notify(ctx, email.FinancePerDiemsAdded, jobNumber, trip.TravellerEmail, "per-diems", email.FinanceItems{
+		PerDiem: &email.FinancePerDiemItem{Currency: financeDeref(created.Currency), Rate: created.PerDiemValue,
+			Total: created.Total, From: financeDeref(created.StartDate), To: financeDeref(created.EndDate), Days: days}})
 	out := perDiemOf(created, p.Travel.Has(domain.TravelPrivDeletePerDiems))
 	out.AddedBy = financeStr(p.Email)
 	return out, nil

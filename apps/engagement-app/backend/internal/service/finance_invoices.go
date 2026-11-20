@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -216,8 +217,13 @@ func (s *FinanceService) AddInvoices(ctx context.Context, p domain.Perms, jobNum
 	if err != nil {
 		return domain.InvoicePage{}, err
 	}
-	for range created {
-		s.notify(ctx, email.FinanceInvoicesAdded, jobNumber, trip.TravellerEmail, "invoices")
+	typeNames := make(map[int]string, len(types))
+	for _, t := range types {
+		typeNames[t.ID] = t.Name
+	}
+	for _, c := range created {
+		s.notify(ctx, email.FinanceInvoicesAdded, jobNumber, trip.TravellerEmail, "invoices",
+			email.FinanceItems{Invoices: []email.FinanceInvoiceItem{financeInvoiceItem(c, typeNames)}})
 	}
 	return domain.InvoicePage{Items: s.invoicesOf(ctx, p, created), Total: len(created)}, nil
 }
@@ -394,6 +400,14 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 			lastJob = *r.JobNumber
 		}
 	}
+	// The email is about lastJob: list the invoices of this batch that were
+	// decided on that trip.
+	decided := map[int]bool{}
+	for _, r := range res {
+		if r.OK && r.JobNumber != nil && *r.JobNumber == lastJob {
+			decided[r.ID] = true
+		}
+	}
 	if lastJob != "" {
 		kind := email.FinanceInvoicesApproved
 		if decision == "reject" {
@@ -403,7 +417,21 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 		if t, err := s.entity.FinanceTrip(ctx, lastJob); err == nil {
 			traveller = t.TravellerEmail
 		}
-		s.notify(ctx, kind, lastJob, traveller, "invoices")
+		items := email.FinanceItems{}
+		if decision == "reject" {
+			items.Reason = strings.TrimSpace(reason)
+		}
+		if rows, _, err := s.entity.FinanceInvoices(ctx, engagemententity.FinanceInvoiceFilter{JobNumber: lastJob, Limit: 1000}); err != nil {
+			// The action stands: send the email without the invoice list.
+			slog.WarnContext(ctx, "finance email: invoices not listed", "job", lastJob, "err", err)
+		} else {
+			for _, row := range rows {
+				if decided[row.ID] {
+					items.Invoices = append(items.Invoices, financeInvoiceItem(row, nil))
+				}
+			}
+		}
+		s.notify(ctx, kind, lastJob, traveller, "invoices", items)
 	}
 	return out, nil
 }
@@ -605,4 +633,16 @@ func financeRange(from, to string) error {
 		return financeBad("Start Date must be on or before End Date")
 	}
 	return nil
+}
+
+// financeInvoiceItem is the email view of an invoice; the cost type name comes
+// from the row, else from names (by cost type id).
+func financeInvoiceItem(inv engagemententity.FinanceInvoice, names map[int]string) email.FinanceInvoiceItem {
+	costType := financeDeref(inv.CostTypeName)
+	if costType == "" {
+		costType = names[inv.CostTypeID]
+	}
+	return email.FinanceInvoiceItem{Number: inv.InvoiceNumber, CostType: costType, Month: inv.Month,
+		Currency: inv.InvoiceCurrency, Amount: inv.InvoiceAmount,
+		PaidCurrency: inv.ConvertedCurrency, PaidAmount: inv.ConvertedAmount}
 }

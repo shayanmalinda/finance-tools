@@ -106,7 +106,7 @@ func TestFinanceTravelMessage_Template(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.kind, func(t *testing.T) {
-			m := FinanceTravelMessage(r, c.kind, "TRV-2026-11-0003", "", c.tab)
+			m := FinanceTravelMessage(r, c.kind, "TRV-2026-11-0003", "", c.tab, FinanceItems{})
 			if m.TemplateID != FinanceTemplate {
 				t.Fatalf("template = %q", m.TemplateID)
 			}
@@ -122,7 +122,7 @@ func TestFinanceTravelMessage_Template(t *testing.T) {
 			}
 		})
 	}
-	if m := FinanceTravelMessage(r, FinanceInvoicesAdded, "TRV-1", `"WSO2 - UK"`, "invoices"); m.Content["traveller_company"] != "WSO2 - UK" {
+	if m := FinanceTravelMessage(r, FinanceInvoicesAdded, "TRV-1", `"WSO2 - UK"`, "invoices", FinanceItems{}); m.Content["traveller_company"] != "WSO2 - UK" {
 		t.Errorf("company = %q", m.Content["traveller_company"])
 	}
 }
@@ -141,5 +141,66 @@ func TestAllocationMessage_MyAllocationsButton(t *testing.T) {
 		if !strings.Contains(page, `href="https://one-stg.wso2.com/me/allocations"`) || !strings.Contains(page, ">View My Allocations</a>") {
 			t.Errorf("%s (%s): no View My Allocations button", c.clearance, m.TemplateID)
 		}
+	}
+}
+
+// The finance emails carry the records they are about, every value escaped:
+// the per diem, the added invoice (paid amount only when set), and the
+// decided invoices with the rejection reason.
+func TestFinanceTravelMessage_Items(t *testing.T) {
+	r := FinanceRecipients{TravelLogisticsGroup: "l@wso2.com", FinanceGroup: "f@wso2.com", AppBaseURL: "https://one.example"}
+	render := func(kind string, items FinanceItems) string {
+		t.Helper()
+		m := FinanceTravelMessage(r, kind, "TRV-1", "", "invoices", items)
+		page, err := Render(m.TemplateID, m.Content, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(page, "<script>") {
+			t.Errorf("%s: unescaped value", kind)
+		}
+		if strings.Contains(page, "<!-- [ITEMS_HTML] -->") {
+			t.Errorf("%s: placeholder left", kind)
+		}
+		return page
+	}
+	page := render(FinancePerDiemsAdded, FinanceItems{PerDiem: &FinancePerDiemItem{
+		Currency: "GBP<script>", Rate: 70, Total: 735, From: "2026-11-06 13:00:00", To: "2026-11-16 18:00:00", Days: 11}})
+	for _, want := range []string{">Per Diem<", ">Daily Rate<", ">70.0<", "6 Nov 2026, 13:00", "16 Nov 2026, 18:00", ">11<", "GBP&lt;script&gt; 735.0"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("per diem: lacks %q", want)
+		}
+	}
+
+	inv := FinanceInvoiceItem{Number: "INV-<script>1", CostType: "Air Ticket", Month: "November", Currency: "USD", Amount: 1250.5}
+	page = render(FinanceInvoicesAdded, FinanceItems{Invoices: []FinanceInvoiceItem{inv}})
+	for _, want := range []string{">Invoice<", "INV-&lt;script&gt;1", ">Air Ticket<", ">November<", "USD 1250.5"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("invoice added: lacks %q", want)
+		}
+	}
+	if strings.Contains(page, "Paid Amount") {
+		t.Error("invoice added: paid amount shown without one")
+	}
+	inv.PaidCurrency, inv.PaidAmount = "LKR", 375000
+	if page = render(FinanceInvoicesAdded, FinanceItems{Invoices: []FinanceInvoiceItem{inv}}); !strings.Contains(page, "LKR 375000.0") {
+		t.Error("invoice added: paid amount missing")
+	}
+
+	two := []FinanceInvoiceItem{{Number: "A-1", CostType: "Hotel", Currency: "USD", Amount: 980}, {Number: "A-2", Currency: "LKR", Amount: 45000}}
+	page = render(FinanceInvoicesApproved, FinanceItems{Invoices: two})
+	for _, want := range []string{">Invoices<", "class=\"ea-table\"", ">A-1<", ">Hotel<", "USD 980.0", ">A-2<", "LKR 45000.0", ">—<"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("approved: lacks %q", want)
+		}
+	}
+	page = render(FinanceInvoicesRejected, FinanceItems{Reason: "Wrong <script> amount", Invoices: two[:1]})
+	for _, want := range []string{">Rejection<", "Wrong &lt;script&gt; amount", ">A-1<"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("rejected: lacks %q", want)
+		}
+	}
+	if page = render(FinanceInvoicesApproved, FinanceItems{}); strings.Contains(page, ">Invoices<") || strings.Contains(page, ">Invoice<") {
+		t.Error("no items: a section was rendered")
 	}
 }

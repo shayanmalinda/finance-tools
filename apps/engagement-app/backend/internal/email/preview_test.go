@@ -101,10 +101,17 @@ func TestWritePreviews(t *testing.T) {
 		{"assignRequests", TravelAssigned(ts, trip, visa, "Classic Travels"), false},
 		{"completeTravel", TravelCompleted(ts, trip, visa, "Classic Travels", "WSO2 - USA", perDiems), false},
 		{"noContent", TravelNotice(ts, trip.JobNumber, trip.TravellerEmail, "Classic Travels", "Cancelled", "Please note that this travel request has been cancelled"), false},
-		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - USA", "per-diems"), false},
-		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - USA", "invoices"), true},
-		{"travelFinanceUpdate-invoices-approved", FinanceTravelMessage(fin, FinanceInvoicesApproved, trip.JobNumber, "", "invoices"), false},
-		{"travelFinanceUpdate-invoices-rejected", FinanceTravelMessage(fin, FinanceInvoicesRejected, trip.JobNumber, "WSO2 - USA", "invoices"), false},
+		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - USA", "per-diems", FinanceItems{PerDiem: &FinancePerDiemItem{
+			Currency: "USD", Rate: 70, Total: 735, From: "2026-11-06 13:00:00", To: "2026-11-16 18:00:00", Days: 11}}), false},
+		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - USA", "invoices", FinanceItems{Invoices: []FinanceInvoiceItem{{
+			Number: "CT-INV-20431", CostType: "Air Ticket", Month: "November", Currency: "USD", Amount: 1250.5, PaidCurrency: "USD", PaidAmount: 1250.5}}}), true},
+		{"travelFinanceUpdate-invoices-approved", FinanceTravelMessage(fin, FinanceInvoicesApproved, trip.JobNumber, "", "invoices", FinanceItems{Invoices: []FinanceInvoiceItem{
+			{Number: "CT-INV-20431", CostType: "Air Ticket", Currency: "USD", Amount: 1250.5},
+			{Number: "CT-INV-20432", CostType: "Hotel", Currency: "USD", Amount: 980},
+			{Number: "CT-INV-20433", CostType: "Visa fee", Currency: "LKR", Amount: 45000}}}), false},
+		{"travelFinanceUpdate-invoices-rejected", FinanceTravelMessage(fin, FinanceInvoicesRejected, trip.JobNumber, "WSO2 - USA", "invoices", FinanceItems{
+			Reason:   "The hotel invoice covers two extra nights outside the trip dates.",
+			Invoices: []FinanceInvoiceItem{{Number: "CT-INV-20432", CostType: "Hotel", Currency: "USD", Amount: 980}}}), false},
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
