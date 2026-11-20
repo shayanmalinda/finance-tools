@@ -31,7 +31,7 @@ func TestEngagementMessage_CreatedEvent(t *testing.T) {
 	r := EngagementRecipients{AppBaseURL: "https://one.wso2.com/", MarketingApprovers: []string{"mkt@wso2.com"},
 		InternalApprovers: []string{"int@wso2.com"}, Routing: []string{"allocations@wso2.com"}}
 	m := EngagementMessage(EngagementCreated, engagementTestData(5), r, "me@wso2.com")
-	if m.Subject != "[Allocations] Approval request for EVT00509 : WSO2 - WSO2Con <Asia>" || m.TemplateID != "marketingEvent" {
+	if m.Subject != "[Engagement App] Approval request for EVT00509 : WSO2 - WSO2Con <Asia>" || m.TemplateID != "marketingEvent" {
 		t.Errorf("subject %q template %q", m.Subject, m.TemplateID)
 	}
 	if !reflect.DeepEqual(m.To, []string{"me@wso2.com", "mkt@wso2.com", "allocations@wso2.com", "me@wso2.com"}) ||
@@ -49,7 +49,7 @@ func TestEngagementMessage_CreatedEvent(t *testing.T) {
 func TestEngagementMessage_OtherEvents(t *testing.T) {
 	r := EngagementRecipients{AppBaseURL: "https://one.wso2.com", TravelGroup: "travel@wso2.com", Consultants: []string{"jane@wso2.com"}}
 	upd := EngagementMessage(EngagementUpdated, engagementTestData(1), r, "me@wso2.com")
-	if upd.Subject != "Re: [Allocations] Approval request for EVT00509 : WSO2 - WSO2Con <Asia>" || upd.Content["title"] != "Internal Engagement Updated" ||
+	if upd.Subject != "Re: [Engagement App] Approval request for EVT00509 : WSO2 - WSO2Con <Asia>" || upd.Content["title"] != "Internal Engagement Updated" ||
 		upd.Content["allocate_now_link"] != "https://one.wso2.com/finance/engagement-app/engagements/EVT00509/allocations" ||
 		!reflect.DeepEqual(upd.To, []string{"me@wso2.com"}) {
 		t.Errorf("updated = %+v", upd)
@@ -64,7 +64,7 @@ func TestEngagementMessage_OtherEvents(t *testing.T) {
 	d.Nature = "Off-site"
 	r.TravelAffected = true
 	can := EngagementMessage(EngagementCancelled, d, r, "me@wso2.com")
-	if can.TemplateID != "customerEngagementCancelled" || can.Subject != "Re: [Allocations] Consultant request for EVT00509 : WSO2 - WSO2Con <Asia>" ||
+	if can.TemplateID != "customerEngagementCancelled" || can.Subject != "Re: [Engagement App] Consultant request for EVT00509 : WSO2 - WSO2Con <Asia>" ||
 		!reflect.DeepEqual(can.To, []string{"jane@wso2.com", "me@wso2.com"}) || !reflect.DeepEqual(can.CC, []string{"travel@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("cancelled = %+v", can)
 	}

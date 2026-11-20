@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/oidc"
 )
@@ -46,9 +47,11 @@ type Config struct {
 
 	JWT JWTConfig
 
-	// EngagementEntityBaseURL is the Engagement Entity's project-internal URL.
-	// The entity has no auth of its own (Project visibility), so no
-	// credentials are needed.
+	// EngagementEntityBaseURL is the Engagement Entity's Organization URL on
+	// the Choreo gateway. Every entity route except GET /health requires the
+	// gateway's JWT assertion from an allowed client application, so calls go
+	// through the gateway with the outbound client pair (OUTBOUND_CLIENT_*);
+	// a localhost entity (AUTH_DISABLED) is called without a token.
 	EngagementEntityBaseURL string
 
 	// Choreo connections; unset, calls to that service answer 503.
@@ -70,6 +73,11 @@ type Config struct {
 	// from a browser. Empty means none (never a wildcard). Behind the Choreo
 	// gateway CORS is the gateway's; locally set http://localhost:3000.
 	CORSAllowedOrigins []string
+
+	// ReportMaxConcurrent caps the unpaged report downloads one pod builds at
+	// once (REPORT_MAX_CONCURRENT, default 2); each holds a whole report in
+	// memory.
+	ReportMaxConcurrent int
 }
 
 // JWTConfig is how the caller's token is verified. There is no switch that
@@ -101,6 +109,11 @@ type OAuthClient struct {
 	TokenURL     string
 	ClientID     string
 	ClientSecret string
+	// Scopes are requested in the client-credentials token
+	// (OUTBOUND_SCOPES). Empty sends no scope parameter. One token serves
+	// every outbound service, so the list must cover every subscribed API
+	// that enforces scopes.
+	Scopes []string
 }
 
 // Configured reports whether the pair is complete.
@@ -117,12 +130,15 @@ type EmailConfig struct {
 	// AppBaseURL is the One WSO2 link written into emails.
 	AppBaseURL string
 
-	AllocationsAppUUID string
-	TravelAppUUID      string
-	AllocationsFrom    string
-	TravelFrom         string
-	// TestRecipient set: every email goes to it alone (testing mode).
-	TestRecipient string
+	AllocationsFrom string
+	TravelFrom      string
+	// Live (IS_LIVE_EMAILS, default false) sends emails to their real
+	// recipients; set it only in production. Not live, every email goes to
+	// TestRecipients alone (legacy isSendTestingEmailsOnlyVal +
+	// allocationTestEmail, now for both apps), so staging never mails real people.
+	Live bool
+	// TestRecipients (EMAIL_TEST_RECIPIENTS) receive every email when not Live.
+	TestRecipients []string
 	// Suppressed addresses never receive email (noEmailsTo).
 	Suppressed []string
 	// CCTraveller copies the traveller on travel request emails
@@ -184,6 +200,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportMax, err := getPositiveInt("REPORT_MAX_CONCURRENT", 2)
+	if err != nil {
+		return nil, err
+	}
 	visaNA, err := getPositiveInt("TRAVEL_VISA_NOT_APPLICABLE_ID", 332)
 	if err != nil {
 		return nil, err
@@ -198,6 +218,12 @@ func Load() (*Config, error) {
 			return nil, errors.New("EMAIL_DISABLED must be true or false")
 		}
 	}
+	liveEmails := false
+	if v := strings.TrimSpace(os.Getenv("IS_LIVE_EMAILS")); v != "" {
+		if liveEmails, err = strconv.ParseBool(v); err != nil {
+			return nil, errors.New("IS_LIVE_EMAILS must be true or false")
+		}
+	}
 	ccTraveller := false
 	if v := strings.TrimSpace(os.Getenv("EMAIL_CC_TRAVELLER")); v != "" {
 		if ccTraveller, err = strconv.ParseBool(v); err != nil {
@@ -208,6 +234,7 @@ func Load() (*Config, error) {
 		TokenURL:     getEnvOrDefault("OUTBOUND_TOKEN_URL", DefaultTokenURL),
 		ClientID:     strings.TrimSpace(os.Getenv("OUTBOUND_CLIENT_ID")),
 		ClientSecret: os.Getenv("OUTBOUND_CLIENT_SECRET"),
+		Scopes:       scopeList(os.Getenv("OUTBOUND_SCOPES")),
 	}
 	currency := CurrencyConfig{URL: trimURL(os.Getenv("CURRENCY_CONVERT_SERVICE_URL")), Client: shared}
 	companies := map[string][]string{}
@@ -245,11 +272,10 @@ func Load() (*Config, error) {
 			ServiceURL:              trimURL(os.Getenv("EMAIL_SERVICE_URL")),
 			Disabled:                emailDisabled,
 			AppBaseURL:              trimURL(getEnvOrDefault("APP_BASE_URL", "https://one.wso2.com")),
-			AllocationsAppUUID:      strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_APP_UUID")),
-			TravelAppUUID:           strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_APP_UUID")),
 			AllocationsFrom:         strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_FROM")),
 			TravelFrom:              strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_FROM")),
-			TestRecipient:           strings.TrimSpace(os.Getenv("EMAIL_TEST_RECIPIENT")),
+			Live:                    liveEmails,
+			TestRecipients:          getList("EMAIL_TEST_RECIPIENTS"),
 			Suppressed:              getList("EMAIL_SUPPRESSED"),
 			CCTraveller:             ccTraveller,
 			AllocationsGroup:        strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_GROUP")),
@@ -265,9 +291,10 @@ func Load() (*Config, error) {
 			Account:   strings.TrimSpace(os.Getenv("FILE_STORAGE_ACCOUNT")),
 			AccessKey: strings.TrimSpace(os.Getenv("FILE_STORAGE_ACCESS_KEY")),
 		},
-		Travel:             TravelConfig{VisaNotApplicableID: visaNA, NoValidVisaID: noVisa},
-		Currency:           currency,
-		CORSAllowedOrigins: getList("CORS_ALLOWED_ORIGINS"),
+		Travel:              TravelConfig{VisaNotApplicableID: visaNA, NoValidVisaID: noVisa},
+		Currency:            currency,
+		CORSAllowedOrigins:  getList("CORS_ALLOWED_ORIGINS"),
+		ReportMaxConcurrent: reportMax,
 	}, nil
 }
 
@@ -301,6 +328,16 @@ func (c *Config) Validate() error {
 	}
 	if c.Email.ServiceURL == "" && !c.Email.Disabled {
 		errs = append(errs, errors.New("EMAIL_SERVICE_URL is required (set EMAIL_DISABLED=true to only log emails)"))
+	}
+	// Not live (the default), emails go only to the test recipients: without
+	// any, refuse to start rather than mail real people from staging.
+	if c.Email.Enabled() && !c.Email.Live && len(c.Email.TestRecipients) == 0 {
+		errs = append(errs, errors.New("EMAIL_TEST_RECIPIENTS is required unless IS_LIVE_EMAILS=true (production only)"))
+	}
+	for _, r := range c.Email.TestRecipients {
+		if !strings.Contains(r, "@") || strings.ContainsAny(r, " \t\r\n<>;") {
+			errs = append(errs, fmt.Errorf("EMAIL_TEST_RECIPIENTS: %q is not an email address", r))
+		}
 	}
 	// With EMAIL_DISABLED the email URL is never used, so it needs neither
 	// the client pair nor https.
@@ -382,6 +419,20 @@ func getEnvOrDefault(key, defaultVal string) string {
 
 // getList splits a comma-separated variable, dropping empty entries.
 func getList(key string) []string { return splitList(os.Getenv(key)) }
+
+// scopeList splits OAuth scopes on commas and whitespace, trimmed and
+// de-duplicated, in the order given.
+func scopeList(v string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 func splitList(v string) []string {
 	var out []string

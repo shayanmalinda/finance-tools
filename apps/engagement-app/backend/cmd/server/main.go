@@ -66,7 +66,7 @@ func main() {
 	// legacy Allocations backend does.
 	var oauth *http.Client
 	if cfg.Client.Configured() {
-		oauth = rest.NewOAuthHTTPClient(cfg.Client.TokenURL, cfg.Client.ClientID, cfg.Client.ClientSecret)
+		oauth = rest.NewOAuthHTTPClient(cfg.Client.TokenURL, cfg.Client.ClientID, cfg.Client.ClientSecret, cfg.Client.Scopes)
 	}
 
 	var sales salesentity.Client = salesentity.Unconfigured{}
@@ -85,11 +85,10 @@ func main() {
 	var sender email.Sender = email.LogSender{}
 	if e := cfg.Email; e.Enabled() {
 		sender = email.New(email.Config{
-			ServiceURL:    e.ServiceURL,
-			AppUUID:       map[email.App]string{email.AppAllocations: e.AllocationsAppUUID, email.AppTravel: e.TravelAppUUID},
-			From:          map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
-			TestRecipient: e.TestRecipient,
-			Suppressed:    e.Suppressed,
+			ServiceURL:     e.ServiceURL,
+			From:           map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
+			TestRecipients: testRecipients(e),
+			Suppressed:     e.Suppressed,
 		}, rest.New("email", e.ServiceURL, oauth))
 	} else {
 		slog.Warn("EMAIL_DISABLED is set: emails are logged, not sent")
@@ -118,17 +117,18 @@ func main() {
 	entity := engagemententity.New(cfg.EngagementEntityBaseURL, entityHTTP)
 
 	handler := server.NewRouter(server.Deps{
-		Verifier:           verifier,
-		Userinfo:           oidc.NewUserinfoClient(cfg.JWT.UserinfoURL, nil),
-		Entity:             entity,
-		Sales:              sales,
-		HR:                 hr,
-		Email:              sender,
-		Files:              files,
-		Recipients:         cfg.Email,
-		Travel:             cfg.Travel,
-		Currency:           cfg.Currency,
-		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
+		Verifier:            verifier,
+		Userinfo:            oidc.NewUserinfoClient(cfg.JWT.UserinfoURL, nil),
+		Entity:              entity,
+		Sales:               sales,
+		HR:                  hr,
+		Email:               sender,
+		Files:               files,
+		Recipients:          cfg.Email,
+		Travel:              cfg.Travel,
+		Currency:            cfg.Currency,
+		CORSAllowedOrigins:  cfg.CORSAllowedOrigins,
+		ReportMaxConcurrent: cfg.ReportMaxConcurrent,
 	})
 	srv := server.New(":"+cfg.ServerPort, handler)
 
@@ -177,4 +177,13 @@ func newVerifier(c config.JWTConfig) (*oidc.MultiVerifier, error) {
 		vs = append(vs, gw)
 	}
 	return oidc.NewMultiVerifier(vs...)
+}
+
+// testRecipients are where every email goes when emails are not live (the
+// default outside production); live, nil sends to the real recipients.
+func testRecipients(e config.EmailConfig) []string {
+	if e.Live {
+		return nil
+	}
+	return e.TestRecipients
 }

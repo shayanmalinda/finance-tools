@@ -28,14 +28,18 @@ backend, use `apps/engagement-app/run-local.sh`.
 - Default port: `:8290`
 - Runtime: Go `1.25+`, standard library router (`net/http` ServeMux)
 - Entry point: `cmd/api/main.go`
-- Authentication: by placement, as in the GRC compliance entity. The Choreo
-  component is visible to its project only (`.choreo/component.yaml`), and the
-  service applies **no** auth middleware itself. The Engagement App Backend is
-  the trusted caller: it verifies the user's JWT and enforces the legacy
+- Authentication: the Engagement App Backend reaches the entity through its
+  Choreo **Organization** endpoint (`.choreo/component.yaml`), with its
+  client-credentials token. The gateway checks that token and forwards a JWT
+  it signs in `X-JWT-Assertion`; the `auth` middleware verifies it (RS256
+  against `GATEWAY_JWT_JWKS_URL`, issuer, expiry) and admits only the client
+  applications in `ALLOWED_CLIENT_IDS`: 401 without a valid assertion, 403 for
+  another application. Only `GET /health` is open. The backend is the trusted
+  caller: it verifies the user's JWT and enforces the legacy
   privileges, then passes the acting user's email in the JSON body of writes
   (`createdBy` / `updatedBy`). Handler code never reads identity from headers.
   The one use of the `X-User-Email` header is the audit trail: the `Actor`
-  middleware puts it on the request context and `audit_event` rows take their
+  middleware, which runs after `auth`, puts it on the request context and `audit_event` rows take their
   actor from it, falling back to the body's user.
 - The two legacy apps keep separate roles, privileges and `role_privilege`
   tables. Every access endpoint takes the app (`allocations` or `travel`) in
@@ -62,7 +66,10 @@ gofmt -l .                 # must print nothing
 ## Configuration
 
 Settings come from environment variables; locally from a git-ignored `.env`
-(copy `.env.local`). Only the database host, user and password must be set.
+(copy `.env.local`). The database host, user and password must be set, and
+the gateway JWT settings unless `AUTH_DISABLED=true` (local run only: the
+server then listens on `127.0.0.1`, so a deployment that sets it by mistake is
+unreachable, not open).
 Never put real values in committed files.
 
 | Variable | Required? | Default | Where to get it (legacy key) |
@@ -71,8 +78,18 @@ Never put real values in committed files.
 | `DB_USER` | Yes | – | One user for all schemas: read/write on `allocation_db` and `travelapp`; `SELECT` on `expense_app` (Infra) |
 | `DB_PASSWORD` | Yes (secret) | – | That user's password |
 | `DB_PORT` | No | `3306` | – |
-| `DB_TLS` | No | empty = verified TLS (`tls=true`) | Set `false` only for a local MySQL without TLS |
+| `DB_TLS` | No | empty = verified TLS (`tls=true`) | Set `false` only for a local MySQL without TLS. `skip-verify` does not check the certificate: non-production only (a startup warning says so) |
+| `DB_TLS_CA` | When the MySQL certificate is from an internal CA | – | Path to a PEM CA bundle, mounted with Choreo "File and Certificate Mount". Verified TLS against it (TLS 1.2+); an unreadable file or one with no certificate stops startup |
+| `DB_TLS_SERVER_NAME` | When connecting by IP | – | The host name the MySQL certificate carries, when `DB_HOST` is an IP the certificate doesn't list |
+| `AUDIT_OPTIONAL` | Locally | `false` | `true` lets the entity start without the `audit_event` tables; otherwise startup fails and names the migration to run |
 | `SERVER_PORT` | No | `8290` | – |
+| `GATEWAY_JWT_JWKS_URL` | Yes, unless `AUTH_DISABLED` | – | The Choreo gateway's keys, `https://<gateway-domain>/.wellknown/jwks` (staging `https://apis-stg.wso2.com/.wellknown/jwks`) |
+| `GATEWAY_JWT_ISSUER` | No | `wso2.org/products/am` | `iss` of the gateway's JWT |
+| `ALLOWED_CLIENT_IDS` | Yes, unless `AUTH_DISABLED` | – | Comma-separated client ids let in: the Engagement App Backend's `OUTBOUND_CLIENT_ID`. Read from `client_id`, else `azp`, else `http://wso2.org/claims/client_id`, the same order as the Customer Entity's `AUTH_INTERNAL_CLIENT_IDS` (cs-tools-membership-scope `entity-service`) |
+| `CLIENT_ID_CLAIMS` | No | `client_id,azp,http://wso2.org/claims/client_id` | Comma-separated claims that name the calling application, tried in order. Change it only if the gateway JWT names the client elsewhere: a refused call logs the claim names it carried (never values) |
+| `GATEWAY_JWT_API_CONTEXTS` | Recommended | – | Comma-separated API contexts the assertion must be issued for, e.g. `/wutu/engagement-entity/v1.0`, so an assertion the gateway issued for another API (Sales or HR entity, Email Service) is refused (403). Unset skips the check, with a startup warning |
+| `API_CONTEXT_CLAIMS` | No | `http://wso2.org/claims/apicontext` | Claims that name that API, tried in order |
+| `AUTH_DISABLED` | Locally | `false` | `true` skips the JWT check and binds to `127.0.0.1` |
 | `NETSUITE_PUSH_ENABLED` | No | `false` | `true` turns NetSuite on (invoice and per diem push, re-sync lookups, Marketing Event creation); then the settings below are required |
 | `NETSUITE_ACCOUNT_ID` | When on | – | `[finance_entity_service.netsuite.netSuiteConfigs] accountId` |
 | `NETSUITE_CONSUMER_KEY` / `_SECRET` | When on (secret) | – | `consumerId` / `consumerSecret` |
@@ -108,6 +125,7 @@ engagement-entity/
 ├── internal/
 │   ├── apierror/              # Typed API errors and the {code, message} body
 │   ├── audit/                 # audit_event rows, written in the transaction of each change
+│   ├── auth/                  # Gateway JWT (X-JWT-Assertion) check and client allow-list
 │   ├── cache/                 # Generic in-memory TTL cache
 │   ├── config/                # Env var loading + Validate()
 │   ├── db/                    # One MySQL pool per schema; TLS default, UTC, read-only
@@ -187,11 +205,31 @@ Each script holds one statement, so it runs with Ctrl+Enter or as a script.
 |---|---|
 | `Resources/allocation_db_table_update_v1.0.0.sql` | Adds nullable `engagement.campaign_id VARCHAR(18)` (Salesforce Campaign of a Marketing Event). The engagement and finance queries read the column, so run it before deploying. Run it once; a second run fails with a duplicate-column error. |
 | `Resources/allocation_db_table_update_v1.1.0.sql` | Adds the `audit_event` table to allocation_db. Safe to re-run. |
-| `Resources/travelapp_table_update_v1.0.0.sql` | Adds the `audit_event` table to travelapp. Safe to re-run. Until both schemas have it, no audit events are recorded (a startup warning says so). |
+| `Resources/travelapp_table_update_v1.0.0.sql` | Adds the `audit_event` table to travelapp. Safe to re-run. Until both schemas have it, the entity refuses to start (unless `AUDIT_OPTIONAL=true`, local runs only). |
+
+## Scopes (planned)
+
+Per-operation OAuth scopes on top of the client allow-list are planned in
+[`docs/scopes.md`](docs/scopes.md): scope names, the route-to-scope table
+(fine-grained and coarse), enforcement at the Choreo gateway and in the
+entity (`ENFORCE_SCOPES`), and the rollout order. Not enforced yet.
 
 ## Deployment
+
+Go-live checklist (production, and staging configured the same way):
+
+- Both `audit_event` migrations above have run; the entity does not start
+  without them.
+- MySQL TLS is verified: `DB_TLS` empty, with `DB_TLS_CA` (the internal CA,
+  mounted as a file) and `DB_TLS_SERVER_NAME` when `DB_HOST` is an IP. Never
+  `skip-verify`.
+- `GATEWAY_JWT_JWKS_URL` and `ALLOWED_CLIENT_IDS` are set; `AUTH_DISABLED`
+  and `AUDIT_OPTIONAL` are not.
 
 Choreo builds the component with its Go buildpack. `project.toml` points the
 buildpack at `./cmd/api` (`GOOGLE_BUILDABLE`), as
 `grc-tools/apps/grc-platform/backend/project.toml` does for `./cmd/server`.
-The endpoint is visible to the Choreo project only.
+The endpoint is visible to the Choreo project and the organization. Callers
+need the gateway: the Organization endpoint forwards `X-JWT-Assertion` (enable
+"Pass end-user attributes to upstream" on the endpoint); a direct Project
+URL call has none and gets 401.

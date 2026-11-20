@@ -139,7 +139,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		if internal {
 			literal = "Approval"
 		}
-		subject = "[Allocations] " + literal + " request for " + ref
+		subject = "[Engagement App] " + literal + " request for " + ref
 		switch {
 		case marketing:
 			title = "New Marketing Event created - Please approve"
@@ -162,7 +162,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		if e.RequestStatus == "Pending Approval" {
 			literal = "Approval"
 		}
-		subject = "Re: [Allocations] " + literal + " request for " + ref
+		subject = "Re: [Engagement App] " + literal + " request for " + ref
 		switch {
 		case marketing:
 			title = "Marketing Event Updated"
@@ -177,7 +177,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		if ev == EngagementUpdatedAndApproved {
 			status = "Updated and Approved"
 		}
-		subject = "Re: [Allocations] Consultant request for " + ref
+		subject = "Re: [Engagement App] Consultant request for " + ref
 		if marketing {
 			title = "Marketing Event " + status
 			template = "marketingEvent"
@@ -187,7 +187,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		}
 		description = "Please note that the following " + what + " has been " + strings.ToLower(status) + "."
 	case EngagementCancelled:
-		subject = "Re: [Allocations] Consultant request for " + ref
+		subject = "Re: [Engagement App] Consultant request for " + ref
 		switch {
 		case marketing:
 			title, template = "Marketing Event Cancelled", "marketingEventCancelled"

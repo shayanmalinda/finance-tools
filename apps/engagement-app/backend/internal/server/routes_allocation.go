@@ -59,5 +59,5 @@ func registerAllocationRoutes(a *area) {
 	a.handleIdem("POST /team-allocations/bulk", alloc(21), h.UploadBulk)
 
 	// Consultant Allocations report (22).
-	a.handleAudited("GET /reports/consultant-allocations", alloc(22), auditExport("allocation", "consultant-allocations"), h.Report)
+	a.handleReport("GET /reports/consultant-allocations", alloc(22), auditExport("allocation", "consultant-allocations"), h.Report)
 }

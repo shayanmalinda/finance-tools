@@ -54,6 +54,8 @@ type Deps struct {
 	Travel config.TravelConfig
 	// CORSAllowedOrigins are the webapp origins allowed from a browser.
 	CORSAllowedOrigins []string
+	// ReportMaxConcurrent caps unpaged report downloads per pod; 0 means 2.
+	ReportMaxConcurrent int
 	// Now is the clock (tests pin it); nil means time.Now.
 	Now func() time.Time
 }
@@ -65,7 +67,9 @@ type area struct {
 	Access    service.AccessService
 	Idem      *middleware.Idempotency
 	Campaigns *service.CampaignNames
-	mux       *http.ServeMux
+	// Reports is the per-pod cap on unpaged report downloads.
+	Reports func(http.Handler) http.Handler
+	mux     *http.ServeMux
 }
 
 // handle registers pattern behind the legacy privilege gate.
@@ -96,6 +100,9 @@ func NewRouter(d Deps) http.Handler {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.ReportMaxConcurrent == 0 {
+		d.ReportMaxConcurrent = 2
+	}
 	if d.Travel.VisaNotApplicableID == 0 {
 		d.Travel.VisaNotApplicableID = 332
 	}
@@ -111,7 +118,8 @@ func NewRouter(d Deps) http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /user-info", userInfoH.Get)
 
-	a := &area{Deps: d, Access: accessSvc, Idem: middleware.NewIdempotency(), Campaigns: service.NewCampaignNames(d.Sales), mux: api}
+	a := &area{Deps: d, Access: accessSvc, Idem: middleware.NewIdempotency(), Campaigns: service.NewCampaignNames(d.Sales),
+		Reports: middleware.Limit(d.ReportMaxConcurrent), mux: api}
 	registerEngagementRoutes(a)
 	registerAllocationRoutes(a)
 	registerTravelRoutes(a)

@@ -17,6 +17,7 @@
 package config
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -25,12 +26,13 @@ import (
 
 var allKeys = []string{
 	"SERVER_PORT", "JWT_ISSUER", "JWT_JWKS_URL", "JWT_USERINFO_URL", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL",
-	"GATEWAY_JWT_AUDIENCES", "EMAIL_DISABLED",
+	"GATEWAY_JWT_AUDIENCES", "EMAIL_DISABLED", "IS_LIVE_EMAILS", "EMAIL_TEST_RECIPIENTS",
 	"JWT_AUDIENCES", "JWT_CLOCK_SKEW_SECONDS", "ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL",
 	"OUTBOUND_TOKEN_URL", "OUTBOUND_CLIENT_ID", "OUTBOUND_CLIENT_SECRET", "EMAIL_SERVICE_URL", "APP_BASE_URL",
 	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
 	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
+	"REPORT_MAX_CONCURRENT", "OUTBOUND_SCOPES",
 }
 
 func setMinimalEnv(t *testing.T) {
@@ -171,6 +173,7 @@ func TestValidateRejectsInsecureOutboundURLs(t *testing.T) {
 			setMinimalEnv(t)
 			t.Setenv("EMAIL_DISABLED", "") // email on, so its URL is checked
 			t.Setenv("EMAIL_SERVICE_URL", "https://email.example")
+			t.Setenv("EMAIL_TEST_RECIPIENTS", "qa@wso2.com")
 			t.Setenv("OUTBOUND_CLIENT_ID", "id")
 			t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
 			t.Setenv(key, "http://svc.example/x")
@@ -266,8 +269,43 @@ func TestCurrencyUsesTheOutboundPair(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Errorf("with the outbound pair: Validate() = %v", err)
 	}
-	if c.Currency.Client != c.Client || c.Currency.Client.ClientID != "id" {
+	if !reflect.DeepEqual(c.Currency.Client, c.Client) || c.Currency.Client.ClientID != "id" {
 		t.Errorf("currency client = %+v, outbound = %+v", c.Currency.Client, c.Client)
+	}
+}
+
+// OUTBOUND_SCOPES: commas or spaces, trimmed, de-duplicated; empty is none.
+func TestLoadOutboundScopes(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil || c.Client.Scopes != nil {
+		t.Fatalf("unset: %v, %v", c.Client.Scopes, err)
+	}
+	t.Setenv("OUTBOUND_SCOPES", " engagement:read, engagement:write  engagement:read,,\tengagement:finance ")
+	if c, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"engagement:read", "engagement:write", "engagement:finance"}
+	if !reflect.DeepEqual(c.Client.Scopes, want) || !reflect.DeepEqual(c.Currency.Client.Scopes, want) {
+		t.Errorf("scopes = %v, currency %v", c.Client.Scopes, c.Currency.Client.Scopes)
+	}
+}
+
+func TestLoadReportMaxConcurrent(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil || c.ReportMaxConcurrent != 2 {
+		t.Fatalf("default: %v, %v", c, err)
+	}
+	t.Setenv("REPORT_MAX_CONCURRENT", "4")
+	if c, err = Load(); err != nil || c.ReportMaxConcurrent != 4 {
+		t.Errorf("4: %v, %v", c.ReportMaxConcurrent, err)
+	}
+	for _, bad := range []string{"0", "-1", "x"} {
+		t.Setenv("REPORT_MAX_CONCURRENT", bad)
+		if _, err := Load(); err == nil {
+			t.Errorf("REPORT_MAX_CONCURRENT=%s: want error", bad)
+		}
 	}
 }
 
@@ -309,5 +347,40 @@ func TestLoadEmailAndFiles(t *testing.T) {
 	t.Setenv("EMAIL_COMPANY_RECIPIENTS", "not json")
 	if _, err := Load(); err == nil {
 		t.Error("accepted malformed EMAIL_COMPANY_RECIPIENTS")
+	}
+}
+
+// Emails are not live by default: with email on, staging must name its test
+// recipients or the backend won't start, so it can never mail real people.
+// IS_LIVE_EMAILS=true (production) sends to the real recipients.
+func TestValidateEmailsLiveOrTestRecipients(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("EMAIL_DISABLED", "")
+	t.Setenv("EMAIL_SERVICE_URL", "https://email.example")
+	t.Setenv("OUTBOUND_CLIENT_ID", "id")
+	t.Setenv("OUTBOUND_CLIENT_SECRET", "secret")
+	c, _ := Load()
+	if c.Email.Live {
+		t.Fatal("IS_LIVE_EMAILS unset: want not live")
+	}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "EMAIL_TEST_RECIPIENTS is required") {
+		t.Errorf("not live, no test recipients: Validate() = %v", err)
+	}
+	t.Setenv("EMAIL_TEST_RECIPIENTS", " qa@wso2.com, ,lead@wso2.com ")
+	if c, _ = Load(); c.Validate() != nil || !reflect.DeepEqual(c.Email.TestRecipients, []string{"qa@wso2.com", "lead@wso2.com"}) {
+		t.Errorf("test recipients = %v, Validate() = %v", c.Email.TestRecipients, c.Validate())
+	}
+	t.Setenv("EMAIL_TEST_RECIPIENTS", "qa@wso2.com,not an address")
+	if c, _ = Load(); c.Validate() == nil {
+		t.Error("an invalid test recipient was accepted")
+	}
+	t.Setenv("EMAIL_TEST_RECIPIENTS", "")
+	t.Setenv("IS_LIVE_EMAILS", "true")
+	if c, _ = Load(); !c.Email.Live || c.Validate() != nil {
+		t.Errorf("live: Live=%v Validate()=%v", c.Email.Live, c.Validate())
+	}
+	t.Setenv("IS_LIVE_EMAILS", "yes please")
+	if _, err := Load(); err == nil {
+		t.Error("IS_LIVE_EMAILS=yes please: want error")
 	}
 }

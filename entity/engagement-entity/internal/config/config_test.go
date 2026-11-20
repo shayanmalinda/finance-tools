@@ -36,6 +36,8 @@ func clearEnv(t *testing.T) {
 		"NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID", "NETSUITE_CREATE_VENDOR_BILL_DEPLOY_ID",
 		"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID",
 		"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", "NETSUITE_GET_VENDOR_BILL_DEPLOY_ID",
+		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS", "CLIENT_ID_CLAIMS", "GATEWAY_JWT_API_CONTEXTS", "API_CONTEXT_CLAIMS",
+		"DB_TLS_CA", "DB_TLS_SERVER_NAME", "AUDIT_OPTIONAL",
 	} {
 		t.Setenv(k, "")
 	}
@@ -81,7 +83,7 @@ func TestValidateNamesEveryMissingSetting(t *testing.T) {
 }
 
 func TestValidateNetSuiteOnlyWhenPushEnabled(t *testing.T) {
-	c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}}
+	c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}, Auth: AuthConfig{Disabled: true}}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate() = %v, want nil", err)
 	}
@@ -89,6 +91,113 @@ func TestValidateNetSuiteOnlyWhenPushEnabled(t *testing.T) {
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(), "NETSUITE_ACCOUNT_ID") || !strings.Contains(err.Error(), "NETSUITE_PURCHASE_ORDER_TAX_CODE") {
 		t.Errorf("push enabled without credentials: err = %v", err)
+	}
+}
+
+// Auth fails closed: without AUTH_DISABLED the gateway JWKS URL (https) and
+// the allowed client ids are required.
+func TestValidateRequiresGatewayAuth(t *testing.T) {
+	base := func() *Config { return &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}} }
+	err := base().Validate()
+	if err == nil || !strings.Contains(err.Error(), "GATEWAY_JWT_JWKS_URL") || !strings.Contains(err.Error(), "ALLOWED_CLIENT_IDS") {
+		t.Errorf("no auth settings: err = %v", err)
+	}
+	c := base()
+	c.Auth = AuthConfig{JWKSURL: "http://gw.example/.wellknown/jwks", AllowedClientIDs: []string{"backend"}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "must be an https URL") {
+		t.Errorf("plain http JWKS: err = %v", err)
+	}
+	c.Auth.JWKSURL = "https://gw.example/.wellknown/jwks"
+	if err := c.Validate(); err != nil {
+		t.Errorf("complete auth: err = %v", err)
+	}
+	c = base()
+	c.Auth.Disabled = true
+	if err := c.Validate(); err != nil {
+		t.Errorf("AUTH_DISABLED: err = %v", err)
+	}
+}
+
+func TestLoadAuth(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("GATEWAY_JWT_JWKS_URL", " https://gw.example/.wellknown/jwks ")
+	t.Setenv("ALLOWED_CLIENT_IDS", " a, ,b ")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Auth.Disabled || c.Auth.Issuer != DefaultGatewayIssuer || c.Auth.JWKSURL != "https://gw.example/.wellknown/jwks" ||
+		len(c.Auth.AllowedClientIDs) != 2 || c.Auth.AllowedClientIDs[0] != "a" || c.Auth.AllowedClientIDs[1] != "b" {
+		t.Errorf("auth = %+v", c.Auth)
+	}
+	if len(c.Auth.ClientIDClaims) != 0 {
+		t.Errorf("CLIENT_ID_CLAIMS unset: claims = %v, want empty (the auth default)", c.Auth.ClientIDClaims)
+	}
+	t.Setenv("CLIENT_ID_CLAIMS", " http://wso2.org/claims/applicationUUId , ,azp ")
+	if c, err = Load(); err != nil || len(c.Auth.ClientIDClaims) != 2 ||
+		c.Auth.ClientIDClaims[0] != "http://wso2.org/claims/applicationUUId" || c.Auth.ClientIDClaims[1] != "azp" {
+		t.Errorf("CLIENT_ID_CLAIMS: claims = %v, err %v", c.Auth.ClientIDClaims, err)
+	}
+	if len(c.Auth.APIContexts) != 0 || len(c.Auth.APIContextClaims) != 0 {
+		t.Errorf("API context unset: %v / %v", c.Auth.APIContexts, c.Auth.APIContextClaims)
+	}
+	t.Setenv("GATEWAY_JWT_API_CONTEXTS", " /wutu/engagement-entity/v1.0 , ")
+	t.Setenv("API_CONTEXT_CLAIMS", "apicontext")
+	if c, err = Load(); err != nil || len(c.Auth.APIContexts) != 1 || c.Auth.APIContexts[0] != "/wutu/engagement-entity/v1.0" ||
+		len(c.Auth.APIContextClaims) != 1 || c.Auth.APIContextClaims[0] != "apicontext" {
+		t.Errorf("API context: %+v, err %v", c.Auth, err)
+	}
+	t.Setenv("AUTH_DISABLED", "maybe")
+	if _, err := Load(); err == nil {
+		t.Error("AUTH_DISABLED=maybe: want error")
+	}
+}
+
+// Disabling auth also binds the server to loopback, so a deployment that
+// sets it by mistake is unreachable, not open.
+func TestListenAddr(t *testing.T) {
+	c := &Config{ServerPort: "8290"}
+	if got := c.ListenAddr(); got != ":8290" {
+		t.Errorf("auth on: %q", got)
+	}
+	c.Auth.Disabled = true
+	if got := c.ListenAddr(); got != "127.0.0.1:8290" {
+		t.Errorf("auth off: %q", got)
+	}
+}
+
+func TestLoadDBTLSAndAudit(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("DB_TLS_CA", " /etc/mysql-ca/ca.pem ")
+	t.Setenv("DB_TLS_SERVER_NAME", "mysql.internal.wso2.com")
+	t.Setenv("AUDIT_OPTIONAL", "true")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.DB.TLSCA != "/etc/mysql-ca/ca.pem" || c.DB.TLSServerName != "mysql.internal.wso2.com" || !c.DB.CustomTLS() || !c.AuditOptional {
+		t.Errorf("db = %+v, audit optional %v", c.DB, c.AuditOptional)
+	}
+	t.Setenv("AUDIT_OPTIONAL", "maybe")
+	if _, err := Load(); err == nil {
+		t.Error("AUDIT_OPTIONAL=maybe: want error")
+	}
+}
+
+// A CA or server name means verified TLS: it can't be combined with an
+// unverified or disabled DB_TLS.
+func TestValidateCustomTLSNeedsVerifiedTLS(t *testing.T) {
+	for _, mode := range []string{"skip-verify", "false", "preferred"} {
+		c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", TLS: mode, TLSCA: "/ca.pem"}, Auth: AuthConfig{Disabled: true}}
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "DB_TLS must be empty or true") {
+			t.Errorf("DB_TLS=%s with a CA: err = %v", mode, err)
+		}
+	}
+	for _, mode := range []string{"", "true"} {
+		c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", TLS: mode, TLSCA: "/ca.pem"}, Auth: AuthConfig{Disabled: true}}
+		if err := c.Validate(); err != nil {
+			t.Errorf("DB_TLS=%q with a CA: err = %v", mode, err)
+		}
 	}
 }
 

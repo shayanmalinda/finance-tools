@@ -609,3 +609,29 @@ func TestVerify_CachedKeyHasAHardExpiry(t *testing.T) {
 		t.Errorf("after recovery: %v", err)
 	}
 }
+
+// Every redirect hop of the JWKS fetch must pass the https (http only on
+// loopback) rule, not only the configured URL.
+func TestSecureRedirects(t *testing.T) {
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://jwks.example/keys", http.StatusFound)
+	}))
+	defer jwks.Close()
+	c := secureRedirects(jwks.Client())
+	// The policy must reject the hop itself: a network error reaching the
+	// plaintext host would also fail the Get, so check the policy's message.
+	if _, err := c.Get(jwks.URL); err == nil || !strings.Contains(err.Error(), "JWKS redirect to a non-https URL") {
+		t.Fatalf("redirect to plaintext http: err = %v, want the redirect-policy rejection", err)
+	}
+	if err := c.CheckRedirect(httptest.NewRequest(http.MethodGet, "http://jwks.example/keys", nil), nil); err == nil {
+		t.Fatal("CheckRedirect allowed a plaintext non-loopback target")
+	}
+	for _, target := range []string{"https://jwks.example/keys", "http://127.0.0.1:8443/keys"} {
+		if err := c.CheckRedirect(httptest.NewRequest(http.MethodGet, target, nil), nil); err != nil {
+			t.Errorf("%s: %v", target, err)
+		}
+	}
+	if err := c.CheckRedirect(httptest.NewRequest(http.MethodGet, "https://jwks.example/keys", nil), make([]*http.Request, maxJWKSRedirects)); err == nil {
+		t.Error("redirect chain longer than the limit was followed")
+	}
+}

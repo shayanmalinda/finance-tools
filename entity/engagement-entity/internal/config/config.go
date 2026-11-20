@@ -14,19 +14,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package config loads settings from environment variables; only the
-// database host, user and password are required.
+// Package config loads settings from environment variables; the database
+// host, user and password and the gateway JWT settings (or AUTH_DISABLED for
+// a local run) are required.
 package config
 
 import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/auth"
 )
 
 // Legacy schema names. They are the same in every environment, so they are
@@ -47,7 +50,45 @@ type Config struct {
 	// NetSuite is used only when NetSuite.PushEnabled is true.
 	NetSuite NetSuiteConfig
 
+	// Auth is how callers are admitted (see package auth).
+	Auth AuthConfig
+
+	// AuditOptional lets the entity start without the audit_event tables
+	// (AUDIT_OPTIONAL, local runs only); otherwise startup fails without them.
+	AuditOptional bool
+
 	ServerPort string
+}
+
+// DefaultGatewayIssuer is the iss of the JWT the Choreo gateway forwards.
+const DefaultGatewayIssuer = "wso2.org/products/am"
+
+// AuthConfig is the gateway JWT check. Disabled is for a local run only: the
+// server then listens on loopback (ListenAddr), so a deployment that sets it
+// by mistake is unreachable rather than open.
+type AuthConfig struct {
+	Disabled         bool
+	Issuer           string
+	JWKSURL          string
+	AllowedClientIDs []string
+	// ClientIDClaims (CLIENT_ID_CLAIMS) are the claims naming the calling
+	// application, in order; empty uses the auth package's default.
+	ClientIDClaims []string
+	// APIContexts (GATEWAY_JWT_API_CONTEXTS) bind the assertion to this API
+	// (e.g. /wutu/engagement-entity/v1.0); empty skips the check.
+	APIContexts []string
+	// APIContextClaims (API_CONTEXT_CLAIMS) name that API, in order; empty
+	// uses the auth package's default.
+	APIContextClaims []string
+}
+
+// ListenAddr is where the server listens: every interface, or only
+// loopback when auth is disabled.
+func (c *Config) ListenAddr() string {
+	if c.Auth.Disabled {
+		return net.JoinHostPort("127.0.0.1", c.ServerPort)
+	}
+	return ":" + c.ServerPort
 }
 
 // DBConfig is how the entity reaches MySQL.
@@ -58,9 +99,20 @@ type DBConfig struct {
 	Password string
 	// TLS is the go-sql-driver tls= value. Empty means verified TLS
 	// (tls=true), as in the GRC compliance entity. A local MySQL without TLS
-	// sets DB_TLS=false.
+	// sets DB_TLS=false; skip-verify is for non-production only.
 	TLS string
+	// TLSCA is a PEM CA bundle (DB_TLS_CA, mounted as a file) that signs the
+	// MySQL server certificate, for a server whose CA is internal.
+	TLSCA string
+	// TLSServerName is the name the certificate must carry
+	// (DB_TLS_SERVER_NAME), for connecting by IP to a server whose
+	// certificate names a host.
+	TLSServerName string
 }
+
+// CustomTLS reports whether DB_TLS_CA or DB_TLS_SERVER_NAME asks for a
+// verified TLS config of our own.
+func (d DBConfig) CustomTLS() bool { return d.TLSCA != "" || d.TLSServerName != "" }
 
 // DSN returns the go-sql-driver DSN for schema. The db package normalises it
 // further (UTC, TLS default, read-only session).
@@ -136,6 +188,38 @@ func Load() (*Config, error) {
 		}
 		push = b
 	}
+	authOff := false
+	if v := strings.TrimSpace(os.Getenv("AUTH_DISABLED")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, errors.New("AUTH_DISABLED must be true or false")
+		}
+		authOff = b
+	}
+	auditOptional := false
+	if v := strings.TrimSpace(os.Getenv("AUDIT_OPTIONAL")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, errors.New("AUDIT_OPTIONAL must be true or false")
+		}
+		auditOptional = b
+	}
+	var allowed []string
+	for _, id := range strings.Split(os.Getenv("ALLOWED_CLIENT_IDS"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			allowed = append(allowed, id)
+		}
+	}
+	csv := func(key string) []string {
+		var out []string
+		for _, c := range strings.Split(os.Getenv(key), ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	claims := csv("CLIENT_ID_CLAIMS")
 	ns := NetSuiteConfig{PushEnabled: push}
 	if push {
 		ns.AccountID = strings.TrimSpace(os.Getenv("NETSUITE_ACCOUNT_ID"))
@@ -166,8 +250,21 @@ func Load() (*Config, error) {
 			User:     os.Getenv("DB_USER"),
 			Password: os.Getenv("DB_PASSWORD"),
 			TLS:      strings.TrimSpace(os.Getenv("DB_TLS")),
+
+			TLSCA:         strings.TrimSpace(os.Getenv("DB_TLS_CA")),
+			TLSServerName: strings.TrimSpace(os.Getenv("DB_TLS_SERVER_NAME")),
 		},
-		NetSuite:   ns,
+		NetSuite:      ns,
+		AuditOptional: auditOptional,
+		Auth: AuthConfig{
+			Disabled:         authOff,
+			Issuer:           getEnvOrDefault("GATEWAY_JWT_ISSUER", DefaultGatewayIssuer),
+			JWKSURL:          strings.TrimSpace(os.Getenv("GATEWAY_JWT_JWKS_URL")),
+			AllowedClientIDs: allowed,
+			ClientIDClaims:   claims,
+			APIContexts:      csv("GATEWAY_JWT_API_CONTEXTS"),
+			APIContextClaims: csv("API_CONTEXT_CLAIMS"),
+		},
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8290"),
 	}, nil
 }
@@ -190,6 +287,19 @@ func (c *Config) Validate() error {
 	}
 	if c.DB.Password == "" {
 		errs = append(errs, errors.New("DB_PASSWORD is required"))
+	}
+	if c.DB.CustomTLS() && c.DB.TLS != "" && c.DB.TLS != "true" {
+		errs = append(errs, errors.New("DB_TLS must be empty or true when DB_TLS_CA or DB_TLS_SERVER_NAME is set"))
+	}
+	if !c.Auth.Disabled {
+		if c.Auth.JWKSURL == "" {
+			errs = append(errs, errors.New("GATEWAY_JWT_JWKS_URL is required (or AUTH_DISABLED=true for a local run)"))
+		} else if u, err := url.Parse(c.Auth.JWKSURL); err != nil || !auth.SecureOrLoopback(u) {
+			errs = append(errs, errors.New("GATEWAY_JWT_JWKS_URL must be an https URL (http only on localhost)"))
+		}
+		if len(c.Auth.AllowedClientIDs) == 0 {
+			errs = append(errs, errors.New("ALLOWED_CLIENT_IDS is required (the Engagement App Backend's client id)"))
+		}
 	}
 	if n := c.NetSuite; n.PushEnabled {
 		for _, kv := range []struct{ key, val string }{

@@ -510,7 +510,7 @@ func (s *allocationService) sendAllocationEmail(ctx context.Context, eng engagem
 	}
 	msg := email.AllocationMessage(d, email.AllocationEmailGroups{
 		AllocationsGroup: s.d.Recipients.AllocationsGroup, PartnerAllocationsGroup: s.d.Recipients.PartnerAllocationsGroup,
-		TravelGroup: s.d.Recipients.TravelGroup})
+		TravelGroup: s.d.Recipients.TravelGroup, AppBaseURL: s.d.Recipients.AppBaseURL})
 	if err := s.d.Email.Send(ctx, msg); err != nil {
 		slog.ErrorContext(ctx, "allocation email not sent", "allocation", a.ID, "err", err)
 		return false

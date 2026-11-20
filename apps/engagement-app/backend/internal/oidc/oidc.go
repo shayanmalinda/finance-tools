@@ -92,7 +92,28 @@ func NewVerifier(cfg Config, httpClient *http.Client) (*Verifier, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Verifier{cfg: cfg, keys: newKeySet(cfg.JWKSURL, httpClient)}, nil
+	return &Verifier{cfg: cfg, keys: newKeySet(cfg.JWKSURL, secureRedirects(httpClient))}, nil
+}
+
+// maxJWKSRedirects bounds the redirects a JWKS fetch follows.
+const maxJWKSRedirects = 5
+
+// secureRedirects returns a copy of c whose every redirect hop must pass the
+// same https (http only on loopback) rule as the configured JWKS URL, so the
+// JWKS host can't hand the key fetch to a plaintext hop where the keys could
+// be swapped.
+func secureRedirects(c *http.Client) *http.Client {
+	out := *c
+	out.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxJWKSRedirects {
+			return errors.New("oidc: too many JWKS redirects")
+		}
+		if !SecureOrLoopback(req.URL) {
+			return fmt.Errorf("oidc: JWKS redirect to a non-https URL %q", req.URL.Redacted())
+		}
+		return nil
+	}
+	return &out
 }
 
 // tokenClaims decodes the claims this package reads. The WSO2-namespaced

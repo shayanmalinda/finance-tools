@@ -25,6 +25,7 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/auth"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/db"
 )
 
@@ -33,7 +34,7 @@ func engagementTestMux(t *testing.T) (http.Handler, sqlmock.Sqlmock) {
 	alloc, allocMock := mockDB(t)
 	travel, _ := mockDB(t)
 	mux := http.NewServeMux()
-	registerEngagementRoutes(mux, Deps{Pools: &db.Pools{Allocation: alloc, Travel: travel}})
+	registerEngagementRoutes(mux, Deps{Pools: &db.Pools{Allocation: alloc, Travel: travel}, Auth: auth.Off})
 	return mux, allocMock
 }
 

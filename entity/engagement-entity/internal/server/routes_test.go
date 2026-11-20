@@ -24,6 +24,7 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/auth"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/db"
 )
 
@@ -31,7 +32,7 @@ func newTestRouter(t *testing.T) (http.Handler, sqlmock.Sqlmock, sqlmock.Sqlmock
 	t.Helper()
 	alloc, allocMock := mockDB(t)
 	travel, travelMock := mockDB(t)
-	return NewRouter(Deps{Pools: &db.Pools{Allocation: alloc, Travel: travel}}), allocMock, travelMock
+	return NewRouter(Deps{Pools: &db.Pools{Allocation: alloc, Travel: travel}, Auth: auth.Off}), allocMock, travelMock
 }
 
 func serve(h http.Handler, method, target string) *httptest.ResponseRecorder {

@@ -39,8 +39,8 @@ const (
 // The legacy APP_NAME and CLOSING_AND_SIGNATURE of the Travel app, written
 // into the email_auditlog content as the legacy app did.
 const (
-	travelAppName   = "Travel App"
-	travelSignature = "Cheers,<br> Apps & Automations Team"
+	travelAppName   = engagementAppName
+	travelSignature = digitalTeamSignature
 )
 
 // TravelSettings are the legacy emailConfigurations the travel emails read.
@@ -91,7 +91,7 @@ type TravelPerDiem struct {
 }
 
 func travelSubject(jobNumber string) string {
-	return "[Travel App] Travel Request (#" + jobNumber + ")"
+	return "[Engagement App] Travel Request (#" + jobNumber + ")"
 }
 
 // TravelActionLink is the travel request page in One WSO2.

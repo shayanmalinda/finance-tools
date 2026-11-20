@@ -369,3 +369,27 @@ func bitValue(b []byte) uint64 {
 	}
 	return n
 }
+
+// Migrations that create audit_event in each schema.
+const (
+	AllocationMigration = "allocation_db_table_update_v1.1.0.sql"
+	TravelMigration     = "travelapp_table_update_v1.0.0.sql"
+)
+
+// CheckTables fails closed: without audit_event in both schemas, views of
+// passports, visas and reports would leave no trail, so startup is refused
+// unless optional (AUDIT_OPTIONAL=true, a local run). The error names the
+// migration to run.
+func CheckTables(allocation, travel, optional bool) error {
+	if (allocation && travel) || optional {
+		return nil
+	}
+	var missing []string
+	if !allocation {
+		missing = append(missing, "allocation_db (run Resources/"+AllocationMigration+")")
+	}
+	if !travel {
+		missing = append(missing, "travelapp (run Resources/"+TravelMigration+")")
+	}
+	return fmt.Errorf("audit_event is missing in %s; set AUDIT_OPTIONAL=true only for a local run", strings.Join(missing, " and "))
+}

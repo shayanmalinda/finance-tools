@@ -28,6 +28,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/audit"
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/auth"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/config"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/db"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/netsuite"
@@ -37,7 +38,9 @@ import (
 
 func main() {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Fatalf("load .env: %v", err)
+		// Not the parser's error: it can quote the offending line, secret
+		// value and all.
+		log.Fatal("load .env: the file could not be read or parsed; check its syntax")
 	}
 
 	cfg, err := config.Load()
@@ -46,6 +49,13 @@ func main() {
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("invalid configuration: %v", err)
+	}
+
+	switch cfg.DB.TLS {
+	case "skip-verify":
+		log.Println("WARNING: DB_TLS=skip-verify does not verify the MySQL certificate: non-production only. Use DB_TLS_CA (and DB_TLS_SERVER_NAME) instead")
+	case "false":
+		log.Println("WARNING: DB_TLS=false connects to MySQL without TLS: local only")
 	}
 
 	pools, err := db.New(cfg)
@@ -70,19 +80,42 @@ func main() {
 	if err != nil {
 		log.Fatalf("read travelapp schema: %v", err)
 	}
+	if err := audit.CheckTables(allocAudit, travelAudit, cfg.AuditOptional); err != nil {
+		log.Fatalf("invalid database: %v", err)
+	}
 	audit.SetEnabled(allocAudit && travelAudit)
 	if !audit.Enabled() {
-		log.Println("WARNING: audit_event is missing in allocation_db or travelapp (run " +
-			"allocation_db_table_update_v1.1.0.sql and travelapp_table_update_v1.0.0.sql): " +
-			"audit events are not recorded")
+		log.Println("WARNING: AUDIT_OPTIONAL is set and audit_event is missing: audit events are not recorded (local run only)")
 	}
 	repository.SetEngagementCampaignColumn(hasCampaign)
 	if !hasCampaign {
 		log.Println("WARNING: allocation_db.engagement.campaign_id is missing (run Resources/allocation_db_table_update_v1.0.0.sql): campaigns read as empty and Marketing Events cannot be saved with a campaign")
 	}
 
-	addr := ":" + cfg.ServerPort
-	srv := server.New(addr, server.Deps{Pools: pools, NetSuite: cfg.NetSuite})
+	gate := auth.Off
+	if cfg.Auth.Disabled {
+		log.Println("WARNING: AUTH_DISABLED is set: no gateway JWT is checked and the server listens on loopback only (local run)")
+	} else {
+		v, err := auth.NewVerifier(auth.Config{
+			Issuer:           cfg.Auth.Issuer,
+			JWKSURL:          cfg.Auth.JWKSURL,
+			AllowedClientIDs: cfg.Auth.AllowedClientIDs,
+			ClientIDClaims:   cfg.Auth.ClientIDClaims,
+			APIContexts:      cfg.Auth.APIContexts,
+			APIContextClaims: cfg.Auth.APIContextClaims,
+			ClockSkew:        60 * time.Second,
+		}, nil)
+		if err != nil {
+			log.Fatalf("invalid configuration: %v", err)
+		}
+		if len(cfg.Auth.APIContexts) == 0 {
+			log.Println("WARNING: GATEWAY_JWT_API_CONTEXTS is not set: gateway assertions are not bound to this API")
+		}
+		gate = auth.Middleware(v)
+	}
+
+	addr := cfg.ListenAddr()
+	srv := server.New(addr, server.Deps{Pools: pools, NetSuite: cfg.NetSuite, Auth: gate})
 	if !cfg.NetSuite.PushEnabled {
 		log.Println("NetSuite push is disabled (NETSUITE_PUSH_ENABLED is not true): push and re-sync answer 503")
 	}
