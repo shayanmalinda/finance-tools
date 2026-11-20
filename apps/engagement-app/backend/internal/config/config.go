@@ -47,9 +47,11 @@ type Config struct {
 
 	JWT JWTConfig
 
-	// EngagementEntityBaseURL is the Engagement Entity's project-internal URL.
-	// The entity has no auth of its own (Project visibility), so no
-	// credentials are needed.
+	// EngagementEntityBaseURL is the Engagement Entity's Organization URL on
+	// the Choreo gateway. Every entity route except GET /health requires the
+	// gateway's JWT assertion from an allowed client application, so calls go
+	// through the gateway with the outbound client pair (OUTBOUND_CLIENT_*);
+	// a localhost entity (AUTH_DISABLED) is called without a token.
 	EngagementEntityBaseURL string
 
 	// Choreo connections; unset, calls to that service answer 503.
