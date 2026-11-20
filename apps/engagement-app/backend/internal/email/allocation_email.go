@@ -40,7 +40,7 @@ const (
 	allocAllocationCancelled   = "Allocation Cancelled"
 	allocPartnerEmailPrefix    = "partner-allocations-group"
 	allocNotificationPrefix    = "Allocation"
-	allocVisaParagraphStyle    = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 14px;line-height: 22px;color: #262626;text-align: left;margin: 0;font-weight: 400;`
+	allocVisaParagraphStyle    = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 14px;line-height: 22px;color: #0B1633;text-align: left;margin: 0;font-weight: 400;`
 	allocVisaWarningStyle      = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 13px;line-height: 20px;color: #b42318;text-align: left;margin: 0 0 8px;font-weight: 500;display: block;`
 	allocVisaAvailableComment  = "Visa available for the allocation period"
 	allocVisaUnavailableComent = "Visa not available"
@@ -124,6 +124,14 @@ type AllocationEmailGroups struct {
 	AllocationsGroup        string
 	PartnerAllocationsGroup string
 	TravelGroup             string
+	// AppBaseURL is the One WSO2 origin for the "View My Allocations" link.
+	AppBaseURL string
+}
+
+// AllocationMyAllocationsLink is the person's own allocations page in One WSO2
+// (Me → Allocations), the button in every allocation email.
+func AllocationMyAllocationsLink(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + "/me/allocations"
 }
 
 func allocNA(s string) string {
@@ -260,6 +268,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 		"allocation_comments":      allocNA(d.AllocationComment),
 		"consultant_role":          "",
 		"travel_readiness_comment": readiness,
+		"action_link":              AllocationMyAllocationsLink(g.AppBaseURL),
 	}
 	for k, v := range content {
 		content[k] = html.EscapeString(v)

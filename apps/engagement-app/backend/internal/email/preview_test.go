@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -69,7 +70,7 @@ func TestWritePreviews(t *testing.T) {
 	allocEvent.EngagementTypeID, allocEvent.OpportunityName = 5, event.ProjectName
 	confirmed.ClearanceStatus, confirmed.PrevClearanceStatus = allocConfirmed, allocClearanceInProgress
 	confirmed.Visas = []AllocationEmailVisa{{Country: "United States of America", VisaType: "Business/Visit", EntryType: "Multiple", Status: "Active", StartDate: "2026-03-01", EndDate: "2027-11-15"}}
-	groups := AllocationEmailGroups{AllocationsGroup: "allocations@example.com", TravelGroup: "travel@example.com"}
+	groups := AllocationEmailGroups{AllocationsGroup: "allocations@example.com", TravelGroup: "travel@example.com", AppBaseURL: base}
 
 	ts := TravelSettings{LogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com", AppBaseURL: base}
 	trip := TravelTrip{JobNumber: "TRV-2026-11-0003", TravellerEmail: "traveller@example.com", Customer: "Fidelity Investments",
@@ -80,6 +81,8 @@ func TestWritePreviews(t *testing.T) {
 		{StartDate: "2027-11-07 09:00:00", EndDate: "2027-11-12 18:00:00", NoOfDays: "6", Currency: "USD", Rate: "75.00", Total: "450.00"},
 	}
 
+	fin := FinanceRecipients{TravelLogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com",
+		CompanyRecipients: map[string][]string{"WSO2 - USA": {"finance-usa@example.com"}}, AppBaseURL: base}
 	samples := []struct {
 		name    string
 		m       Message
@@ -98,13 +101,17 @@ func TestWritePreviews(t *testing.T) {
 		{"assignRequests", TravelAssigned(ts, trip, visa, "Classic Travels"), false},
 		{"completeTravel", TravelCompleted(ts, trip, visa, "Classic Travels", "WSO2 - USA", perDiems), false},
 		{"noContent", TravelNotice(ts, trip.JobNumber, trip.TravellerEmail, "Classic Travels", "Cancelled", "Please note that this travel request has been cancelled"), false},
+		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - USA", "per-diems"), false},
+		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - USA", "invoices"), true},
+		{"travelFinanceUpdate-invoices-approved", FinanceTravelMessage(fin, FinanceInvoicesApproved, trip.JobNumber, "", "invoices"), false},
+		{"travelFinanceUpdate-invoices-rejected", FinanceTravelMessage(fin, FinanceInvoicesRejected, trip.JobNumber, "WSO2 - USA", "invoices"), false},
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	subjects := map[string]string{}
 	for _, s := range samples {
-		if s.m.TemplateID != s.name {
+		if s.name != s.m.TemplateID && !strings.HasPrefix(s.name, s.m.TemplateID+"-") {
 			t.Errorf("%s: builder produced template %q", s.name, s.m.TemplateID)
 			continue
 		}

@@ -64,10 +64,10 @@ func TestRender_Placeholders(t *testing.T) {
 	if !strings.Contains(page, "Pay $1 &amp; go") || !strings.Contains(page, "<!-- [TRAVEL_AGENT_NAME] -->") {
 		t.Error("placeholder replacement is wrong")
 	}
-	if strings.Contains(page, "fff4e5") {
+	if strings.Contains(page, "border-left: 4px solid #FF4600") {
 		t.Error("banner shown without a banner")
 	}
-	if page, _ = Render("noContent", nil, "Staging notice"); !strings.Contains(page, "Staging notice") || !strings.Contains(page, "fff4e5") {
+	if page, _ = Render("noContent", nil, "Staging notice"); !strings.Contains(page, "Staging notice") || !strings.Contains(page, "border-left: 4px solid #FF4600") {
 		t.Error("banner missing")
 	}
 }
@@ -76,6 +76,70 @@ func TestRender_UnknownTemplate(t *testing.T) {
 	for _, id := range []string{"", "nope", "base", "../base", "noContent.html"} {
 		if _, err := Render(id, nil, ""); !errors.Is(err, ErrUnknownTemplate) {
 			t.Errorf("%q: err = %v", id, err)
+		}
+	}
+}
+
+// renderMessage fills the globals Send adds and renders m like production.
+func renderMessage(t *testing.T, m Message) string {
+	t.Helper()
+	content := map[string]string{"APP_NAME": appNames[m.App], "CLOSING_AND_SIGNATURE": digitalTeamSignature, "CURRENT_YEAR": "2026"}
+	for k, v := range m.Content {
+		content[k] = v
+	}
+	page, err := Render(m.TemplateID, content, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return page
+}
+
+// Every finance travel email uses its own template with the job, the
+// company, what changed and a button labelled for the kind.
+func TestFinanceTravelMessage_Template(t *testing.T) {
+	r := FinanceRecipients{TravelLogisticsGroup: "travel@wso2.com", FinanceGroup: "finance@wso2.com", AppBaseURL: "https://one-stg.wso2.com/"}
+	cases := []struct{ kind, tab, change, label string }{
+		{FinancePerDiemsAdded, "per-diems", "Per diems added", "Review Per Diems"},
+		{FinanceInvoicesAdded, "invoices", "Travel invoices added", "Review Invoices"},
+		{FinanceInvoicesApproved, "invoices", "Travel invoices approved", "View Invoices"},
+		{FinanceInvoicesRejected, "invoices", "Travel invoices rejected", "View Invoices"},
+	}
+	for _, c := range cases {
+		t.Run(c.kind, func(t *testing.T) {
+			m := FinanceTravelMessage(r, c.kind, "TRV-2026-11-0003", "", c.tab)
+			if m.TemplateID != FinanceTemplate {
+				t.Fatalf("template = %q", m.TemplateID)
+			}
+			page := renderMessage(t, m)
+			link := `href="https://one-stg.wso2.com/finance/engagement-app/travel-requests/TRV-2026-11-0003/` + c.tab + `"`
+			for _, want := range []string{"TRV-2026-11-0003", "Not recorded", c.change, ">" + c.label + "</a>", link} {
+				if !strings.Contains(page, want) {
+					t.Errorf("lacks %q", want)
+				}
+			}
+			if strings.Contains(page, "<!-- [") {
+				t.Errorf("leftover placeholder in %s", c.kind)
+			}
+		})
+	}
+	if m := FinanceTravelMessage(r, FinanceInvoicesAdded, "TRV-1", `"WSO2 - UK"`, "invoices"); m.Content["traveller_company"] != "WSO2 - UK" {
+		t.Errorf("company = %q", m.Content["traveller_company"])
+	}
+}
+
+// Every allocation email links the person to their own allocations (Me →
+// Allocations) in One WSO2.
+func TestAllocationMessage_MyAllocationsButton(t *testing.T) {
+	g := allocGroups
+	g.AppBaseURL = "https://one-stg.wso2.com/"
+	for _, c := range []struct{ clearance, prev string }{
+		{allocClearanceInProgress, ""}, {allocConfirmed, allocAcceptedByConsultant}, {allocAllocationCancelled, allocConfirmed},
+	} {
+		m := AllocationMessage(AllocationEmailData{EngagementID: "E06405", EngagementTypeID: 3, ConsultantEmail: "jane@wso2.com",
+			ClearanceStatus: c.clearance, PrevClearanceStatus: c.prev}, g)
+		page := renderMessage(t, m)
+		if !strings.Contains(page, `href="https://one-stg.wso2.com/me/allocations"`) || !strings.Contains(page, ">View My Allocations</a>") {
+			t.Errorf("%s (%s): no View My Allocations button", c.clearance, m.TemplateID)
 		}
 	}
 }

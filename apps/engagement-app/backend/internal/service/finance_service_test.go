@@ -420,7 +420,7 @@ func TestFinanceRecipients(t *testing.T) {
 		CompanyRecipients: map[string][]string{"WSO2 - UK": {"uk1@wso2.com", "ukpay@wso2.com"}, "WSO2 Inc": {"us@wso2.com"}}}
 	m := email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, " wso2 - uk ", "invoices")
 	if strings.Join(m.To, ",") != "log@wso2.com,uk1@wso2.com" || strings.Join(m.CC, ",") != "ukpay@wso2.com" ||
-		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/"+job+"/invoices" || m.TemplateID != "noContent" {
+		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/"+job+"/invoices" || m.TemplateID != "travelFinanceUpdate" {
 		t.Errorf("uk = %+v", m)
 	}
 	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "WSO2 Inc", "invoices")

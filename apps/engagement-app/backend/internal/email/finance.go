@@ -31,6 +31,17 @@ const (
 	FinanceInvoicesRejected = "invoices-rejected"
 )
 
+// FinanceTemplate is the template of the finance travel emails.
+const FinanceTemplate = "travelFinanceUpdate"
+
+// financeDetails are the "What changed" line and the button label per kind.
+var financeDetails = map[string][2]string{
+	FinancePerDiemsAdded:    {"Per diems added", "Review Per Diems"},
+	FinanceInvoicesAdded:    {"Travel invoices added", "Review Invoices"},
+	FinanceInvoicesApproved: {"Travel invoices approved", "View Invoices"},
+	FinanceInvoicesRejected: {"Travel invoices rejected", "View Invoices"},
+}
+
 var financeTexts = map[string][2]string{
 	FinancePerDiemsAdded:    {"New per diems have been added", "Please note that there are newly added per diems."},
 	FinanceInvoicesAdded:    {"New travel invoices have been added", "Please note that there are newly added travel invoices."},
@@ -96,14 +107,27 @@ func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany
 		To:         to,
 		CC:         cc,
 		Subject:    "[Travel App] Travel Request (#" + jobNumber + ")",
-		TemplateID: "noContent",
+		TemplateID: FinanceTemplate,
 		Content: map[string]string{
 			"title":             texts[0],
 			"description":       texts[1],
 			"travel_agent_name": "All",
+			"job_number":        html.EscapeString(jobNumber),
+			"traveller_company": html.EscapeString(financeCompanyOrNA(travellerCompany)),
+			"change":            financeDetails[kind][0],
+			"action_label":      financeDetails[kind][1],
 			"action_link":       html.EscapeString(link),
 		},
 		NotificationType: kind,
 		ReferenceID:      jobNumber,
 	}
+}
+
+// financeCompanyOrNA is the traveller's company, or "Not recorded" when the
+// HR entity has none.
+func financeCompanyOrNA(company string) string {
+	if c := strings.TrimSpace(strings.Trim(strings.TrimSpace(company), `"`)); c != "" {
+		return c
+	}
+	return "Not recorded"
 }
