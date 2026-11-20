@@ -19,7 +19,9 @@ package email
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +43,16 @@ func TestFilterRecipients(t *testing.T) {
 	}
 }
 
+// decoded is the rendered HTML a test server received.
+func decoded(t *testing.T, p payload) string {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(p.Template)
+	if err != nil {
+		t.Fatalf("template is not base64: %v", err)
+	}
+	return string(b)
+}
+
 func TestHTTPSender(t *testing.T) {
 	var got payload
 	var path string
@@ -50,37 +62,67 @@ func TestHTTPSender(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	cfg := Config{ServiceURL: srv.URL, AppUUID: map[App]string{AppTravel: "uuid-t"}, From: map[App]string{AppTravel: "travel@wso2.com"}}
+	cfg := Config{ServiceURL: srv.URL, From: map[App]string{AppTravel: "travel@wso2.com"}}
 	s := New(cfg, rest.New("email", srv.URL, srv.Client()))
 	s.now = func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }
-	err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, CC: []string{"t@wso2.com", "f@wso2.com"},
-		Subject: "[Travel App] Travel Request (#TRV-1)", TemplateID: "noContent", Content: map[string]string{"title": "x"}})
+	msg := Message{App: AppTravel, To: []string{"t@wso2.com"}, CC: []string{"t@wso2.com", "f@wso2.com"},
+		Subject: "[Travel App] Travel Request (#TRV-1)", TemplateID: "noContent",
+		Content: map[string]string{"description": "Trip <b>assigned</b>", "travel_agent_name": "Acorn"}}
+	if err := s.Send(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
+	// The Email Service gets the finished HTML, base64-encoded, at /send-email.
+	want, err := Render("noContent", map[string]string{"description": "Trip <b>assigned</b>", "travel_agent_name": "Acorn",
+		"APP_NAME": "Travel App", "CLOSING_AND_SIGNATURE": "Cheers,<br> Choreo Labs Digital Team", "CURRENT_YEAR": "2026"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ContentKeyValPairs["CLOSING_AND_SIGNATURE"] != "Cheers,<br> Choreo Labs Digital Team" {
-		t.Errorf("signature = %q", got.ContentKeyValPairs["CLOSING_AND_SIGNATURE"])
+	page := decoded(t, got)
+	if path != "/send-email" || got.From != "travel@wso2.com" || !reflect.DeepEqual(got.To, []string{"t@wso2.com"}) ||
+		!reflect.DeepEqual(got.CC, []string{"f@wso2.com"}) || page != want {
+		t.Errorf("payload = to %v cc %v from %q (path %s), html matches render: %v", got.To, got.CC, got.From, path, page == want)
 	}
-	if got.Subject != "[Travel App] Travel Request (#TRV-1)" || got.ContentKeyValPairs["TEST_BANNER"] != "" {
-		t.Errorf("live email carries staging marks: subject %q, banner %q", got.Subject, got.ContentKeyValPairs["TEST_BANNER"])
+	for _, s := range []string{"Choreo Labs Digital Team", "© 2026 Choreo Labs. All Rights Reserved", "Trip <b>assigned</b>", "Acorn"} {
+		if !strings.Contains(page, s) {
+			t.Errorf("rendered email lacks %q", s)
+		}
 	}
-	if path != "/send-smtp-email" || got.AppUUID != "uuid-t" || got.From != "travel@wso2.com" ||
-		!reflect.DeepEqual(got.CC, []string{"f@wso2.com"}) || got.ContentKeyValPairs["APP_NAME"] != "Travel App" ||
-		got.ContentKeyValPairs["CURRENT_YEAR"] != "2026" || got.ContentKeyValPairs["title"] != "x" {
-		t.Errorf("payload = %+v (path %s)", got, path)
+	// Live: no staging marks.
+	if got.Subject != "[Travel App] Travel Request (#TRV-1)" || strings.Contains(page, "Staging test email") {
+		t.Errorf("live email carries staging marks: subject %q", got.Subject)
 	}
 
-	// Not live (staging): only the test recipients, no CC.
+	// Not live (staging): only the test recipients, no CC, marked as staging
+	// with the real recipients (escaped) in a notice above the body.
 	cfg.TestRecipients = []string{"qa@wso2.com", "lead@wso2.com"}
 	s = New(cfg, rest.New("email", srv.URL, srv.Client()))
-	_ = s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, CC: []string{"f@wso2.com"}})
+	msg.To, msg.CC = []string{"t@wso2.com"}, []string{"f&o@wso2.com"}
+	if err := s.Send(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(got.To, []string{"qa@wso2.com", "lead@wso2.com"}) || len(got.CC) != 0 {
 		t.Errorf("testing mode: to %v cc %v", got.To, got.CC)
 	}
-	// Marked as staging, with the real recipients in the banner; the live send above has neither.
-	if got.Subject != "[STAGING] " || got.ContentKeyValPairs["TEST_BANNER"] !=
-		"Staging test email. In production it would go to: <b>To:</b> t@wso2.com; <b>CC:</b> f@wso2.com." {
-		t.Errorf("staging marks: subject %q, banner %q", got.Subject, got.ContentKeyValPairs["TEST_BANNER"])
+	page = decoded(t, got)
+	if got.Subject != "[STAGING] [Travel App] Travel Request (#TRV-1)" ||
+		!strings.Contains(page, "Staging test email. In production it would go to: <b>To:</b> t@wso2.com; <b>CC:</b> f&amp;o@wso2.com.") {
+		t.Errorf("staging marks: subject %q", got.Subject)
+	}
+	// travel_agent_name appears only in the noContent body (the base also shows the description).
+	if strings.Index(page, "Staging test email") > strings.Index(page, "Acorn") {
+		t.Error("the staging notice is not above the body")
+	}
+}
+
+// An unknown template id is an error, and nothing is posted: never a blank email.
+func TestHTTPSender_UnknownTemplate(t *testing.T) {
+	posted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { posted = true }))
+	defer srv.Close()
+	s := New(Config{ServiceURL: srv.URL}, rest.New("email", srv.URL, srv.Client()))
+	err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, TemplateID: "nope"})
+	if !errors.Is(err, ErrUnknownTemplate) || posted {
+		t.Errorf("err = %v, posted = %v", err, posted)
 	}
 }
 
@@ -107,7 +149,7 @@ func TestHTTPSender_SubjectHasNoLineBreaks(t *testing.T) {
 	}))
 	defer srv.Close()
 	s := New(Config{ServiceURL: srv.URL}, rest.New("email", srv.URL, srv.Client()))
-	if err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"},
+	if err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, TemplateID: "noContent",
 		Subject: "[Allocations] x\r\nBcc: evil@x.com\tend"}); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +169,7 @@ func TestSenders_LogNoAddressesOrSubject(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	defer srv.Close()
 	m := Message{App: AppAllocations, To: []string{"jane@wso2.com"}, CC: []string{"lead@wso2.com"},
-		Subject: "Consultant request for E07201 : Acme - PoC", ReferenceID: "E07201", NotificationType: "allocation"}
+		Subject: "Consultant request for E07201 : Acme - PoC", ReferenceID: "E07201", NotificationType: "allocation", TemplateID: "noContent"}
 	s := New(Config{ServiceURL: srv.URL}, rest.New("email", srv.URL, srv.Client()))
 	if err := s.Send(context.Background(), m); err != nil {
 		t.Fatal(err)

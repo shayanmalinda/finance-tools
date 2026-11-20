@@ -128,10 +128,8 @@ type EmailConfig struct {
 	// AppBaseURL is the One WSO2 link written into emails.
 	AppBaseURL string
 
-	AllocationsAppUUID string
-	TravelAppUUID      string
-	AllocationsFrom    string
-	TravelFrom         string
+	AllocationsFrom string
+	TravelFrom      string
 	// Live (IS_LIVE_EMAILS, default false) sends emails to their real
 	// recipients; set it only in production. Not live, every email goes to
 	// TestRecipients alone (legacy isSendTestingEmailsOnlyVal +
@@ -272,8 +270,6 @@ func Load() (*Config, error) {
 			ServiceURL:              trimURL(os.Getenv("EMAIL_SERVICE_URL")),
 			Disabled:                emailDisabled,
 			AppBaseURL:              trimURL(getEnvOrDefault("APP_BASE_URL", "https://one.wso2.com")),
-			AllocationsAppUUID:      strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_APP_UUID")),
-			TravelAppUUID:           strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_APP_UUID")),
 			AllocationsFrom:         strings.TrimSpace(os.Getenv("EMAIL_ALLOCATIONS_FROM")),
 			TravelFrom:              strings.TrimSpace(os.Getenv("EMAIL_TRAVEL_FROM")),
 			Live:                    liveEmails,

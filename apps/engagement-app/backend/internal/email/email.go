@@ -14,12 +14,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package email sends notifications through the WSO2 email service with the
-// legacy recipient rules and testing mode.
+// Package email renders the Engagement App's emails from its own templates
+// and sends the finished HTML through the Email Service (POST /send-email),
+// with the legacy recipient rules and testing mode.
 package email
 
 import (
 	"context"
+	"encoding/base64"
 	"html"
 	"log/slog"
 	"net/mail"
@@ -31,8 +33,8 @@ import (
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
 )
 
-// App is the legacy app an email belongs to. Each has its own app id in the
-// email service, sender and signature.
+// App is the legacy app an email belongs to. Each has its own sender and
+// APP_NAME.
 type App string
 
 // The two legacy apps.
@@ -49,10 +51,10 @@ type Message struct {
 	// Subject as the legacy app wrote it, e.g. "[Allocations] Consultant
 	// request for E07201 : Acme - PoC".
 	Subject string
-	// TemplateID is the email service template.
+	// TemplateID is the template in templates/ (Render).
 	TemplateID string
-	// Content fills the template. Values are inserted into HTML by the email
-	// service; callers HTML-escape user text (html.EscapeString).
+	// Content fills the template. Values are inserted into HTML as they
+	// are; callers HTML-escape user text (html.EscapeString).
 	Content map[string]string
 	// NotificationType and ReferenceID are for logs only.
 	NotificationType string
@@ -65,13 +67,11 @@ type Sender interface {
 	Send(ctx context.Context, m Message) error
 }
 
-// Config is the email service and the per-app settings of the legacy
+// Config is the Email Service and the per-app settings of the legacy
 // [app_allocation.email] and [app_travel.email.emailConfigurations] sections.
 type Config struct {
 	// ServiceURL empty: emails are logged, not sent.
 	ServiceURL string
-	// AppUUID per app (legacy appUuid / travelAppUUID).
-	AppUUID map[App]string
 	// From per app (legacy allocationManagerEmail / travelAppEmail).
 	From map[App]string
 	// TestRecipients, when set (emails not live: IS_LIVE_EMAILS=false),
@@ -90,7 +90,7 @@ var (
 	signatures = map[App]string{AppAllocations: digitalTeamSignature, AppTravel: digitalTeamSignature}
 )
 
-// HTTPSender sends through the email service.
+// HTTPSender sends through the Email Service.
 type HTTPSender struct {
 	cfg  Config
 	rest *rest.Client
@@ -103,14 +103,14 @@ func New(cfg Config, rc *rest.Client) *HTTPSender {
 	return &HTTPSender{cfg: cfg, rest: rc, now: time.Now}
 }
 
+// payload is the Email Service's POST /send-email body: Template is the
+// whole rendered HTML, base64-encoded (the service decodes it).
 type payload struct {
-	AppUUID            string            `json:"appUuid"`
-	To                 []string          `json:"to"`
-	CC                 []string          `json:"cc"`
-	From               string            `json:"frm"`
-	Subject            string            `json:"subject"`
-	TemplateID         string            `json:"templateId"`
-	ContentKeyValPairs map[string]string `json:"contentKeyValPairs"`
+	To       []string `json:"to"`
+	CC       []string `json:"cc"`
+	From     string   `json:"from"`
+	Subject  string   `json:"subject"`
+	Template string   `json:"template"`
 }
 
 // Send applies the recipient rules and posts the email.
@@ -129,18 +129,22 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	content["CURRENT_YEAR"] = strconv.Itoa(s.now().UTC().Year())
 
 	testing := len(s.cfg.TestRecipients) > 0
-	p := payload{
-		AppUUID: s.cfg.AppUUID[m.App], To: to, CC: cc, From: s.cfg.From[m.App],
-		Subject: subjectLine(m.Subject), TemplateID: m.TemplateID, ContentKeyValPairs: content,
-	}
+	p := payload{To: to, CC: cc, From: s.cfg.From[m.App], Subject: subjectLine(m.Subject)}
+	banner := ""
 	if testing {
 		// Not live (staging): mark the email and show who it would have gone
 		// to, so testers can check the routing. Never set when live.
 		p.Subject = stagingSubjectPrefix + p.Subject
-		content["TEST_BANNER"] = stagingBanner(to, cc)
+		banner = stagingBanner(to, cc)
 		p.To, p.CC = append([]string(nil), s.cfg.TestRecipients...), []string{}
 	}
-	if err := s.rest.Post(ctx, "/send-smtp-email", p, nil); err != nil {
+	page, err := Render(m.TemplateID, content, banner)
+	if err != nil {
+		slog.ErrorContext(ctx, "email not rendered", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
+		return err
+	}
+	p.Template = base64.StdEncoding.EncodeToString([]byte(page))
+	if err := s.rest.Post(ctx, "/send-email", p, nil); err != nil {
 		slog.ErrorContext(ctx, "email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
 		return err
 	}
@@ -150,17 +154,14 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	return nil
 }
 
-// subjectLine replaces control characters (CR, LF, tab, ...) in a subject
-// with spaces: the subject embeds free text such as project names, and a line
-// break in it could add a mail header.
 // digitalTeamSignature closes every email (CLOSING_AND_SIGNATURE).
 const digitalTeamSignature = "Cheers,<br> Choreo Labs Digital Team"
 
 // stagingSubjectPrefix marks every email sent while emails are not live.
 const stagingSubjectPrefix = "[STAGING] "
 
-// stagingBanner is the TEST_BANNER content (the email service's Choreo Labs
-// base renders it above the body): the real recipients, HTML-escaped.
+// stagingBanner is the staging notice Render shows above the body: the real
+// recipients, HTML-escaped.
 func stagingBanner(to, cc []string) string {
 	esc := func(list []string) string {
 		if len(list) == 0 {
@@ -175,6 +176,9 @@ func stagingBanner(to, cc []string) string {
 	return "Staging test email. In production it would go to: <b>To:</b> " + esc(to) + "; <b>CC:</b> " + esc(cc) + "."
 }
 
+// subjectLine replaces control characters (CR, LF, tab, ...) in a subject
+// with spaces: the subject embeds free text such as project names, and a line
+// break in it could add a mail header.
 func subjectLine(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

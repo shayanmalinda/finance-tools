@@ -86,7 +86,6 @@ func main() {
 	if e := cfg.Email; e.Enabled() {
 		sender = email.New(email.Config{
 			ServiceURL:     e.ServiceURL,
-			AppUUID:        map[email.App]string{email.AppAllocations: e.AllocationsAppUUID, email.AppTravel: e.TravelAppUUID},
 			From:           map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
 			TestRecipients: testRecipients(e),
 			Suppressed:     e.Suppressed,

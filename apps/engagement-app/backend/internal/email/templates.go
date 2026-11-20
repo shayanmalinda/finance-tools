@@ -1,0 +1,87 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package email
+
+import (
+	"embed"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// The email templates, ported from the Email Alert Service
+// (digiops-infra operations/email-alert-service/template.bal): base.html is
+// its baseTemplate with the Choreo Labs title and copyright, and each other
+// file is one template body, named by its template id. The backend renders
+// them itself and sends the finished HTML to the Email Service.
+//
+//go:embed templates/*.html
+var templateFiles embed.FS
+
+// bodyMarker is where the base template takes the body.
+const bodyMarker = "<!-- [EMAIL_BODY] -->"
+
+// ErrUnknownTemplate means no template has that id: the email is not sent
+// rather than sent blank.
+var ErrUnknownTemplate = errors.New("email: unknown template")
+
+var templateIDPattern = regexp.MustCompile(`^[A-Za-z]+$`)
+
+// Render builds the full HTML of one email the way the Email Alert Service
+// did: the template body goes into the base at <!-- [EMAIL_BODY] -->, then
+// each content key replaces <!-- [KEY] --> (key upper-cased, so keys are
+// case-insensitive). Values are inserted as they are: callers HTML-escape
+// user text. A placeholder with no value stays an HTML comment. banner, when
+// set (staging), is shown as a notice above the body.
+func Render(templateID string, content map[string]string, banner string) (string, error) {
+	if !templateIDPattern.MatchString(templateID) || templateID == "base" {
+		return "", fmt.Errorf("%w: %q", ErrUnknownTemplate, templateID)
+	}
+	body, err := templateFiles.ReadFile("templates/" + templateID + ".html")
+	if err != nil {
+		return "", fmt.Errorf("%w: %q", ErrUnknownTemplate, templateID)
+	}
+	base, err := templateFiles.ReadFile("templates/base.html")
+	if err != nil {
+		return "", err
+	}
+	page := strings.Replace(string(base), bodyMarker, bannerRow(banner)+string(body), 1)
+	// Literal replacement in a fixed order (the service used a regex
+	// replace, where a "$" in a value is special, in map order).
+	keys := make([]string, 0, len(content))
+	for k := range content {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		page = strings.ReplaceAll(page, "<!-- ["+strings.ToUpper(k)+"] -->", content[k])
+	}
+	return page, nil
+}
+
+// bannerRow is the staging notice above the body; empty when banner is.
+func bannerRow(banner string) string {
+	if banner == "" {
+		return ""
+	}
+	return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 16px;"><tr>` +
+		`<td style="background-color: #fff4e5; border: 1px solid #f5c26b; border-radius: 6px; padding: 10px 14px; ` +
+		`font-family: 'Roboto', Helvetica, sans-serif; font-size: 13px; line-height: 18px; color: #663c00;">` +
+		banner + `</td></tr></table>`
+}

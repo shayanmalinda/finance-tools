@@ -75,6 +75,18 @@ Locally One WSO2 sends the Asgardeo access token as `Authorization: Bearer`; mis
   entity's `POST /audit-events` in the background
   (`internal/middleware/audit.go`); a failure is only logged.
 
+## Emails
+
+The backend owns its email templates (`internal/email/templates/`, ported
+from the Email Alert Service: `base.html` plus one body per template id) and
+renders each email itself, as that service did: the body goes into the base
+at `<!-- [EMAIL_BODY] -->`, then each content key replaces `<!-- [KEY] -->`.
+It sends the finished HTML, base64-encoded, to the Email Service
+(`POST {EMAIL_SERVICE_URL}/send-email` with `to`, `cc`, `from`, `subject`,
+`template`). The base carries the Choreo Labs title and copyright, and every
+email is signed by the Choreo Labs Digital Team. An unknown template id is an
+error, never a blank email.
+
 ## Prerequisites
 
 - Go `1.25+`
@@ -124,11 +136,10 @@ committed files.
 | `REPORT_MAX_CONCURRENT` | No | `2` | Unpaged report downloads one pod builds at once (each is held in memory); one more answers 503 with `Retry-After: 10` |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |
 | `SERVER_PORT` | No | `8190` | – |
-| `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | `[app_allocation.email.emailServiceConfig] endpointUrl` |
+| `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | Base URL of the **Email Service** (`POST /send-email`), not the legacy Email Alert Service: the backend renders each email from its own templates and sends the finished HTML (see Emails) |
 | `EMAIL_DISABLED` | Locally | `false` | `true` logs that an email would be sent (no addresses or subject) instead of sending it |
-| `IS_LIVE_EMAILS` | **Production: `true`** | `false` | `false` (staging): every email goes only to `EMAIL_TEST_RECIPIENTS`, with no CC, a `[STAGING] ` subject prefix and a `TEST_BANNER` naming the real recipients (rendered by the email service's Choreo Labs base) (legacy `isSendTestingEmailsOnlyVal` + `allocationTestEmail`, now for both apps). `true` sends to the real recipients |
+| `IS_LIVE_EMAILS` | **Production: `true`** | `false` | `false` (staging): every email goes only to `EMAIL_TEST_RECIPIENTS`, with no CC, a `[STAGING] ` subject prefix and a notice above the body naming the real recipients (legacy `isSendTestingEmailsOnlyVal` + `allocationTestEmail`, now for both apps). `true` sends to the real recipients |
 | `EMAIL_TEST_RECIPIENTS` | With email on and not live | – | Comma-separated addresses that receive every email on staging. Without them (and not live) the backend refuses to start, so staging can't mail real people |
-| `EMAIL_ALLOCATIONS_APP_UUID`, `EMAIL_TRAVEL_APP_UUID` | With email | – | `[app_allocation.email] appUuid`, `[app_travel.email.emailConfigurations] travelAppUUID` |
 | `EMAIL_ALLOCATIONS_FROM`, `EMAIL_TRAVEL_FROM` | With email | – | `allocationManagerEmail`, `travelAppEmail` |
 | `EMAIL_ALLOCATIONS_GROUP`, `EMAIL_PARTNER_ALLOCATIONS_GROUP`, `EMAIL_TRAVEL_GROUP` | With email | – | `allocationGroupEmail`, `partnerAllocationGroupEmail`, `travelGroupEmail` |
 | `EMAIL_INTERNAL_APPROVERS`, `EMAIL_MARKETING_APPROVERS` | With email | – | `approveInternalEmail`, `approveMarketingEmail` (comma-separated) |
