@@ -36,7 +36,7 @@ func clearEnv(t *testing.T) {
 		"NETSUITE_CREATE_VENDOR_BILL_SCRIPT_ID", "NETSUITE_CREATE_VENDOR_BILL_DEPLOY_ID",
 		"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID",
 		"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", "NETSUITE_GET_VENDOR_BILL_DEPLOY_ID",
-		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS", "CLIENT_ID_CLAIMS",
+		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS", "CLIENT_ID_CLAIMS", "GATEWAY_JWT_API_CONTEXTS", "API_CONTEXT_CLAIMS",
 		"DB_TLS_CA", "DB_TLS_SERVER_NAME", "AUDIT_OPTIONAL",
 	} {
 		t.Setenv(k, "")
@@ -137,6 +137,15 @@ func TestLoadAuth(t *testing.T) {
 	if c, err = Load(); err != nil || len(c.Auth.ClientIDClaims) != 2 ||
 		c.Auth.ClientIDClaims[0] != "http://wso2.org/claims/applicationUUId" || c.Auth.ClientIDClaims[1] != "azp" {
 		t.Errorf("CLIENT_ID_CLAIMS: claims = %v, err %v", c.Auth.ClientIDClaims, err)
+	}
+	if len(c.Auth.APIContexts) != 0 || len(c.Auth.APIContextClaims) != 0 {
+		t.Errorf("API context unset: %v / %v", c.Auth.APIContexts, c.Auth.APIContextClaims)
+	}
+	t.Setenv("GATEWAY_JWT_API_CONTEXTS", " /wutu/engagement-entity/v1.0 , ")
+	t.Setenv("API_CONTEXT_CLAIMS", "apicontext")
+	if c, err = Load(); err != nil || len(c.Auth.APIContexts) != 1 || c.Auth.APIContexts[0] != "/wutu/engagement-entity/v1.0" ||
+		len(c.Auth.APIContextClaims) != 1 || c.Auth.APIContextClaims[0] != "apicontext" {
+		t.Errorf("API context: %+v, err %v", c.Auth, err)
 	}
 	t.Setenv("AUTH_DISABLED", "maybe")
 	if _, err := Load(); err == nil {

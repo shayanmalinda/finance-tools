@@ -74,6 +74,12 @@ type AuthConfig struct {
 	// ClientIDClaims (CLIENT_ID_CLAIMS) are the claims naming the calling
 	// application, in order; empty uses the auth package's default.
 	ClientIDClaims []string
+	// APIContexts (GATEWAY_JWT_API_CONTEXTS) bind the assertion to this API
+	// (e.g. /wutu/engagement-entity/v1.0); empty skips the check.
+	APIContexts []string
+	// APIContextClaims (API_CONTEXT_CLAIMS) name that API, in order; empty
+	// uses the auth package's default.
+	APIContextClaims []string
 }
 
 // ListenAddr is where the server listens: every interface, or only
@@ -204,12 +210,16 @@ func Load() (*Config, error) {
 			allowed = append(allowed, id)
 		}
 	}
-	var claims []string
-	for _, c := range strings.Split(os.Getenv("CLIENT_ID_CLAIMS"), ",") {
-		if c = strings.TrimSpace(c); c != "" {
-			claims = append(claims, c)
+	csv := func(key string) []string {
+		var out []string
+		for _, c := range strings.Split(os.Getenv(key), ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				out = append(out, c)
+			}
 		}
+		return out
 	}
+	claims := csv("CLIENT_ID_CLAIMS")
 	ns := NetSuiteConfig{PushEnabled: push}
 	if push {
 		ns.AccountID = strings.TrimSpace(os.Getenv("NETSUITE_ACCOUNT_ID"))
@@ -252,6 +262,8 @@ func Load() (*Config, error) {
 			JWKSURL:          strings.TrimSpace(os.Getenv("GATEWAY_JWT_JWKS_URL")),
 			AllowedClientIDs: allowed,
 			ClientIDClaims:   claims,
+			APIContexts:      csv("GATEWAY_JWT_API_CONTEXTS"),
+			APIContextClaims: csv("API_CONTEXT_CLAIMS"),
 		},
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8290"),
 	}, nil

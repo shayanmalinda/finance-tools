@@ -47,6 +47,12 @@ const AssertionHeader = "X-JWT-Assertion"
 // gateway names the client elsewhere.
 var DefaultClientIDClaims = []string{"client_id", "azp", "http://wso2.org/claims/client_id"}
 
+// DefaultAPIContextClaims are where a gateway JWT names the API it was
+// issued for (the WSO2 gateway's API context claim, e.g.
+// "/wutu/engagement-entity/v1.0"). Config.APIContextClaims
+// (API_CONTEXT_CLAIMS) replaces the list.
+var DefaultAPIContextClaims = []string{"http://wso2.org/claims/apicontext"}
+
 // Config is what verification needs.
 type Config struct {
 	// Issuer must equal the JWT's iss claim.
@@ -59,12 +65,23 @@ type Config struct {
 	// ClientIDClaims are the claims that name the calling application, tried
 	// in order; empty uses DefaultClientIDClaims.
 	ClientIDClaims []string
+	// APIContexts, when set, binds the assertion to this API: its API context
+	// claim must be one of them, so an assertion the gateway issued for
+	// another API (Sales or HR entity, Email Service) is refused here. Empty
+	// skips the check (until the claim is confirmed on the gateway).
+	APIContexts []string
+	// APIContextClaims are the claims that name that API, tried in order;
+	// empty uses DefaultAPIContextClaims.
+	APIContextClaims []string
 	// ClockSkew is the leeway on exp, nbf and iat.
 	ClockSkew time.Duration
 }
 
 // ErrNotAllowed means the JWT is valid but its application is not listed.
 var ErrNotAllowed = errors.New("auth: client application not allowed")
+
+// ErrWrongAPI means the JWT is valid but was issued for another API.
+var ErrWrongAPI = errors.New("auth: gateway JWT issued for another API")
 
 // Verifier checks gateway JWTs. Safe for concurrent use.
 type Verifier struct {
@@ -90,6 +107,9 @@ func NewVerifier(cfg Config, httpClient *http.Client) (*Verifier, error) {
 	}
 	if len(cfg.ClientIDClaims) == 0 {
 		cfg.ClientIDClaims = DefaultClientIDClaims
+	}
+	if len(cfg.APIContextClaims) == 0 {
+		cfg.APIContextClaims = DefaultAPIContextClaims
 	}
 	return &Verifier{cfg: cfg, keys: newKeySet(cfg.JWKSURL, secureRedirects(httpClient))}, nil
 }
@@ -154,6 +174,20 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (string, error) 
 		log.Printf("auth: refused a client application not in ALLOWED_CLIENT_IDS (client id claims present: %s)", strings.Join(present, ","))
 		return "", ErrNotAllowed
 	}
+	if len(v.cfg.APIContexts) > 0 {
+		api := ""
+		for _, name := range v.cfg.APIContextClaims {
+			if s, _ := claims[name].(string); strings.TrimSpace(s) != "" {
+				api = strings.TrimRight(strings.TrimSpace(s), "/")
+				break
+			}
+		}
+		if !slices.ContainsFunc(v.cfg.APIContexts, func(c string) bool { return strings.TrimRight(c, "/") == api }) {
+			// Claim names only, as above.
+			log.Printf("auth: refused a gateway JWT not issued for this API (API context claims checked: %s)", strings.Join(v.cfg.APIContextClaims, ","))
+			return "", ErrWrongAPI
+		}
+	}
 	return client, nil
 }
 
@@ -175,6 +209,10 @@ func Middleware(v *Verifier) func(http.Handler) http.Handler {
 			if _, err := v.Verify(r.Context(), raw); err != nil {
 				if errors.Is(err, ErrNotAllowed) {
 					deny(w, http.StatusForbidden, "client application not allowed")
+					return
+				}
+				if errors.Is(err, ErrWrongAPI) {
+					deny(w, http.StatusForbidden, "assertion not issued for this API")
 					return
 				}
 				log.Printf("auth: rejected gateway assertion: %v", err)

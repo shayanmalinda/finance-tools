@@ -101,10 +101,15 @@ func main() {
 			JWKSURL:          cfg.Auth.JWKSURL,
 			AllowedClientIDs: cfg.Auth.AllowedClientIDs,
 			ClientIDClaims:   cfg.Auth.ClientIDClaims,
+			APIContexts:      cfg.Auth.APIContexts,
+			APIContextClaims: cfg.Auth.APIContextClaims,
 			ClockSkew:        60 * time.Second,
 		}, nil)
 		if err != nil {
 			log.Fatalf("invalid configuration: %v", err)
+		}
+		if len(cfg.Auth.APIContexts) == 0 {
+			log.Println("WARNING: GATEWAY_JWT_API_CONTEXTS is not set: gateway assertions are not bound to this API")
 		}
 		gate = auth.Middleware(v)
 	}

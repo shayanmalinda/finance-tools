@@ -42,12 +42,12 @@ func previewSamples() (time.Time, []previewSample) {
 	now := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
 	base := "https://one-stg.wso2.com"
 	eng := EngagementEmailData{
-		ID: "E06405", EngagementTypeID: 3, RequestStatus: "New", CustomerName: "Fidelity Investments",
-		ProjectName: "Fidelity ELA Deal - 2026 - Renewal [Y3 of 5]", ProductName: "WSO2 API Manager",
+		ID: "E06405", EngagementTypeID: 3, RequestStatus: "New", CustomerName: "Acme Corp",
+		ProjectName: "Acme ELA Deal - 2026 - Renewal", ProductName: "WSO2 API Manager",
 		AllocationTypeName: "Pre-Sale Engagement", EngagementCode: "CF3rV-PR", Nature: "On-site", Country: "United States of America",
 		Address: "245 Summer Street, Boston, Massachusetts 02210-1133", StartDate: "2027-11-01", EndDate: "2027-11-12",
-		CustomerContact: "Jordan Lee / +1 555 0100", BusinessDomain: "Financial Services", OpportunityOwner: "Lochana De Alwis",
-		TechnicalOwner: "mohan@wso2.com", ContractsSigned: true, EngagementScope: "API platform health check and upgrade plan.",
+		CustomerContact: "Jordan Lee / +1 555 0100", BusinessDomain: "Financial Services", OpportunityOwner: "Alex Morgan",
+		TechnicalOwner: "owner@example.com", ContractsSigned: true, EngagementScope: "API platform health check and upgrade plan.",
 		Comment: "Customer prefers the first week on site.", BusinessUnit: "IAM", ProductUnit: "IAM", SubRegion: "NA - EAST",
 		Requester: "requester@example.com",
 	}
@@ -78,7 +78,7 @@ func previewSamples() (time.Time, []previewSample) {
 	groups := AllocationEmailGroups{AllocationsGroup: "allocations@example.com", TravelGroup: "travel@example.com", AppBaseURL: base}
 
 	ts := TravelSettings{LogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com", AppBaseURL: base}
-	trip := TravelTrip{JobNumber: "TRV-2026-11-0003", TravellerEmail: "traveller@example.com", Customer: "Fidelity Investments",
+	trip := TravelTrip{JobNumber: "TRV-2026-11-0003", TravellerEmail: "traveller@example.com", Customer: "Acme Corp",
 		Country: "United States of America", City: "Boston", StartDate: "2027-11-01", EndDate: "2027-11-12"}
 	visa := TravelVisa{VisaType: "Business/Visit", Country: "United States of America", EntryType: "Multiple", StartDate: "2026-03-01", EndDate: "2027-11-15"}
 	perDiems := []TravelPerDiem{
@@ -99,9 +99,9 @@ func previewSamples() (time.Time, []previewSample) {
 		{"internalEngagementAllocation", AllocationMessage(allocInternal, groups), false},
 		{"marketingEventAllocation", AllocationMessage(allocEvent, groups), false},
 		{"consultantConfirmed", AllocationMessage(confirmed, groups), false},
-		{"assignRequests", TravelAssigned(ts, trip, visa, "Classic Travels"), false},
-		{"completeTravel", TravelCompleted(ts, trip, visa, "Classic Travels", "WSO2 - USA", perDiems), false},
-		{"noContent", TravelNotice(ts, trip.JobNumber, trip.TravellerEmail, "Classic Travels", "Cancelled", "Please note that this travel request has been cancelled"), false},
+		{"assignRequests", TravelAssigned(ts, trip, visa, "Example Travels"), false},
+		{"completeTravel", TravelCompleted(ts, trip, visa, "Example Travels", "WSO2 - USA", perDiems), false},
+		{"noContent", TravelNotice(ts, trip.JobNumber, trip.TravellerEmail, "Example Travels", "Cancelled", "Please note that this travel request has been cancelled"), false},
 		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - USA", "per-diems", FinanceItems{PerDiem: &FinancePerDiemItem{
 			Currency: "USD", Rate: 70, Total: 735, From: "2026-11-06 13:00:00", To: "2026-11-16 18:00:00", Days: 11}}), false},
 		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - USA", "invoices", FinanceItems{Invoices: []FinanceInvoiceItem{{

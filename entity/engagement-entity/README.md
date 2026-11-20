@@ -87,6 +87,8 @@ Never put real values in committed files.
 | `GATEWAY_JWT_ISSUER` | No | `wso2.org/products/am` | `iss` of the gateway's JWT |
 | `ALLOWED_CLIENT_IDS` | Yes, unless `AUTH_DISABLED` | – | Comma-separated client ids let in: the Engagement App Backend's `OUTBOUND_CLIENT_ID`. Read from `client_id`, else `azp`, else `http://wso2.org/claims/client_id`, the same order as the Customer Entity's `AUTH_INTERNAL_CLIENT_IDS` (cs-tools-membership-scope `entity-service`) |
 | `CLIENT_ID_CLAIMS` | No | `client_id,azp,http://wso2.org/claims/client_id` | Comma-separated claims that name the calling application, tried in order. Change it only if the gateway JWT names the client elsewhere: a refused call logs the claim names it carried (never values) |
+| `GATEWAY_JWT_API_CONTEXTS` | Recommended | – | Comma-separated API contexts the assertion must be issued for, e.g. `/wutu/engagement-entity/v1.0`, so an assertion the gateway issued for another API (Sales or HR entity, Email Service) is refused (403). Unset skips the check, with a startup warning |
+| `API_CONTEXT_CLAIMS` | No | `http://wso2.org/claims/apicontext` | Claims that name that API, tried in order |
 | `AUTH_DISABLED` | Locally | `false` | `true` skips the JWT check and binds to `127.0.0.1` |
 | `NETSUITE_PUSH_ENABLED` | No | `false` | `true` turns NetSuite on (invoice and per diem push, re-sync lookups, Marketing Event creation); then the settings below are required |
 | `NETSUITE_ACCOUNT_ID` | When on | – | `[finance_entity_service.netsuite.netSuiteConfigs] accountId` |

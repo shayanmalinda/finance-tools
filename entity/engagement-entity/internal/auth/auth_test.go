@@ -21,6 +21,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -209,5 +210,44 @@ func TestSecureRedirects(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://jwks.example/keys", nil)
 	if err := c.CheckRedirect(req, make([]*http.Request, maxJWKSRedirects)); err == nil {
 		t.Error("redirect chain longer than the limit was followed")
+	}
+}
+
+// With GATEWAY_JWT_API_CONTEXTS set, an assertion the gateway issued for
+// another API (the Sales or HR entity, the Email Service) is refused with 403
+// even from the allowed client; unset, the check is skipped.
+func TestVerifier_APIContextBinding(t *testing.T) {
+	g := newFakeGateway(t)
+	const ctxClaim = "http://wso2.org/claims/apicontext"
+	bound, err := NewVerifier(Config{Issuer: testIssuer, JWKSURL: g.srv.URL + "/jwks", AllowedClientIDs: []string{testBackend},
+		APIContexts: []string{"/wutu/engagement-entity/v1.0/"}}, g.srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := g.sign(claims(jwt.MapClaims{ctxClaim: "/wutu/engagement-entity/v1.0"}), g.kid)
+	if got, err := bound.Verify(t.Context(), ok); err != nil || got != testBackend {
+		t.Errorf("this API: client %q, err %v", got, err)
+	}
+	for name, tok := range map[string]string{
+		"another API":  g.sign(claims(jwt.MapClaims{ctxClaim: "/zvdz/sales-entity-service-go/v1.0"}), g.kid),
+		"no API claim": g.sign(claims(nil), g.kid),
+		"empty API":    g.sign(claims(jwt.MapClaims{ctxClaim: "  "}), g.kid),
+	} {
+		if _, err := bound.Verify(t.Context(), tok); !errors.Is(err, ErrWrongAPI) {
+			t.Errorf("%s: err = %v, want ErrWrongAPI", name, err)
+		}
+	}
+	h := Middleware(bound)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	req := httptest.NewRequest(http.MethodGet, "/engagements", nil)
+	req.Header.Set(AssertionHeader, g.sign(claims(jwt.MapClaims{ctxClaim: "/pwkl/hr-entity/v1.0"}), g.kid))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("another API through the middleware: %d, want 403", rec.Code)
+	}
+
+	unbound := g.verifier() // no APIContexts: not checked
+	if _, err := unbound.Verify(t.Context(), g.sign(claims(jwt.MapClaims{ctxClaim: "/zvdz/other/v1.0"}), g.kid)); err != nil {
+		t.Errorf("unbound verifier: %v", err)
 	}
 }
