@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -36,23 +37,26 @@ func fip(i int) *int       { return &i }
 
 type finEntity struct {
 	engagemententity.FinanceAPI
-	trip       engagemententity.FinanceTrip
-	perDiems   []engagemententity.FinancePerDiem
-	basis      engagemententity.FinancePaymentBasis
-	invoice    engagemententity.FinanceInvoice
-	invoices   []engagemententity.FinanceInvoice
-	payment    engagemententity.FinancePayment
-	invFilter  engagemententity.FinanceInvoiceFilter
-	payFilters []engagemententity.FinancePaymentFilter
-	decision   engagemententity.FinanceInvoiceDecision
-	decisions  []engagemententity.FinanceDecisionResult
-	addedPD    engagemententity.FinancePerDiemCreate
-	addedPay   engagemententity.FinancePaymentCreate
-	pushErr    error
-	invErr     error
-	pushed     []int
-	deleted    bool
-	subsidiary string
+	trip      engagemententity.FinanceTrip
+	perDiems  []engagemententity.FinancePerDiem
+	basis     engagemententity.FinancePaymentBasis
+	invoice   engagemententity.FinanceInvoice
+	invoices  []engagemententity.FinanceInvoice
+	payment   engagemententity.FinancePayment
+	invFilter engagemententity.FinanceInvoiceFilter
+	// pageInvoices makes FinanceInvoices honour Limit and Offset; invPages counts calls.
+	pageInvoices bool
+	invPages     int
+	payFilters   []engagemententity.FinancePaymentFilter
+	decision     engagemententity.FinanceInvoiceDecision
+	decisions    []engagemententity.FinanceDecisionResult
+	addedPD      engagemententity.FinancePerDiemCreate
+	addedPay     engagemententity.FinancePaymentCreate
+	pushErr      error
+	invErr       error
+	pushed       []int
+	deleted      bool
+	subsidiary   string
 }
 
 func (f *finEntity) FinanceTrip(context.Context, string) (engagemententity.FinanceTrip, error) {
@@ -83,8 +87,14 @@ func (f *finEntity) FinancePaymentBasis(context.Context, string) (engagemententi
 }
 func (f *finEntity) FinanceInvoices(_ context.Context, fl engagemententity.FinanceInvoiceFilter) ([]engagemententity.FinanceInvoice, int, error) {
 	f.invFilter = fl
+	f.invPages++
 	if f.invErr != nil {
 		return nil, 0, f.invErr
+	}
+	if fl.Limit > 0 && f.pageInvoices {
+		lo := min(fl.Offset, len(f.invoices))
+		hi := min(lo+fl.Limit, len(f.invoices))
+		return f.invoices[lo:hi], len(f.invoices), nil
 	}
 	return f.invoices, len(f.invoices), nil
 }
@@ -536,5 +546,27 @@ func TestFinanceAddedEmailItems(t *testing.T) {
 		if !strings.Contains(items, want) {
 			t.Errorf("per diem items lack %q", want)
 		}
+	}
+}
+
+// The decision email lists every invoice the batch decided, also past the
+// first page of a long trip.
+func TestFinanceDecideEmailPagesInvoices(t *testing.T) {
+	ctx := context.Background()
+	var all []engagemententity.FinanceInvoice
+	for i := 1; i <= 1200; i++ {
+		all = append(all, engagemententity.FinanceInvoice{ID: i, InvoiceNumber: fmt.Sprintf("INV-%04d", i), InvoiceCurrency: "USD", InvoiceAmount: 1, JobNumber: "TRV-B"})
+	}
+	e := &finEntity{trip: openTrip(), pageInvoices: true, invoices: all,
+		decisions: []engagemententity.FinanceDecisionResult{{ID: 1150, OK: true, JobNumber: fsp("TRV-B")}}}
+	s, mail := newFin(e, nil)
+	if _, err := s.ApproveInvoices(ctx, perms("f@wso2.com", 33), []int{1150}); err != nil {
+		t.Fatal(err)
+	}
+	if len(mail.sent) != 1 || !strings.Contains(mail.sent[0].Content["items_html"], "INV-1150") {
+		t.Fatalf("invoice on a later page missing from the email: %+v", mail.sent)
+	}
+	if e.invPages < 3 {
+		t.Errorf("read %d pages, want every page of 1200 invoices", e.invPages)
 	}
 }

@@ -93,7 +93,7 @@ table-based with inline styles so Gmail and Outlook render it. To review a
 change, render one sample of every template with the real message builders:
 
 ```bash
-EMAIL_PREVIEW_DIR=/tmp/email-previews go test -run TestWritePreviews ./internal/email
+EMAIL_PREVIEW_DIR=/tmp/email-previews go test -count=1 -run TestWritePreviews ./internal/email
 ```
 
 ## Prerequisites

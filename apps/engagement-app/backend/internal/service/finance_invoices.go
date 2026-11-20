@@ -421,14 +421,24 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 		if decision == "reject" {
 			items.Reason = strings.TrimSpace(reason)
 		}
-		if rows, _, err := s.entity.FinanceInvoices(ctx, engagemententity.FinanceInvoiceFilter{JobNumber: lastJob, Limit: 1000}); err != nil {
-			// The action stands: send the email without the invoice list.
-			slog.WarnContext(ctx, "finance email: invoices not listed", "job", lastJob, "err", err)
-		} else {
+		// Page through every invoice of the trip: a long trip can have more
+		// than one page, and the email lists every invoice the batch decided.
+		const pageSize = 500
+		for offset := 0; ; offset += pageSize {
+			rows, total, err := s.entity.FinanceInvoices(ctx, engagemententity.FinanceInvoiceFilter{JobNumber: lastJob, Limit: pageSize, Offset: offset})
+			if err != nil {
+				// The action stands: send the email without the invoice list.
+				slog.WarnContext(ctx, "finance email: invoices not listed", "job", lastJob, "err", err)
+				items.Invoices = nil
+				break
+			}
 			for _, row := range rows {
 				if decided[row.ID] {
 					items.Invoices = append(items.Invoices, financeInvoiceItem(row, nil))
 				}
+			}
+			if len(rows) == 0 || offset+len(rows) >= total {
+				break
 			}
 		}
 		s.notify(ctx, kind, lastJob, traveller, "invoices", items)
