@@ -84,6 +84,9 @@ type TravelRequestTabs struct {
 	Invoices    bool `json:"invoices"`
 	TravelCards bool `json:"travelCards"`
 	Payments    bool `json:"payments"`
+	// Expenses is the card spend and expense claims tab (Travel 45, full
+	// scope only: never agency staff or the traveller).
+	Expenses bool `json:"expenses"`
 }
 
 // TravelEngagementRef is the engagement shown with a travel request.

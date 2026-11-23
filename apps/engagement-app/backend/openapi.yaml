@@ -3330,6 +3330,7 @@ components:
                 perDiems: { type: boolean }
                 invoices: { type: boolean }
                 travelCards: { type: boolean }
+                expenses: { type: boolean, description: 'Card spend and expense claims (Travel 45, full scope only).' }
                 payments: { type: boolean }
     TravelRequestUpdate:
       type: object
