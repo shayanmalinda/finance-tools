@@ -81,14 +81,14 @@ Never put real values in committed files.
 | `DB_TLS` | No | empty = verified TLS (`tls=true`) | Set `false` only for a local MySQL without TLS. `skip-verify` does not check the certificate: non-production only (a startup warning says so) |
 | `DB_TLS_CA` | When the MySQL certificate is from an internal CA | – | Path to a PEM CA bundle, mounted with Choreo "File and Certificate Mount". Verified TLS against it (TLS 1.2+); an unreadable file or one with no certificate stops startup |
 | `DB_TLS_SERVER_NAME` | When connecting by IP | – | The host name the MySQL certificate carries, when `DB_HOST` is an IP the certificate doesn't list |
-| `NON_PRODUCTION` | Staging and locally: `true` | `false` | `true` allows `DB_TLS` `false` or `skip-verify`, `AUDIT_OPTIONAL`, `AUTH_DISABLED` and an unset `GATEWAY_JWT_API_CONTEXTS`. Unset (production), any of them stops startup |
+| `NON_PRODUCTION` | Staging and locally | `false` | `true` allows `DB_TLS` `false`/`skip-verify`, `AUDIT_OPTIONAL`, `AUTH_DISABLED` and no `GATEWAY_JWT_API_CONTEXTS`; otherwise startup fails |
 | `AUDIT_OPTIONAL` | Locally | `false` | `true` lets the entity start without the `audit_event` tables; otherwise startup fails and names the migration to run |
 | `SERVER_PORT` | No | `8290` | – |
 | `GATEWAY_JWT_JWKS_URL` | Yes, unless `AUTH_DISABLED` | – | The Choreo gateway's keys, `https://<gateway-domain>/.wellknown/jwks` (staging `https://apis-stg.wso2.com/.wellknown/jwks`) |
 | `GATEWAY_JWT_ISSUER` | No | `wso2.org/products/am` | `iss` of the gateway's JWT |
 | `ALLOWED_CLIENT_IDS` | Yes, unless `AUTH_DISABLED` | – | Comma-separated client ids let in: the Engagement App Backend's `OUTBOUND_CLIENT_ID`. Read from `client_id`, else `azp`, else `http://wso2.org/claims/client_id`, the same order as the Customer Entity's `AUTH_INTERNAL_CLIENT_IDS` (cs-tools-membership-scope `entity-service`) |
 | `CLIENT_ID_CLAIMS` | No | `client_id,azp,http://wso2.org/claims/client_id` | Comma-separated claims that name the calling application, tried in order. Change it only if the gateway JWT names the client elsewhere: a refused call logs the claim names it carried (never values) |
-| `GATEWAY_JWT_API_CONTEXTS` | Yes, unless `NON_PRODUCTION` | – | Comma-separated API contexts the assertion must be issued for, e.g. `/wutu/engagement-entity/v1.0`, so an assertion the gateway issued for another API (Sales or HR entity, Email Service) is refused (403). Unset skips the check (allowed only with `NON_PRODUCTION`, with a startup warning) |
+| `GATEWAY_JWT_API_CONTEXTS` | Recommended | – | Comma-separated API contexts the assertion must be issued for, e.g. `/wutu/engagement-entity/v1.0`, so an assertion the gateway issued for another API (Sales or HR entity, Email Service) is refused (403). Unset skips the check, with a startup warning |
 | `API_CONTEXT_CLAIMS` | No | `http://wso2.org/claims/apicontext` | Claims that name that API, tried in order |
 | `AUTH_DISABLED` | Locally | `false` | `true` skips the JWT check and binds to `127.0.0.1` |
 | `NETSUITE_PUSH_ENABLED` | No | `false` | `true` turns NetSuite on (invoice and per diem push, re-sync lookups, Marketing Event creation); then the settings below are required |
@@ -217,19 +217,13 @@ entity (`ENFORCE_SCOPES`), and the rollout order. Not enforced yet.
 
 ## Deployment
 
-Go-live checklist (production; staging is configured the same way except
-for `NON_PRODUCTION=true` and `DB_TLS=skip-verify`, as its MySQL certificate
-is self-signed):
+Go-live checklist (production, and staging configured the same way):
 
 - Both `audit_event` migrations above have run; the entity does not start
   without them.
-- `NON_PRODUCTION` is not set, so the entity refuses to start with any of the
-  weaker settings below.
-- MySQL TLS is verified: `DB_TLS` empty and `DB_HOST` the server's host name
-  (Azure Database for MySQL's certificate is publicly trusted). For a server
-  with an internal CA, add `DB_TLS_CA` (mounted as a file) and
-  `DB_TLS_SERVER_NAME` when `DB_HOST` is an IP. Never `skip-verify`.
-- `GATEWAY_JWT_API_CONTEXTS` is set to the entity's API context.
+- MySQL TLS is verified: `DB_TLS` empty, with `DB_TLS_CA` (the internal CA,
+  mounted as a file) and `DB_TLS_SERVER_NAME` when `DB_HOST` is an IP. Never
+  `skip-verify`.
 - `GATEWAY_JWT_JWKS_URL` and `ALLOWED_CLIENT_IDS` are set; `AUTH_DISABLED`
   and `AUDIT_OPTIONAL` are not.
 

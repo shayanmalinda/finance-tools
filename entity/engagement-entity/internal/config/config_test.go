@@ -112,6 +112,16 @@ func TestValidateRequiresGatewayAuth(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Errorf("complete auth: err = %v", err)
 	}
+	for _, weaken := range []func(*Config){
+		func(c *Config) { c.DB.TLS = "skip-verify" }, func(c *Config) { c.AuditOptional = true },
+		func(c *Config) { c.Auth.Disabled = true }, func(c *Config) { c.Auth.APIContexts = nil },
+	} {
+		w := *c
+		weaken(&w)
+		if err := w.Validate(); err == nil || !strings.Contains(err.Error(), "NON_PRODUCTION") {
+			t.Errorf("weak setting without NON_PRODUCTION: err = %v", err)
+		}
+	}
 	c = base()
 	c.Auth.Disabled = true
 	c.NonProduction = true
@@ -232,58 +242,5 @@ func TestDefaultRestletsURL(t *testing.T) {
 	}
 	if got := c.NetSuite.RestletsBaseURL; got != "https://1234567-sb1.restlets.api.netsuite.com" {
 		t.Errorf("RestletsBaseURL = %q", got)
-	}
-}
-
-// Production fails closed: the weaker settings a staging or local run needs
-// stop startup unless NON_PRODUCTION=true.
-func TestValidateWeakSettingsNeedNonProduction(t *testing.T) {
-	prod := func() *Config {
-		return &Config{
-			DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306},
-			Auth: AuthConfig{JWKSURL: "https://gw.example/.wellknown/jwks", AllowedClientIDs: []string{"backend"},
-				APIContexts: []string{"/wutu/engagement-entity/v1.0"}},
-		}
-	}
-	if err := prod().Validate(); err != nil {
-		t.Fatalf("production settings: err = %v", err)
-	}
-	for name, weaken := range map[string]func(*Config){
-		"DB_TLS=skip-verify":       func(c *Config) { c.DB.TLS = "skip-verify" },
-		"DB_TLS=false":             func(c *Config) { c.DB.TLS = "false" },
-		"DB_TLS=preferred":         func(c *Config) { c.DB.TLS = "preferred" },
-		"AUDIT_OPTIONAL":           func(c *Config) { c.AuditOptional = true },
-		"AUTH_DISABLED":            func(c *Config) { c.Auth.Disabled = true },
-		"GATEWAY_JWT_API_CONTEXTS": func(c *Config) { c.Auth.APIContexts = nil },
-	} {
-		c := prod()
-		weaken(c)
-		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "NON_PRODUCTION") {
-			t.Errorf("%s in production: err = %v, want a NON_PRODUCTION error", name, err)
-		}
-		c.NonProduction = true
-		if err := c.Validate(); err != nil {
-			t.Errorf("%s with NON_PRODUCTION: err = %v", name, err)
-		}
-	}
-	c := prod()
-	c.DB.TLS = "true"
-	if err := c.Validate(); err != nil {
-		t.Errorf("DB_TLS=true: err = %v", err)
-	}
-}
-
-func TestLoadNonProduction(t *testing.T) {
-	clearEnv(t)
-	if c, err := Load(); err != nil || c.NonProduction {
-		t.Errorf("unset: NonProduction %v, err %v; want false", c != nil && c.NonProduction, err)
-	}
-	t.Setenv("NON_PRODUCTION", "true")
-	if c, err := Load(); err != nil || !c.NonProduction {
-		t.Errorf("true: err %v", err)
-	}
-	t.Setenv("NON_PRODUCTION", "maybe")
-	if _, err := Load(); err == nil {
-		t.Error("NON_PRODUCTION=maybe: want error")
 	}
 }

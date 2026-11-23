@@ -57,10 +57,7 @@ type Config struct {
 	// (AUDIT_OPTIONAL, local runs only); otherwise startup fails without them.
 	AuditOptional bool
 
-	// NonProduction (NON_PRODUCTION) allows the weaker settings a staging or
-	// local run needs: unverified or no DB TLS, AUDIT_OPTIONAL, AUTH_DISABLED
-	// and no GATEWAY_JWT_API_CONTEXTS. Off by default, so a production
-	// deployment that forgets a setting refuses to start rather than run weak.
+	// NonProduction (NON_PRODUCTION) allows the weaker settings above, for staging and local runs.
 	NonProduction bool
 
 	ServerPort string
@@ -316,18 +313,8 @@ func (c *Config) Validate() error {
 			errs = append(errs, errors.New("ALLOWED_CLIENT_IDS is required (the Engagement App Backend's client id)"))
 		}
 	}
-	if !c.NonProduction {
-		if c.DB.TLS != "" && c.DB.TLS != "true" {
-			errs = append(errs, fmt.Errorf("DB_TLS=%s does not verify the MySQL certificate: leave it empty (or set NON_PRODUCTION=true for staging or a local run)", c.DB.TLS))
-		}
-		if c.AuditOptional {
-			errs = append(errs, errors.New("AUDIT_OPTIONAL is for a local run only (set NON_PRODUCTION=true)"))
-		}
-		if c.Auth.Disabled {
-			errs = append(errs, errors.New("AUTH_DISABLED is for a local run only (set NON_PRODUCTION=true)"))
-		} else if len(c.Auth.APIContexts) == 0 {
-			errs = append(errs, errors.New("GATEWAY_JWT_API_CONTEXTS is required (or NON_PRODUCTION=true for staging or a local run)"))
-		}
+	if !c.NonProduction && ((c.DB.TLS != "" && c.DB.TLS != "true") || c.AuditOptional || c.Auth.Disabled || len(c.Auth.APIContexts) == 0) {
+		errs = append(errs, errors.New("production needs DB_TLS empty or true, AUDIT_OPTIONAL and AUTH_DISABLED unset, and GATEWAY_JWT_API_CONTEXTS set (NON_PRODUCTION=true allows them)"))
 	}
 	if n := c.NetSuite; n.PushEnabled {
 		for _, kv := range []struct{ key, val string }{
