@@ -81,7 +81,7 @@ Never put real values in committed files.
 | `DB_TLS` | No | empty = verified TLS (`tls=true`) | Set `false` only for a local MySQL without TLS. `skip-verify` does not check the certificate: non-production only (a startup warning says so) |
 | `DB_TLS_CA` | When the MySQL certificate is from an internal CA | – | Path to a PEM CA bundle, mounted with Choreo "File and Certificate Mount". Verified TLS against it (TLS 1.2+); an unreadable file or one with no certificate stops startup |
 | `DB_TLS_SERVER_NAME` | When connecting by IP | – | The host name the MySQL certificate carries, when `DB_HOST` is an IP the certificate doesn't list |
-| `NON_PRODUCTION` | Staging and locally | `false` | `true` allows `DB_TLS` `false`/`skip-verify`, `AUDIT_OPTIONAL`, `AUTH_DISABLED` and no `GATEWAY_JWT_API_CONTEXTS`; otherwise startup fails |
+| `NON_PRODUCTION` | Staging and locally | `false` | `true` allows `DB_TLS` `false`/`skip-verify`, `AUDIT_OPTIONAL` and `AUTH_DISABLED`; otherwise startup fails |
 | `AUDIT_OPTIONAL` | Locally | `false` | `true` lets the entity start without the `audit_event` tables; otherwise startup fails and names the migration to run |
 | `SERVER_PORT` | No | `8290` | – |
 | `GATEWAY_JWT_JWKS_URL` | Yes, unless `AUTH_DISABLED` | – | The Choreo gateway's keys, `https://<gateway-domain>/.wellknown/jwks` (staging `https://apis-stg.wso2.com/.wellknown/jwks`) |
