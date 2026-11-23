@@ -2874,7 +2874,7 @@ components:
               items:
                 type: object
                 properties:
-                  source: { type: string, enum: [invoice, perDiem, card] }
+                  source: { type: string, enum: [invoice, perDiem, card, claim] }
                   currency: { type: string }
                   amount: { type: number }
         engagements:
