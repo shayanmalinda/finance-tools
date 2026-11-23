@@ -57,6 +57,12 @@ type Config struct {
 	// (AUDIT_OPTIONAL, local runs only); otherwise startup fails without them.
 	AuditOptional bool
 
+	// NonProduction (NON_PRODUCTION) allows the weaker settings a staging or
+	// local run needs: unverified or no DB TLS, AUDIT_OPTIONAL, AUTH_DISABLED
+	// and no GATEWAY_JWT_API_CONTEXTS. Off by default, so a production
+	// deployment that forgets a setting refuses to start rather than run weak.
+	NonProduction bool
+
 	ServerPort string
 }
 
@@ -196,6 +202,14 @@ func Load() (*Config, error) {
 		}
 		authOff = b
 	}
+	nonProduction := false
+	if v := strings.TrimSpace(os.Getenv("NON_PRODUCTION")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, errors.New("NON_PRODUCTION must be true or false")
+		}
+		nonProduction = b
+	}
 	auditOptional := false
 	if v := strings.TrimSpace(os.Getenv("AUDIT_OPTIONAL")); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -256,6 +270,7 @@ func Load() (*Config, error) {
 		},
 		NetSuite:      ns,
 		AuditOptional: auditOptional,
+		NonProduction: nonProduction,
 		Auth: AuthConfig{
 			Disabled:         authOff,
 			Issuer:           getEnvOrDefault("GATEWAY_JWT_ISSUER", DefaultGatewayIssuer),
@@ -299,6 +314,19 @@ func (c *Config) Validate() error {
 		}
 		if len(c.Auth.AllowedClientIDs) == 0 {
 			errs = append(errs, errors.New("ALLOWED_CLIENT_IDS is required (the Engagement App Backend's client id)"))
+		}
+	}
+	if !c.NonProduction {
+		if c.DB.TLS != "" && c.DB.TLS != "true" {
+			errs = append(errs, fmt.Errorf("DB_TLS=%s does not verify the MySQL certificate: leave it empty (or set NON_PRODUCTION=true for staging or a local run)", c.DB.TLS))
+		}
+		if c.AuditOptional {
+			errs = append(errs, errors.New("AUDIT_OPTIONAL is for a local run only (set NON_PRODUCTION=true)"))
+		}
+		if c.Auth.Disabled {
+			errs = append(errs, errors.New("AUTH_DISABLED is for a local run only (set NON_PRODUCTION=true)"))
+		} else if len(c.Auth.APIContexts) == 0 {
+			errs = append(errs, errors.New("GATEWAY_JWT_API_CONTEXTS is required (or NON_PRODUCTION=true for staging or a local run)"))
 		}
 	}
 	if n := c.NetSuite; n.PushEnabled {
