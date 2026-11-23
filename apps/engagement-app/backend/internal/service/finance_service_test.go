@@ -150,6 +150,10 @@ func (f *finEntity) FinanceSubsidiary(context.Context, string) (engagemententity
 	return engagemententity.FinanceSubsidiary{CurrencyCode: f.subsidiary}, nil
 }
 
+func (f *finEntity) FinanceTripExpenses(context.Context, string) (engagemententity.FinanceTripExpenses, error) {
+	return engagemententity.FinanceTripExpenses{CardExpenses: []engagemententity.FinanceCardExpense{{ID: 1}}}, nil
+}
+
 type finHR struct{ hrentity.Client }
 
 func (finHR) Employee(_ context.Context, e string) (*hrentity.Employee, error) {
@@ -605,5 +609,23 @@ func TestFinanceDecideEmailListsEachInvoiceOnce(t *testing.T) {
 	}
 	if !strings.Contains(items, "INV-1150") {
 		t.Error("INV-1150 missing")
+	}
+}
+
+// A travel's card spend and expense claims are employees' own expenses:
+// Travel 45 only, never agency staff or the traveller's own-cards privilege.
+func TestFinanceTripExpensesScope(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newFin(&finEntity{trip: openTrip()}, nil)
+	if got, err := s.TripExpenses(ctx, perms("fin@wso2.com", 45), job); err != nil || len(got.CardExpenses) != 1 {
+		t.Errorf("45: %+v, %v", got, err)
+	}
+	if _, err := s.TripExpenses(ctx, perms("jane@wso2.com", 48), job); !isForbidden(err) {
+		t.Errorf("traveller with 48: %v", err)
+	}
+	agent := perms("a@agency.com", 18, 45)
+	agent.Agency = &domain.TravelAgency{ID: 4}
+	if _, err := s.TripExpenses(ctx, agent, job); !isForbidden(err) {
+		t.Errorf("agent of the trip's agency: %v", err)
 	}
 }

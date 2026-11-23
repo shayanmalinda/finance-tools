@@ -214,6 +214,7 @@ func (s *dashboardService) Travel(ctx context.Context, f domain.DashboardTravelF
 		{f.CostInvoices, s.repo.InvoiceCost},
 		{f.CostPayments, s.repo.PaymentCost},
 		{f.CostCards, s.repo.CardCost},
+		{f.CostClaims, s.repo.ClaimCost},
 	} {
 		if !part.on {
 			continue

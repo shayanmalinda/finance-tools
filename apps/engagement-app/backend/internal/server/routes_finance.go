@@ -65,6 +65,7 @@ func registerFinanceRoutes(a *area) {
 	a.handleIdem("POST /travel-requests/{jobNumber}/invoices", travel(31), h.AddInvoices)
 	a.handle("GET /travel-requests/{jobNumber}/travel-cards", travel(45, 48), h.TravelCards)
 	a.handleIdem("POST /travel-requests/{jobNumber}/travel-cards", travel(46), h.AddTravelCard)
+	a.handle("GET /travel-requests/{jobNumber}/expenses", travel(45), h.TripExpenses)
 	a.handle("GET /travel-requests/{jobNumber}/per-diem-payments", travel(42, 47), h.TripPayments)
 	a.handleIdem("POST /travel-requests/{jobNumber}/per-diem-payments", travel(43), h.AddPayment)
 

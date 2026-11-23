@@ -163,6 +163,9 @@ type FinanceExpenseRepository interface {
 	// Subsidiary is the active subsidiary whose code is the HR company
 	// name, or nil.
 	Subsidiary(ctx context.Context, company string) (*domain.FinanceSubsidiary, error)
+	// TripExpenses is the card spend and expense claims tagged with
+	// jobNumber, except invalid card spend and deleted claims.
+	TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error)
 }
 
 type financeExpenseRepo struct{ db *sql.DB }
@@ -192,4 +195,57 @@ func (r *financeExpenseRepo) Subsidiary(ctx context.Context, company string) (*d
 	}
 	s.LegalName, s.CurrencyCode, s.Country, s.TaxCodeInternalID = legal.String, cur.String, country.String, code.String
 	return &s, nil
+}
+
+// TripExpenses implements FinanceExpenseRepository. The job number tag is
+// free text in expense_app, so it is matched trimmed.
+func (r *financeExpenseRepo) TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error) {
+	out := domain.FinanceTripExpenses{CardExpenses: []domain.FinanceCardExpense{}, ExpenseClaims: []domain.FinanceExpenseClaim{}}
+	rows, err := r.db.QueryContext(ctx, `SELECT t.id, DATE_FORMAT(t.txn_date, '%Y-%m-%d'), et.expense_type, t.txn_reference,
+			t.txn_amount, t.txn_currency, t.employee_email, t.status
+		FROM cc_txn AS t
+			LEFT JOIN expense_type AS et ON et.id = t.expense_type_id
+		WHERE TRIM(t.travel_job_number) = ? AND COALESCE(t.status, '') != 'invalid'
+		ORDER BY t.txn_date, t.id LIMIT ?`, jobNumber, financeMaxRows)
+	if err != nil {
+		return out, fmt.Errorf("finance.TripExpenses cards: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c domain.FinanceCardExpense
+		var date, typ, ref, cur, email, status sql.NullString
+		var amount sql.NullFloat64
+		if err := rows.Scan(&c.ID, &date, &typ, &ref, &amount, &cur, &email, &status); err != nil {
+			return out, fmt.Errorf("finance.TripExpenses cards scan: %w", err)
+		}
+		c.Date, c.ExpenseType, c.Reference, c.Currency = financeStr(date), financeStr(typ), financeStr(ref), financeStr(cur)
+		c.EmployeeEmail, c.Status, c.Amount = financeStr(email), financeStr(status), financeFloat(amount)
+		out.CardExpenses = append(out.CardExpenses, c)
+	}
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf("finance.TripExpenses cards: %w", err)
+	}
+	claims, err := r.db.QueryContext(ctx, `SELECT c.id, c.report_seq_number, DATE_FORMAT(c.txn_date, '%Y-%m-%d'), et.expense_type,
+			c.txn_amount, c.txn_currency, c.reimbursement_amount, c.reimbursement_currency, c.employee_email, c.status
+		FROM expense_claims AS c
+			LEFT JOIN expense_type AS et ON et.id = c.expense_type_id
+		WHERE TRIM(c.travel_job_number) = ? AND c.status != '-1'
+		ORDER BY c.txn_date, c.id LIMIT ?`, jobNumber, financeMaxRows)
+	if err != nil {
+		return out, fmt.Errorf("finance.TripExpenses claims: %w", err)
+	}
+	defer claims.Close()
+	for claims.Next() {
+		var c domain.FinanceExpenseClaim
+		var num, date, typ, cur, rcur, email, status sql.NullString
+		var amount, ramount sql.NullFloat64
+		if err := claims.Scan(&c.ID, &num, &date, &typ, &amount, &cur, &ramount, &rcur, &email, &status); err != nil {
+			return out, fmt.Errorf("finance.TripExpenses claims scan: %w", err)
+		}
+		c.ClaimNumber, c.Date, c.ExpenseType, c.Currency = financeStr(num), financeStr(date), financeStr(typ), financeStr(cur)
+		c.ReimbursementCurrency, c.EmployeeEmail, c.Status = financeStr(rcur), financeStr(email), financeStr(status)
+		c.Amount, c.ReimbursementAmount = financeFloat(amount), financeFloat(ramount)
+		out.ExpenseClaims = append(out.ExpenseClaims, c)
+	}
+	return out, claims.Err()
 }

@@ -124,6 +124,20 @@ func (h *FinanceHandler) AddInvoices(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusCreated, page)
 }
 
+// TripExpenses handles GET /travel-requests/{jobNumber}/expenses.
+func (h *FinanceHandler) TripExpenses(w http.ResponseWriter, r *http.Request) {
+	p, ok := permsFrom(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.svc.TripExpenses(r.Context(), p, r.PathValue("jobNumber"))
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
 // TravelCards handles GET /travel-requests/{jobNumber}/travel-cards.
 func (h *FinanceHandler) TravelCards(w http.ResponseWriter, r *http.Request) {
 	p, ok := permsFrom(w, r)

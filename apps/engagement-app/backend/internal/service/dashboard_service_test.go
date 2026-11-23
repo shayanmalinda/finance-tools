@@ -410,21 +410,23 @@ func TestDashboard_TravelCostInUSD(t *testing.T) {
 		{Source: "perDiem", Month: "2026-10", Currency: "USD", Amount: 400},
 		{Source: "perDiem", Month: "2026-09", Currency: "GBP", Amount: 70},
 		{Source: "card", Month: "2026-10", Currency: "USD", Amount: 100},
+		{Source: "claim", Month: "2026-10", Currency: "USD", Amount: 50},
 	}
 	tr := &engagemententity.DashboardTravel{From: "2025-12-01", To: "2026-12-01", Cost: cost}
 	today := dashboardNow()
 
 	c := dashboardTravelCost(tr, today, true)
-	if c.Total != 2000.56 || c.TravelInvoices != 1500.56 || c.PerDiems != 400 || c.CreditCardExpenses == nil || *c.CreditCardExpenses != 100 {
+	if c.Total != 2050.56 || c.TravelInvoices != 1500.56 || c.PerDiems != 400 || c.CreditCardExpenses == nil || *c.CreditCardExpenses != 100 ||
+		c.ExpenseClaims == nil || *c.ExpenseClaims != 50 {
 		t.Errorf("totals = %+v", c)
 	}
-	if c.LastMonth != 1000.56 || c.CurrentMonth != 1000 || len(c.ByMonth) != 12 || c.ByMonth[11].Month != "2026-11" {
+	if c.LastMonth != 1050.56 || c.CurrentMonth != 1000 || len(c.ByMonth) != 12 || c.ByMonth[11].Month != "2026-11" {
 		t.Errorf("months = last %v current %v %+v", c.LastMonth, c.CurrentMonth, c.ByMonth)
 	}
-	if c.ByMonth[10].Values["Credit Card Expenses"] != 100 || c.ByMonth[0].Values["Per Diems"] != 0 {
+	if c.ByMonth[10].Values["Credit Card Expenses"] != 100 || c.ByMonth[10].Values["Expense Claims"] != 50 || c.ByMonth[0].Values["Per Diems"] != 0 {
 		t.Errorf("series = %+v", c.ByMonth[10])
 	}
-	if len(c.ByType) != 4 || c.ByType[0].Label != "Air Ticket" {
+	if len(c.ByType) != 5 || c.ByType[0].Label != "Air Ticket" {
 		t.Errorf("byType = %+v", c.ByType)
 	}
 	if len(c.NotConverted) != 2 || c.NotConverted[0] != (domain.DashboardUnconverted{Source: "invoice", Currency: "LKR", Amount: 90000}) {
@@ -433,7 +435,7 @@ func TestDashboard_TravelCostInUSD(t *testing.T) {
 
 	// Without a card role, card lines are ignored and the series has no card key.
 	c = dashboardTravelCost(tr, today, false)
-	if c.CreditCardExpenses != nil || c.Total != 1900.56 {
+	if c.CreditCardExpenses != nil || c.ExpenseClaims != nil || c.Total != 1900.56 {
 		t.Errorf("no card: %+v", c)
 	}
 	if _, ok := c.ByMonth[10].Values["Credit Card Expenses"]; ok {

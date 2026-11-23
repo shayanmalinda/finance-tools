@@ -159,6 +159,8 @@ type DashboardTravelFilter struct {
 	CostInvoices bool
 	CostPayments bool
 	CostCards    bool
+	// CostClaims adds the expense claims tagged with a travel (expense_app).
+	CostClaims bool
 }
 
 // DashboardCount is a label with a count.
@@ -185,6 +187,7 @@ const (
 	DashboardCostInvoice = "invoice"
 	DashboardCostPerDiem = "perDiem"
 	DashboardCostCard    = "card"
+	DashboardCostClaim   = "claim"
 )
 
 // DashboardCostLine is a sum of amounts by source, month (YYYY-MM), cost type

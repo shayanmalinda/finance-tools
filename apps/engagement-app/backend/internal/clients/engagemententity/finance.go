@@ -38,6 +38,7 @@ type FinanceAPI interface {
 
 	FinanceTravelCards(ctx context.Context, jobNumber string) ([]FinanceTravelCard, error)
 	FinanceAddTravelCard(ctx context.Context, jobNumber string, in FinanceTravelCardCreate) (FinanceTravelCard, error)
+	FinanceTripExpenses(ctx context.Context, jobNumber string) (FinanceTripExpenses, error)
 
 	FinanceCostTypes(ctx context.Context) ([]FinanceCostType, error)
 	FinanceInvoices(ctx context.Context, f FinanceInvoiceFilter) ([]FinanceInvoice, int, error)
@@ -133,6 +134,40 @@ type FinancePaymentBasis struct {
 }
 
 // FinanceTravelCard is a travel card.
+// FinanceCardExpense is a credit card transaction tagged with a travel.
+type FinanceCardExpense struct {
+	ID            int      `json:"id"`
+	Date          *string  `json:"date"`
+	ExpenseType   *string  `json:"expenseType"`
+	Reference     *string  `json:"reference"`
+	Amount        *float64 `json:"amount"`
+	Currency      *string  `json:"currency"`
+	EmployeeEmail *string  `json:"employeeEmail"`
+	Status        *string  `json:"status"`
+}
+
+// FinanceExpenseClaim is an expense claim line tagged with a travel. Status
+// is the legacy code: 0 pending approval, 1 rejected, 2 lead approved, 3
+// approved.
+type FinanceExpenseClaim struct {
+	ID                    int      `json:"id"`
+	ClaimNumber           *string  `json:"claimNumber"`
+	Date                  *string  `json:"date"`
+	ExpenseType           *string  `json:"expenseType"`
+	Amount                *float64 `json:"amount"`
+	Currency              *string  `json:"currency"`
+	ReimbursementAmount   *float64 `json:"reimbursementAmount"`
+	ReimbursementCurrency *string  `json:"reimbursementCurrency"`
+	EmployeeEmail         *string  `json:"employeeEmail"`
+	Status                *string  `json:"status"`
+}
+
+// FinanceTripExpenses is a travel's card spend and expense claims.
+type FinanceTripExpenses struct {
+	CardExpenses  []FinanceCardExpense  `json:"cardExpenses"`
+	ExpenseClaims []FinanceExpenseClaim `json:"expenseClaims"`
+}
+
 type FinanceTravelCard struct {
 	ID        int     `json:"id"`
 	JobNumber string  `json:"jobNumber"`
@@ -402,6 +437,13 @@ func (c *HTTPClient) FinanceDeletePerDiem(ctx context.Context, jobNumber string,
 func (c *HTTPClient) FinancePaymentBasis(ctx context.Context, jobNumber string) (FinancePaymentBasis, error) {
 	var out FinancePaymentBasis
 	err := c.rest.Get(ctx, financeTripPath(jobNumber, "payment-basis"), &out)
+	return out, err
+}
+
+// FinanceTripExpenses calls GET /finance/travel-requests/{jobNumber}/expenses.
+func (c *HTTPClient) FinanceTripExpenses(ctx context.Context, jobNumber string) (FinanceTripExpenses, error) {
+	var out FinanceTripExpenses
+	err := c.rest.Get(ctx, financeTripPath(jobNumber, "expenses"), &out)
 	return out, err
 }
 
