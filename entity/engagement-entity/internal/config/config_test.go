@@ -37,7 +37,7 @@ func clearEnv(t *testing.T) {
 		"NETSUITE_GET_PURCHASE_ORDER_SCRIPT_ID", "NETSUITE_GET_PURCHASE_ORDER_DEPLOY_ID",
 		"NETSUITE_GET_VENDOR_BILL_SCRIPT_ID", "NETSUITE_GET_VENDOR_BILL_DEPLOY_ID",
 		"AUTH_DISABLED", "GATEWAY_JWT_ISSUER", "GATEWAY_JWT_JWKS_URL", "ALLOWED_CLIENT_IDS", "CLIENT_ID_CLAIMS", "GATEWAY_JWT_API_CONTEXTS", "API_CONTEXT_CLAIMS",
-		"DB_TLS_CA", "DB_TLS_SERVER_NAME", "AUDIT_OPTIONAL",
+		"DB_TLS_CA", "DB_TLS_SERVER_NAME", "AUDIT_OPTIONAL", "NON_PRODUCTION",
 	} {
 		t.Setenv(k, "")
 	}
@@ -83,7 +83,7 @@ func TestValidateNamesEveryMissingSetting(t *testing.T) {
 }
 
 func TestValidateNetSuiteOnlyWhenPushEnabled(t *testing.T) {
-	c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}, Auth: AuthConfig{Disabled: true}}
+	c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", Port: 3306}, Auth: AuthConfig{Disabled: true}, NonProduction: true}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate() = %v, want nil", err)
 	}
@@ -108,11 +108,23 @@ func TestValidateRequiresGatewayAuth(t *testing.T) {
 		t.Errorf("plain http JWKS: err = %v", err)
 	}
 	c.Auth.JWKSURL = "https://gw.example/.wellknown/jwks"
+	c.Auth.APIContexts = []string{"/wutu/engagement-entity/v1.0"}
 	if err := c.Validate(); err != nil {
 		t.Errorf("complete auth: err = %v", err)
 	}
+	for _, weaken := range []func(*Config){
+		func(c *Config) { c.DB.TLS = "skip-verify" }, func(c *Config) { c.AuditOptional = true },
+		func(c *Config) { c.Auth.Disabled = true }, func(c *Config) { c.Auth.APIContexts = nil },
+	} {
+		w := *c
+		weaken(&w)
+		if err := w.Validate(); err == nil || !strings.Contains(err.Error(), "NON_PRODUCTION") {
+			t.Errorf("weak setting without NON_PRODUCTION: err = %v", err)
+		}
+	}
 	c = base()
 	c.Auth.Disabled = true
+	c.NonProduction = true
 	if err := c.Validate(); err != nil {
 		t.Errorf("AUTH_DISABLED: err = %v", err)
 	}
@@ -188,13 +200,13 @@ func TestLoadDBTLSAndAudit(t *testing.T) {
 // unverified or disabled DB_TLS.
 func TestValidateCustomTLSNeedsVerifiedTLS(t *testing.T) {
 	for _, mode := range []string{"skip-verify", "false", "preferred"} {
-		c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", TLS: mode, TLSCA: "/ca.pem"}, Auth: AuthConfig{Disabled: true}}
+		c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", TLS: mode, TLSCA: "/ca.pem"}, Auth: AuthConfig{Disabled: true}, NonProduction: true}
 		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "DB_TLS must be empty or true") {
 			t.Errorf("DB_TLS=%s with a CA: err = %v", mode, err)
 		}
 	}
 	for _, mode := range []string{"", "true"} {
-		c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", TLS: mode, TLSCA: "/ca.pem"}, Auth: AuthConfig{Disabled: true}}
+		c := &Config{DB: DBConfig{Host: "h", User: "u", Password: "p", TLS: mode, TLSCA: "/ca.pem"}, Auth: AuthConfig{Disabled: true}, NonProduction: true}
 		if err := c.Validate(); err != nil {
 			t.Errorf("DB_TLS=%q with a CA: err = %v", mode, err)
 		}

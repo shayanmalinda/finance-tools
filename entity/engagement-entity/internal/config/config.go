@@ -57,6 +57,9 @@ type Config struct {
 	// (AUDIT_OPTIONAL, local runs only); otherwise startup fails without them.
 	AuditOptional bool
 
+	// NonProduction (NON_PRODUCTION) allows the weaker settings above, for staging and local runs.
+	NonProduction bool
+
 	ServerPort string
 }
 
@@ -196,6 +199,14 @@ func Load() (*Config, error) {
 		}
 		authOff = b
 	}
+	nonProduction := false
+	if v := strings.TrimSpace(os.Getenv("NON_PRODUCTION")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, errors.New("NON_PRODUCTION must be true or false")
+		}
+		nonProduction = b
+	}
 	auditOptional := false
 	if v := strings.TrimSpace(os.Getenv("AUDIT_OPTIONAL")); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -256,6 +267,7 @@ func Load() (*Config, error) {
 		},
 		NetSuite:      ns,
 		AuditOptional: auditOptional,
+		NonProduction: nonProduction,
 		Auth: AuthConfig{
 			Disabled:         authOff,
 			Issuer:           getEnvOrDefault("GATEWAY_JWT_ISSUER", DefaultGatewayIssuer),
@@ -300,6 +312,9 @@ func (c *Config) Validate() error {
 		if len(c.Auth.AllowedClientIDs) == 0 {
 			errs = append(errs, errors.New("ALLOWED_CLIENT_IDS is required (the Engagement App Backend's client id)"))
 		}
+	}
+	if !c.NonProduction && ((c.DB.TLS != "" && c.DB.TLS != "true") || c.AuditOptional || c.Auth.Disabled || len(c.Auth.APIContexts) == 0) {
+		errs = append(errs, errors.New("production needs DB_TLS empty or true, AUDIT_OPTIONAL and AUTH_DISABLED unset, and GATEWAY_JWT_API_CONTEXTS set (NON_PRODUCTION=true allows them)"))
 	}
 	if n := c.NetSuite; n.PushEnabled {
 		for _, kv := range []struct{ key, val string }{
