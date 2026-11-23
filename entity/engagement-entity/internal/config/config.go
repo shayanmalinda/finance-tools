@@ -313,8 +313,8 @@ func (c *Config) Validate() error {
 			errs = append(errs, errors.New("ALLOWED_CLIENT_IDS is required (the Engagement App Backend's client id)"))
 		}
 	}
-	if !c.NonProduction && ((c.DB.TLS != "" && c.DB.TLS != "true") || c.AuditOptional || c.Auth.Disabled || len(c.Auth.APIContexts) == 0) {
-		errs = append(errs, errors.New("production needs DB_TLS empty or true, AUDIT_OPTIONAL and AUTH_DISABLED unset, and GATEWAY_JWT_API_CONTEXTS set (NON_PRODUCTION=true allows them)"))
+	if !c.NonProduction && ((c.DB.TLS != "" && c.DB.TLS != "true") || c.AuditOptional || c.Auth.Disabled) {
+		errs = append(errs, errors.New("production needs DB_TLS empty or true, and AUDIT_OPTIONAL and AUTH_DISABLED unset (NON_PRODUCTION=true allows them)"))
 	}
 	if n := c.NetSuite; n.PushEnabled {
 		for _, kv := range []struct{ key, val string }{

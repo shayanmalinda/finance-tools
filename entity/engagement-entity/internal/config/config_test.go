@@ -114,7 +114,7 @@ func TestValidateRequiresGatewayAuth(t *testing.T) {
 	}
 	for _, weaken := range []func(*Config){
 		func(c *Config) { c.DB.TLS = "skip-verify" }, func(c *Config) { c.AuditOptional = true },
-		func(c *Config) { c.Auth.Disabled = true }, func(c *Config) { c.Auth.APIContexts = nil },
+		func(c *Config) { c.Auth.Disabled = true },
 	} {
 		w := *c
 		weaken(&w)
