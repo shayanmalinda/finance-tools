@@ -264,10 +264,10 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 			people = append(people, &agent.PerDiemsOnOpenTrips[i].Traveller)
 		}
 		s.people.fillNames(ctx, people...)
-		return domain.Dashboard{Agent: agent, FailedSections: []string{}, Widgets: []domain.DashboardWidget{}}, nil
+		return domain.Dashboard{Date: todayStr, Agent: agent, FailedSections: []string{}, Widgets: []domain.DashboardWidget{}}, nil
 	}
 
-	var out domain.Dashboard
+	out := domain.Dashboard{Date: todayStr}
 	out.Widgets = dashboardWidgets(p)
 	// The sections to build: the ones asked for, else those behind a widget
 	// that is on by default; either way only those the caller may see.
@@ -873,9 +873,10 @@ func (s *dashboardService) agent(ctx context.Context, p domain.Perms, todayStr s
 
 // ── Allocations Today ───────────────────────────────────────────────────────
 
-// AllocationsToday runs the legacy Allocations dashboard. date "" or today
-// uses the legacy "today" queries; an earlier date the "past date" ones; a
-// later date is refused, as the legacy screen did.
+// AllocationsToday runs the legacy Allocations dashboard for date (default:
+// today, UTC, the business date). Every day, today included, is counted by
+// the same rule and sent to the entity explicitly; the response carries the
+// date it was computed for. A later date is refused, as the legacy screen did.
 func (s *dashboardService) AllocationsToday(ctx context.Context, _ domain.Perms, date string, businessUnitID int) (domain.DashboardAllocationsToday, error) {
 	today := s.today().Format(dashboardDateLayout)
 	if date == "" {
@@ -890,11 +891,7 @@ func (s *dashboardService) AllocationsToday(ctx context.Context, _ domain.Perms,
 	if businessUnitID < 0 {
 		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "businessUnitId must be a positive whole number."}
 	}
-	entityDate := date
-	if date == today {
-		entityDate = ""
-	}
-	r, err := s.entity.DashboardAllocationsToday(ctx, entityDate, businessUnitID)
+	r, err := s.entity.DashboardAllocationsToday(ctx, date, businessUnitID)
 	if err != nil {
 		return domain.DashboardAllocationsToday{}, err
 	}

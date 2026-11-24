@@ -29,8 +29,9 @@ import (
 // Every call returns aggregates; the backend asks only for what the caller
 // may see.
 type DashboardAPI interface {
-	// DashboardAllocationsToday runs the legacy Allocations dashboard queries.
-	// date "" is today (the legacy curdate() variant); businessUnitID 0 is all.
+	// DashboardAllocationsToday runs the legacy Allocations dashboard queries
+	// for date (the entity defaults "" to its UTC today; the backend always
+	// sends one); businessUnitID 0 is all.
 	DashboardAllocationsToday(ctx context.Context, date string, businessUnitID int) (*DashboardAllocationsToday, error)
 	// DashboardMyWork returns the person's own allocations and (with trips)
 	// upcoming trips.

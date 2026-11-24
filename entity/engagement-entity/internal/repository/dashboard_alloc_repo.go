@@ -25,14 +25,27 @@ import (
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/domain"
 )
 
-// ── Allocations Today: the legacy Allocations dashboard, verbatim ────────────
+// ── Allocations Today: the legacy Allocations dashboard ──────────────────────
 //
 // apps/allocation/backend/modules/database/db_queries.bal
-// getAllocationsWithEngagementTypeQuery, getPaidAllocationsWithAllocationTypeQuery,
-// getNonPaidAllocationsWithAllocationTypeQuery and their getPast… variants.
-// Kept as they are, including the legacy counting (count(allocation.id)
-// over the funding-source join: a multi-funded engagement counts once per
-// funding row; engagements without funding rows are left out).
+// getAllocationsWithEngagementTypeQuery, getPaidAllocationsWithAllocationTypeQuery
+// and getNonPaidAllocationsWithAllocationTypeQuery.
+//
+// One rule for every date, today included: the legacy "today" predicate. The
+// legacy screen also had a looser "past date" variant (only Cancelled and
+// Deleted left out), which counted Inactive (removed) allocations and so gave
+// 17 instead of 9 for the same day depending on whether the date was typed.
+// The "today" predicate is the definition of an allocation that counts (an
+// Active allocation, Active or Confirmed, of a Confirmed or In Progress
+// engagement), is what the screen showed by default, and matches the
+// codebase's "active allocation" rule. It reads current statuses, so a past
+// date shows today's view of who was allocated then.
+//
+// Counts are distinct allocations: the join to the funding sources (for the
+// business unit filter) repeats an allocation once per funding row, and
+// count(allocation.id) as in the legacy code counted a multi-funded
+// engagement's allocations once per funding row. Engagements without funding
+// rows are still left out, as in the legacy screen.
 
 const dashboardTodayFrom = `
 		FROM
@@ -48,15 +61,11 @@ const dashboardTodayFrom = `
 		WHERE
 			allocation.engagement_id != '-1' AND allocation.engagement_id != '-1.0'`
 
-const dashboardTodayWhere = `
-			AND allocation.start_date <= curdate() AND allocation.end_date >= curdate()
+// dashboardDayWhere is the one rule; its two ? are the day.
+const dashboardDayWhere = `
+			AND allocation.start_date <= ? AND allocation.end_date >= ?
 			AND (engagement.engagement_status in ('Confirmed', 'In Progress') OR engagement.status in ('New', 'In Progress'))
 			AND allocation.status = 'Active' AND allocation.allocation_status in ('Active', 'Confirmed')`
-
-const dashboardPastWhere = `
-			AND allocation.start_date <= ? AND allocation.end_date >= ?
-			AND engagement.engagement_status != 'Cancelled' AND engagement.status != 'Cancelled'
-			AND allocation.status != 'Deleted'`
 
 const (
 	dashboardPaidTypes    = ` AND engagement_type.name IN ('Paid', 'Paid Pre Sale', 'Paid Post Sale')`
@@ -64,17 +73,12 @@ const (
 	dashboardBUFilter     = ` AND engagement_funding_source.business_unit_id = ?`
 )
 
-// dashboardTodayQuery builds one legacy dashboard query: sel is the select
-// list, extra the paid / non-paid predicate, group the GROUP BY clause.
+// dashboardTodayQuery builds one dashboard query: sel is the select list,
+// extra the paid / non-paid predicate, group the GROUP BY clause. f.Date is
+// the day (the service fills it in).
 func dashboardTodayQuery(f domain.DashboardAllocationsTodayFilter, sel, extra, group string) (string, []any) {
-	q := `SELECT ` + sel + dashboardTodayFrom
-	var args []any
-	if f.Date == "" {
-		q += dashboardTodayWhere
-	} else {
-		q += dashboardPastWhere
-		args = append(args, f.Date, f.Date)
-	}
+	q := `SELECT ` + sel + dashboardTodayFrom + dashboardDayWhere
+	args := []any{f.Date, f.Date}
 	q += extra
 	if f.BusinessUnitID > 0 {
 		q += dashboardBUFilter
@@ -83,9 +87,9 @@ func dashboardTodayQuery(f domain.DashboardAllocationsTodayFilter, sel, extra, g
 	return q + group, args
 }
 
-// AllocationsToday runs the three legacy dashboard queries and the distinct
+// AllocationsToday runs the three dashboard queries and the distinct
 // consultants under the same predicates (the one addition: the legacy screen
-// had no consultant count).
+// had no consultant count). f.Date must be set.
 func (r *dashboardRepo) AllocationsToday(ctx context.Context, f domain.DashboardAllocationsTodayFilter) (domain.DashboardAllocationsToday, error) {
 	out := domain.DashboardAllocationsToday{
 		ByEngagementType:        []domain.DashboardEngagementTypeCount{},
@@ -94,7 +98,7 @@ func (r *dashboardRepo) AllocationsToday(ctx context.Context, f domain.Dashboard
 	}
 
 	q, args := dashboardTodayQuery(f, `
-			count(allocation.id) AS allocationCount,
+			count(DISTINCT allocation.id) AS allocationCount,
 			engagement_type.name AS engagementType,
 			engagement_type.id AS engagementTypeId `, "", ` GROUP BY engagement_type.id`)
 	rows, err := r.alloc.QueryContext(ctx, q, args...)
@@ -123,7 +127,7 @@ func (r *dashboardRepo) AllocationsToday(ctx context.Context, f domain.Dashboard
 		{dashboardNonPaidTypes, &out.NonPaidByAllocationType, "dashboard.NonPaidAllocations"},
 	} {
 		q, args := dashboardTodayQuery(f, `
-			count(allocation.id) AS allocationCount,
+			count(DISTINCT allocation.id) AS allocationCount,
 			allocation_type.allocation_type AS allocationTypeName,
 			allocation_type.color AS allocationTypeColor `, part.extra,
 			` GROUP BY allocation_type.allocation_type, allocation_type.color`)

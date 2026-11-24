@@ -32,7 +32,7 @@ type DashboardWidget struct {
 type DashboardPoQueue struct {
 	Count      int               `json:"count"`
 	OldestDays int               `json:"oldestDays"`
-	ByAge      []DashboardBucket `json:"byAge,omitempty"`
+	ByAge      []DashboardBucket `json:"byAge,omitzero"`
 }
 
 // DashboardFrequentTraveller is a traveller with their trip count.
@@ -60,8 +60,8 @@ type DashboardTravelTeam struct {
 	AwayThisWeek       *DashboardAway               `json:"awayThisWeek,omitempty"`
 	EndedNotCompleted  *DashboardCount              `json:"endedNotCompleted,omitempty"`
 	PoQueue            *DashboardPoQueue            `json:"poQueue,omitempty"`
-	FrequentTravellers []DashboardFrequentTraveller `json:"frequentTravellers,omitempty"`
-	AgentWorkload      []DashboardBucket            `json:"agentWorkload,omitempty"`
+	FrequentTravellers []DashboardFrequentTraveller `json:"frequentTravellers,omitzero"`
+	AgentWorkload      []DashboardBucket            `json:"agentWorkload,omitzero"`
 }
 
 // DashboardEngagementList is a short list of engagements with the total.
@@ -104,7 +104,7 @@ type DashboardTopCustomers struct {
 type DashboardEngagementManager struct {
 	WithoutConsultants *DashboardEngagementList `json:"withoutConsultants,omitempty"`
 	StartingIn14Days   *DashboardStartingList   `json:"startingIn14Days,omitempty"`
-	MostAllocated      []DashboardMostAllocated `json:"mostAllocated,omitempty"`
+	MostAllocated      []DashboardMostAllocated `json:"mostAllocated,omitzero"`
 	TopCustomers       *DashboardTopCustomers   `json:"topCustomers,omitempty"`
 }
 
@@ -112,8 +112,8 @@ type DashboardEngagementManager struct {
 // present only when the caller may see its widget.
 type DashboardAccountManager struct {
 	StartedWithoutConsultants *DashboardEngagementList `json:"startedWithoutConsultants,omitempty"`
-	ByStatus                  []DashboardBucket        `json:"byStatus,omitempty"`
-	ByMonth                   []DashboardSeriesPoint   `json:"byMonth,omitempty"`
+	ByStatus                  []DashboardBucket        `json:"byStatus,omitzero"`
+	ByMonth                   []DashboardSeriesPoint   `json:"byMonth,omitzero"`
 }
 
 // DashboardCampaignCreator is the campaign coverage of one creator.
@@ -134,9 +134,9 @@ type DashboardCampaignCoverage struct {
 
 // DashboardMarketingEvents is the Marketing Events section.
 type DashboardMarketingEvents struct {
-	ByMonth               []DashboardSeriesPoint     `json:"byMonth,omitempty"`
-	ByRegion              []DashboardBucket          `json:"byRegion,omitempty"`
-	FundingByBusinessUnit []DashboardBucket          `json:"fundingByBusinessUnit,omitempty"`
+	ByMonth               []DashboardSeriesPoint     `json:"byMonth,omitzero"`
+	ByRegion              []DashboardBucket          `json:"byRegion,omitzero"`
+	FundingByBusinessUnit []DashboardBucket          `json:"fundingByBusinessUnit,omitzero"`
 	CampaignCoverage      *DashboardCampaignCoverage `json:"campaignCoverage,omitempty"`
 }
 

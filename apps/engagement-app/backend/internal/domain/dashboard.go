@@ -201,12 +201,14 @@ type DashboardAgent struct {
 
 // Dashboard is GET /dashboard. Absent sections are not shown.
 type Dashboard struct {
+	// Date is the business date (UTC) the figures and the page header are for.
+	Date string `json:"date"`
 	// FailedSections are the sections that could not be loaded (show an error there).
 	FailedSections []string `json:"failedSections"`
 	// Widgets are the widgets the caller may see, in catalogue order, with
 	// their default (always present; empty for the agent dashboard).
 	Widgets              []DashboardWidget              `json:"widgets"`
-	WaitingOnYou         []DashboardCountCard           `json:"waitingOnYou,omitempty"`
+	WaitingOnYou         []DashboardCountCard           `json:"waitingOnYou,omitzero"`
 	TravelCost           *DashboardTravelCost           `json:"travelCost,omitempty"`
 	Travel               *DashboardTravel               `json:"travel,omitempty"`
 	Engagements          *DashboardEngagements          `json:"engagements,omitempty"`
@@ -237,5 +239,5 @@ type MeOverview struct {
 	UpcomingAllocations []DashboardAllocationSummary `json:"upcomingAllocations"`
 	UpcomingTrips       []DashboardTrip              `json:"upcomingTrips"`
 	// TripVisas is present when the caller has own trips access (Travel 49 or 36).
-	TripVisas []TripVisa `json:"tripVisas,omitempty"`
+	TripVisas []TripVisa `json:"tripVisas,omitzero"`
 }

@@ -2157,10 +2157,12 @@ paths:
     get:
       tags:
       - Dashboard
-      summary: The legacy Allocations dashboard queries (allocation_db), verbatim
-      description: No date runs getAllocationsWithEngagementTypeQuery, getPaidAllocationsWithAllocationTypeQuery
-        and getNonPaidAllocationsWithAllocationTypeQuery (curdate()); a date runs their getPast… variants.
-        Plus count(DISTINCT allocation.email) under the same predicates.
+      summary: The legacy Allocations dashboard queries (allocation_db)
+      description: Runs getAllocationsWithEngagementTypeQuery, getPaidAllocationsWithAllocationTypeQuery
+        and getNonPaidAllocationsWithAllocationTypeQuery with the legacy "today" predicate for every date
+        (default today, UTC), so the same day always gives the same answer. Counts are distinct allocations
+        (a multi-funded engagement is not counted once per funding source). Plus count(DISTINCT allocation.email)
+        under the same predicates. The response echoes the date used.
       operationId: dashboardAllocationsToday
       parameters:
       - name: date
@@ -5203,6 +5205,10 @@ components:
     DashboardAllocationsToday:
       type: object
       properties:
+        date:
+          type: string
+          format: date
+          description: The day the figures are for.
         byEngagementType:
           type: array
           items:

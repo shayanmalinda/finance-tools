@@ -48,6 +48,8 @@ type DashboardAllocationTypeCount struct {
 // DashboardAllocationsToday is the legacy dashboard's three result sets plus
 // the distinct consultants under the same predicates.
 type DashboardAllocationsToday struct {
+	// Date is the day the figures are for (the requested one, else the UTC business date).
+	Date                    string                         `json:"date"`
 	ByEngagementType        []DashboardEngagementTypeCount `json:"byEngagementType"`
 	PaidByAllocationType    []DashboardAllocationTypeCount `json:"paidByAllocationType"`
 	NonPaidByAllocationType []DashboardAllocationTypeCount `json:"nonPaidByAllocationType"`

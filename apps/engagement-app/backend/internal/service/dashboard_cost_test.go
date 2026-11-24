@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -557,5 +558,107 @@ func TestTravelCosts_IncompleteLastYearGivesNoComparisonAndTheCsvSaysSo(t *testi
 	tx, err := svc.CostTransactionsCSV(context.Background(), finPerms(39, 41), cq)
 	if err != nil || !strings.Contains(fmt.Sprint(tx.Rows), "Incomplete data") {
 		t.Errorf("transactions csv: %v %v", tx.Rows, err)
+	}
+}
+
+// Every line is rounded to cents once, when converted, so each total is the
+// exact sum of the cent amounts shown on the lines and in the CSV (no 1.36
+// gap on a few hundred small LKR claims).
+func TestCostTotalsEqualTheSumOfTheRoundedLines(t *testing.T) {
+	var lines []engagemententity.DashboardCostEntry
+	srcs := []string{"claim", "claim", "claim", "invoice", "card"}
+	for i := 0; i < 400; i++ {
+		src := srcs[i%len(srcs)]
+		day := 1 + i%28
+		// Odd LKR amounts at a rate that never divides evenly.
+		lines = append(lines, entry(fmt.Sprintf("L-%d", i), src, "", fmt.Sprintf("2026-10-%02d", day), "LKR", float64(137+i*41)+0.37))
+	}
+	svc, _ := costService(lines, &fakeRates{rates: map[string]float64{"LKR": 317.123}})
+	ctx := context.Background()
+	q := cq
+	q.Compare = false
+
+	toCents := func(s string) int64 {
+		t.Helper()
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			t.Fatalf("parse %q: %v", s, err)
+		}
+		return int64(math.Round(f * 100))
+	}
+
+	page, err := svc.CostTransactions(ctx, tsaPerms(), q, CostTransactionsQuery{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Whole list through the CSV (not paged).
+	csvT, err := svc.CostTransactionsCSV(ctx, tsaPerms(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var csvCents int64
+	var rowsSeen int
+	var csvTotal int64
+	usdCol := -1
+	for _, r := range csvT.Rows {
+		if len(r) == 2 && r[0] == "Total USD" {
+			csvTotal = toCents(r[1])
+		}
+		if usdCol < 0 {
+			for i, c := range r {
+				if c == "USD Amount" {
+					usdCol = i
+				}
+			}
+			continue
+		}
+		if len(r) > usdCol && len(r) > 5 {
+			csvCents += toCents(r[usdCol])
+			rowsSeen++
+		}
+	}
+	if rowsSeen != len(lines) {
+		t.Fatalf("csv rows = %d, want %d", rowsSeen, len(lines))
+	}
+	if csvCents != csvTotal {
+		t.Errorf("csv rows sum %d cents, csv total %d", csvCents, csvTotal)
+	}
+	if got := toCents(strconv.FormatFloat(page.(domain.CostLinePage).TotalUSD, 'f', 2, 64)); got != csvCents {
+		t.Errorf("transactions header %d cents, rows %d", got, csvCents)
+	}
+
+	s := mustSummary(t, svc, tsaPerms(), q)
+	if got := int64(math.Round(s.Kpis.Total.Value * 100)); got != csvCents {
+		t.Errorf("kpi total %d cents, rows %d", got, csvCents)
+	}
+	var bySrc, byMonth, byType int64
+	for _, b := range s.BySource {
+		bySrc += int64(math.Round(b.Value * 100))
+	}
+	for _, m := range s.ByMonth {
+		for _, v := range m.Values {
+			byMonth += int64(math.Round(v * 100))
+		}
+	}
+	for _, b := range s.ByCostType {
+		byType += int64(math.Round(b.Value * 100))
+	}
+	for name, got := range map[string]int64{"bySource": bySrc, "byMonth": byMonth, "byCostType": byType} {
+		if got != csvCents {
+			t.Errorf("%s sums to %d cents, rows %d", name, got, csvCents)
+		}
+	}
+	for _, g := range []string{"country", "month", "source"} {
+		out, err := svc.CostTransactions(ctx, tsaPerms(), q, CostTransactionsQuery{GroupBy: g, Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sum int64
+		for _, gr := range out.(domain.CostGroupPage).Groups {
+			sum += int64(math.Round(gr.Total * 100))
+		}
+		if sum != csvCents {
+			t.Errorf("groupBy %s sums to %d cents, rows %d", g, sum, csvCents)
+		}
 	}
 }

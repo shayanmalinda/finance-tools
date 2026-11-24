@@ -135,7 +135,7 @@ func TestDashboardRoutes_MeOverview(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
 	}
-	const want = `{"upcomingAllocations":[],"upcomingTrips":[{"jobNumber":"TRV-2026-11-0001","status":null,"traveller":{"email":"jane@wso2.com","name":null},"city":null,"country":null,"startDate":"2026-11-10","endDate":"2026-11-12","agency":null}]}` + "\n"
+	const want = `{"upcomingAllocations":[],"upcomingTrips":[{"jobNumber":"TRV-2026-11-0001","status":null,"traveller":{"email":"jane@wso2.com","name":null},"city":null,"country":null,"startDate":"2026-11-10","endDate":"2026-11-12","agency":null}],"tripVisas":[]}` + "\n"
 	if rec.Body.String() != want {
 		t.Errorf("body = %s\nwant   %s", rec.Body, want)
 	}

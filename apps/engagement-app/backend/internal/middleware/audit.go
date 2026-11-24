@@ -32,7 +32,11 @@ type AuditRecorder interface {
 	RecordAuditEvent(ctx context.Context, e domain.AuditEvent) error
 }
 
-const auditTimeout = 5 * time.Second
+// auditTimeout bounds one background audit write. The write runs on its own
+// context, detached from the request (context.WithoutCancel), so a finished or
+// cancelled request never aborts it; under a burst of reads the entity can
+// take several seconds to insert, so the limit is generous.
+const auditTimeout = 10 * time.Second
 
 // auditsInFlight counts the background audit writes so shutdown can wait for
 // them (WaitAudits).

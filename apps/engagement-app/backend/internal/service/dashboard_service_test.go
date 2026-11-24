@@ -219,8 +219,8 @@ func TestDashboard_Employee(t *testing.T) {
 		t.Errorf("unexpected calls: queues %+v travel %+v engs %+v", f.queues, f.travel, f.engs)
 	}
 	b, _ := json.Marshal(got)
-	if string(b) != `{"failedSections":[],"widgets":[{"id":"allocations-today","defaultOn":false}]}` {
-		t.Errorf("nothing to show must be only failedSections and widgets, got %s", b)
+	if string(b) != `{"date":"2026-11-05","failedSections":[],"widgets":[{"id":"allocations-today","defaultOn":false}]}` {
+		t.Errorf("nothing to show must be only the date, failedSections and widgets, got %s", b)
 	}
 }
 
@@ -649,7 +649,7 @@ func TestDashboardAllocationsTodayService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *f.allocDate != "" || got.Date != "2026-11-05" || got.BusinessUnitID != nil {
+	if *f.allocDate != "2026-11-05" || got.Date != "2026-11-05" || got.BusinessUnitID != nil {
 		t.Errorf("today: entity date %q, %+v", *f.allocDate, got)
 	}
 	if got.Allocations != 8 || got.Paid != 2 || got.NonPaid != 6 || got.Consultants != 7 {
@@ -662,8 +662,8 @@ func TestDashboardAllocationsTodayService(t *testing.T) {
 		t.Errorf("paid = %+v", got.PaidByAllocationType)
 	}
 
-	// Today given explicitly is still the "today" variant; a past date is passed on.
-	if _, err := svc.AllocationsToday(context.Background(), p, "2026-11-05", 4); err != nil || *f.allocDate != "" {
+	// No date and today's date are the same request to the entity (one rule, one clock); a past date is passed on.
+	if _, err := svc.AllocationsToday(context.Background(), p, "2026-11-05", 4); err != nil || *f.allocDate != "2026-11-05" {
 		t.Errorf("explicit today: %q, %v", *f.allocDate, err)
 	}
 	if got, err := svc.AllocationsToday(context.Background(), p, "2026-10-01", 4); err != nil || *f.allocDate != "2026-10-01" || *got.BusinessUnitID != 4 {

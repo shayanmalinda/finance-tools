@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"reflect"
@@ -348,5 +349,44 @@ func TestMeOverview_VisaFailureKeepsTheRest(t *testing.T) {
 	got, err := NewDashboardService(f, nil, nil, dashboardNow).MeOverview(context.Background(), dashboardPerms("j@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
 	if err != nil || len(got.UpcomingTrips) != 1 || got.TripVisas != nil {
 		t.Errorf("overview = %+v, %v; want the trip and no visas", got, err)
+	}
+}
+
+// A visible array widget with nothing to show is sent as [] (the webapp then
+// shows its empty message); only a widget the caller may not see is absent.
+func TestDashboard_EmptyVisibleArraysAreSentAsEmptyLists(t *testing.T) {
+	p := dashboardPerms("tt@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, append([]int{1}, dashboardEmployeeTravel...), append([]int{1}, dashboardEmployeeTravel...))
+	f := &fakeDashboardEntity{}
+	got, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), p, []string{"travelTeam"})
+	if err != nil || got.TravelTeam == nil {
+		t.Fatalf("travelTeam = %+v, %v", got, err)
+	}
+	raw, err := json.Marshal(got.TravelTeam)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"agentWorkload", "frequentTravellers"} {
+		if string(m[k]) != "[]" {
+			t.Errorf("%s = %s, want [] (visible widget, no data): %s", k, m[k], raw)
+		}
+	}
+	// Not visible: absent, not null.
+	hidden, _ := json.Marshal(domain.DashboardTravelTeam{})
+	if string(hidden) != "{}" {
+		t.Errorf("hidden sections = %s, want {}", hidden)
+	}
+	for _, v := range []any{
+		domain.DashboardEngagementManager{MostAllocated: []domain.DashboardMostAllocated{}},
+		domain.DashboardAccountManager{ByStatus: []domain.DashboardBucket{}},
+		domain.DashboardMarketingEvents{ByRegion: []domain.DashboardBucket{}, FundingByBusinessUnit: []domain.DashboardBucket{}},
+	} {
+		b, _ := json.Marshal(v)
+		if !strings.Contains(string(b), "[]") {
+			t.Errorf("%T empty array dropped: %s", v, b)
+		}
 	}
 }

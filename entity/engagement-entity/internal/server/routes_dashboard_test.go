@@ -69,7 +69,7 @@ func TestDashboardRoutes_AllocationsTodayReadsAllocationDB(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
 	}
-	want := `{"byEngagementType":[{"engagementTypeId":5,"engagementType":"Marketing Event","count":2}],` +
+	want := `{"date":"2026-10-01","byEngagementType":[{"engagementTypeId":5,"engagementType":"Marketing Event","count":2}],` +
 		`"paidByAllocationType":[],"nonPaidByAllocationType":[{"allocationType":"Event","color":"#fff","count":2}],"consultants":2}`
 	if strings.TrimSpace(rec.Body.String()) != want {
 		t.Errorf("body = %s\nwant   %s", rec.Body, want)

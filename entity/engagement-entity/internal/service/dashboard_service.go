@@ -115,7 +115,14 @@ func (s *dashboardService) AllocationsToday(ctx context.Context, f domain.Dashbo
 	if f.BusinessUnitID < 0 {
 		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "businessUnitId must be a positive integer"}
 	}
-	return s.repo.AllocationsToday(ctx, f)
+	if f.Date == "" {
+		// One rule and one clock for every day: the UTC business date.
+		d, _ := s.day("", "date")
+		f.Date = d.Format(dashboardDateLayout)
+	}
+	resp, err := s.repo.AllocationsToday(ctx, f)
+	resp.Date = f.Date
+	return resp, err
 }
 
 func (s *dashboardService) MyWork(ctx context.Context, f domain.DashboardMyWorkFilter) (domain.DashboardMyWork, error) {

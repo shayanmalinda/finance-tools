@@ -467,16 +467,21 @@ paths:
       tags: [Dashboard]
       summary: Allocations active on a date (the legacy Allocations dashboard)
       description: >-
-        The legacy Allocations dashboard queries, unchanged. Today (no date,
-        or today's date) uses the legacy "today" predicates (engagement
-        status Confirmed / In Progress or request status New / In Progress;
-        allocation status Active and allocation_status Active or Confirmed);
-        a past date uses the "past date" predicates (engagement and request
-        status not Cancelled, allocation not Deleted). Team (default)
-        allocations are not counted. As in legacy, allocations are counted
-        once per funding source of their engagement, engagements without
-        funding sources are left out, and the business unit filter matches a
-        funding source's business unit id. Paid = engagement types named
+        The legacy Allocations dashboard queries. Every date, today included,
+        uses the same rule, the legacy "today" predicates (engagement status
+        Confirmed / In Progress or request status New / In Progress;
+        allocation status Active and allocation_status Active or Confirmed),
+        so the same day gives the same answer with or without `date`. The
+        legacy looser "past date" variant is not used: it counted Inactive
+        (removed) allocations. Statuses are the current ones, so a past date
+        shows the present view of who was allocated then. Team (default)
+        allocations are not counted. Allocations are counted once each (a
+        multi-funded engagement is not counted once per funding source),
+        engagements without funding sources are left out, and the business
+        unit filter matches a funding source's business unit id. The
+        response `date` is the day the figures are for (the business date,
+        UTC, when none was asked for); show that date, do not compute one in
+        the browser. Paid = engagement types named
         Paid, Paid Pre Sale, Paid Post Sale. `consultants` counts distinct
         consultants under the same predicates (the one addition). Charts are
         top 8 plus Other; percentages are rounded to 2 decimals.
@@ -2936,8 +2941,12 @@ components:
     Dashboard:
       type: object
       description: Absent sections are not shown.
-      required: [failedSections]
+      required: [failedSections, date]
       properties:
+        date:
+          type: string
+          format: date
+          description: The business date (UTC) the dashboard is for. Show this date, do not compute one in the browser.
         widgets:
           type: array
           description: Every widget the caller may see, in catalogue order. Always present; empty for the agent dashboard.
@@ -3092,7 +3101,9 @@ components:
       description: >-
         Every part is optional: a part is present only when the caller may see the widget it feeds
         (awayThisWeek, endedNotCompleted and poQueue count and oldestDays: tt-glance; poQueue.byAge:
-        tt-po-age; frequentTravellers: tt-frequent; agentWorkload: tt-agent-workload).
+        tt-po-age; frequentTravellers: tt-frequent; agentWorkload: tt-agent-workload). The array parts
+        (frequentTravellers, agentWorkload, byAge) are present as `[]` when the widget is visible and
+        there is nothing to show, and absent only when the widget is not visible to the caller.
       properties:
         awayThisWeek:
           type: object
