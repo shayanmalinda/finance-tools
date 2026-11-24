@@ -485,3 +485,19 @@ func TestDashboardAllocationsTodayService(t *testing.T) {
 		t.Errorf("future date: %v", err)
 	}
 }
+
+func TestDashboardSplitAllocationsCanOpen(t *testing.T) {
+	paid, marketing := domain.EngagementTypePaid, domain.EngagementTypeMarketing
+	list := []engagemententity.DashboardOwnAllocation{
+		{ID: "1", EngagementID: "E1", EngagementTypeID: &paid, StartDate: "2026-11-01", EndDate: "2026-11-30"},
+		{ID: "2", EngagementID: "E2", EngagementTypeID: &marketing, StartDate: "2026-12-01", EndDate: "2026-12-05"},
+		{ID: "3", EngagementID: "E3", StartDate: "2026-12-10", EndDate: "2026-12-12"},
+	}
+	current, next := dashboardSplitAllocations(list, "2026-11-24", map[int]bool{paid: true})
+	if current == nil || !current.CanOpen {
+		t.Fatalf("current = %+v, want E1 openable", current)
+	}
+	if len(next) != 2 || next[0].CanOpen || next[1].CanOpen {
+		t.Fatalf("next = %+v, want E2 and E3 not openable", next)
+	}
+}

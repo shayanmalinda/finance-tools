@@ -3164,6 +3164,7 @@ components:
         endDate: { type: string, format: date }
         clearanceStatus: { type: string, allOf: [{ $ref: '#/components/schemas/ClearanceStatus' }], nullable: true }
         current: { type: boolean, description: 'Covers today.' }
+        canOpen: { type: boolean, description: 'The person may open the engagement (as on My Allocations).' }
     AllocationCreate:
       type: object
       required: [startDate, endDate, travelRequired]

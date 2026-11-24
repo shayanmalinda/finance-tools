@@ -243,7 +243,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 			if err != nil {
 				return err
 			}
-			out.MyWork = dashboardMyWork(mw, todayStr, myAllocs)
+			out.MyWork = dashboardMyWork(mw, todayStr, myAllocs, allocListTypes(p))
 			return nil
 		})
 	}
@@ -384,9 +384,9 @@ func dashboardStr(s *string) string {
 	return *s
 }
 
-func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool) domain.DashboardAllocationSummary {
+func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool, visible map[int]bool) domain.DashboardAllocationSummary {
 	return domain.DashboardAllocationSummary{
-		ID: a.ID, EngagementID: a.EngagementID,
+		ID: a.ID, EngagementID: a.EngagementID, CanOpen: a.EngagementTypeID != nil && visible[*a.EngagementTypeID],
 		EngagementTitle: dashboardEngagementTitle(a.EngagementID, a.EngagementTypeID, a.Account, a.Title),
 		StartDate:       a.StartDate, EndDate: a.EndDate, ClearanceStatus: a.ClearanceStatus, Current: current,
 	}
@@ -395,15 +395,15 @@ func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool
 // dashboardSplitAllocations returns the current allocation (the first that
 // covers today) and the future ones, in start order. The entity returns
 // only allocations ending today or later.
-func dashboardSplitAllocations(list []engagemententity.DashboardOwnAllocation, today string) (*domain.DashboardAllocationSummary, []domain.DashboardAllocationSummary) {
+func dashboardSplitAllocations(list []engagemententity.DashboardOwnAllocation, today string, visible map[int]bool) (*domain.DashboardAllocationSummary, []domain.DashboardAllocationSummary) {
 	var current *domain.DashboardAllocationSummary
 	next := []domain.DashboardAllocationSummary{}
 	for _, a := range list {
 		switch {
 		case a.StartDate > today:
-			next = append(next, dashboardAllocation(a, false))
+			next = append(next, dashboardAllocation(a, false, visible))
 		case current == nil:
-			c := dashboardAllocation(a, true)
+			c := dashboardAllocation(a, true, visible)
 			current = &c
 		}
 	}
@@ -422,10 +422,10 @@ func dashboardTrips(list []engagemententity.DashboardTrip) []domain.DashboardTri
 }
 
 // dashboardMyWork shapes My Work; nil when there is nothing to show.
-func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs bool) *domain.DashboardMyWork {
+func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs bool, visible map[int]bool) *domain.DashboardMyWork {
 	out := &domain.DashboardMyWork{NextTrips: dashboardTrips(mw.Trips), UpcomingTripCount: mw.TripCount}
 	if allocs {
-		current, next := dashboardSplitAllocations(mw.Allocations, today)
+		current, next := dashboardSplitAllocations(mw.Allocations, today, visible)
 		out.CurrentAllocation = current
 		if len(next) > 0 {
 			out.NextAllocation = &next[0]
@@ -895,7 +895,7 @@ func (s *dashboardService) MeOverview(ctx context.Context, p domain.Perms) (doma
 		return domain.MeOverview{}, err
 	}
 	if allocs {
-		current, next := dashboardSplitAllocations(mw.Allocations, today)
+		current, next := dashboardSplitAllocations(mw.Allocations, today, allocListTypes(p))
 		if current != nil {
 			out.UpcomingAllocations = append(out.UpcomingAllocations, *current)
 		}

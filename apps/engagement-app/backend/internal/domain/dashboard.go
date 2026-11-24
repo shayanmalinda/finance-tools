@@ -63,6 +63,9 @@ type DashboardAllocationSummary struct {
 	EndDate         string  `json:"endDate"`
 	ClearanceStatus *string `json:"clearanceStatus"`
 	Current         bool    `json:"current"`
+	// CanOpen: the person may open the engagement (the same rule as My
+	// Allocations' engagement link).
+	CanOpen bool `json:"canOpen"`
 }
 
 // DashboardTeamAllocation is today's team allocation (openapi TimelineItem,
