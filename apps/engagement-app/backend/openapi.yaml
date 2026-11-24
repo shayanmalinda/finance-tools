@@ -385,8 +385,8 @@ paths:
         for a spreadsheet: a two-column header block (Report, Date range, Compared with, Filters, Amounts in,
         How USD is calculated, an `Incomplete data` row only when a source could not be read or hit the cap, Data as of),
         a blank row, then titled sections, each with a header row that names every column (for example
-        `Source, This Period (USD), Last Year (USD), Change (%)`). There is no long text in column A. The Last Year and
-        Change columns are left out when the comparison is off or not available. Numbers are plain (money 2 decimals,
+        `Source, This Period (USD), Same Period Last Year (USD), Change vs Last Year (%)`). There is no long text in column A. The Same Period Last Year and
+        Change vs Last Year columns are left out when the comparison is off or not available. Numbers are plain (money 2 decimals,
         percentages 1 decimal, no separators or symbols), dates YYYY-MM-DD, months YYYY-MM. It is audited. File name
         `Travel_Costs_<Summary|Key_Figures|By_Source|By_Month|By_Country|By_Customer|By_Travel_Agent|By_Cost_Type|Paid_vs_Non_Paid>_{from}_{to}.csv`.
       operationId: getTravelCosts

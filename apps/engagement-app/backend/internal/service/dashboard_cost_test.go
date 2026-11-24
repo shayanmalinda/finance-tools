@@ -480,10 +480,10 @@ func TestCostCSV_HeaderAndSections(t *testing.T) {
 	for _, want := range []string{"Report,Travel Costs Summary", "Date range,2026-01-01 to 2026-11-05", "Compared with,2025-01-01 to 2025-11-05",
 		"Filters,Source=Travel Invoices", "Amounts in,USD", "How USD is calculated,USD amounts as recorded. Others at NetSuite month-end rate (today's rate for this month)",
 		"Data as of,2026-11-05 09:00 UTC",
-		"Key Figures\nFigure,This Period,Last Year,Change (%)", "Spend by Source\nSource,This Period (USD),Last Year (USD),Change (%)",
-		"Spend by Destination Country\nCountry,This Period (USD),Last Year (USD),Change (%)",
-		"Spend by Paid Customer\nCustomer,This Period (USD),Last Year (USD),Change (%),Trips",
-		"Travel Agent Comparison\nTravel Agent,This Period (USD),Last Year (USD),Change (%),Trips,Average per Trip (USD)",
+		"Key Figures\nFigure,This Period,Same Period Last Year,Change vs Last Year (%)", "Spend by Source\nSource,This Period (USD),Same Period Last Year (USD),Change vs Last Year (%)",
+		"Spend by Destination Country\nCountry,This Period (USD),Same Period Last Year (USD),Change vs Last Year (%)",
+		"Spend by Paid Customer\nCustomer,This Period (USD),Same Period Last Year (USD),Change vs Last Year (%),Trips",
+		"Travel Agent Comparison\nTravel Agent,This Period (USD),Same Period Last Year (USD),Change vs Last Year (%),Trips,Average per Trip (USD)",
 		"Spend by Month\nMonth,Travel Invoices (USD),Per Diems (USD),Credit Card Expenses (USD),Expense Claims (USD),Total (USD)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("summary csv lacks %q:\n%s", want, text)
@@ -521,7 +521,7 @@ func TestCostCSV_NoComparisonLeavesOutTheColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := csvText(c)
-	if strings.Contains(text, "Last Year") || strings.Contains(text, "Change (%)") || !strings.Contains(text, "Compared with,Not compared") ||
+	if strings.Contains(text, "Last Year") || strings.Contains(text, "Change vs") || !strings.Contains(text, "Compared with,Not compared") ||
 		!strings.Contains(text, "Figure,This Period\n") || !strings.Contains(text, "Source,This Period (USD)\n") ||
 		!strings.Contains(text, "Customer,This Period (USD),Trips\n") {
 		t.Errorf("compare off:\n%s", text)

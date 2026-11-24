@@ -1185,7 +1185,7 @@ func costCompareHead(compare bool, unit string) []string {
 	if !compare {
 		return nil
 	}
-	return []string{"Last Year" + unit, "Change (%)"}
+	return []string{"Same Period Last Year" + unit, "Change vs Last Year (%)"}
 }
 
 func costBucketRows(label string, bs []domain.CostBucket, compare bool, extra ...string) [][]string {
