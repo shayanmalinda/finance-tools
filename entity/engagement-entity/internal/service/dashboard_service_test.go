@@ -107,6 +107,8 @@ func TestDashboardWindowFor(t *testing.T) {
 	want := repository.DashboardWindow{
 		Today: "2026-01-31", Tomorrow: "2026-02-01", In7Days: "2026-02-08", In30Days: "2026-03-03",
 		MonthStart: "2026-01-01", NextMonth: "2026-02-01", YearStart: "2025-02-01", BenchEndDay: "2026-02-13",
+		In6Days: "2026-02-07", In14Days: "2026-02-15", In60Days: "2026-04-02", Minus3: "2026-01-29", Minus90: "2025-11-02",
+		MonthPlus6: "2026-07-01",
 	}
 	if w != want {
 		t.Errorf("window = %+v\nwant     %+v", w, want)

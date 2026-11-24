@@ -2324,6 +2324,206 @@ paths:
                 $ref: '#/components/schemas/DashboardEngagements'
         '400':
           $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/cost-lines:
+    get:
+      tags:
+      - Dashboard
+      summary: Travel cost lines (travelapp, allocation_db, expense_app) in their original amounts
+      description: Invoices, per diem payments, card transactions and expense claims in the inclusive
+        range, one row each, with the trip, agent and engagement joined in Go. No conversion. Card and
+        claim lines are included when they carry a job number or their expense category name contains
+        Travel. At most `limit` (default and maximum 20000) lines per source; a source that hit the cap
+        is in `truncated`, one that could not be read (card and claim without an expense_app pool or when
+        it fails) is in `unavailable`.
+      operationId: dashboardCostLines
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: true
+        description: At most 731 days after from.
+        schema:
+          type: string
+          format: date
+      - name: source
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - invoice
+            - perDiem
+            - card
+            - claim
+      - name: jobNumber
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: employee
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 20000
+      responses:
+        '200':
+          description: Lines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DashboardCostEntry'
+                  truncated:
+                    type: array
+                    items:
+                      type: string
+                  unavailable:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/travel-team:
+    get:
+      tags:
+      - Dashboard
+      summary: Travel Team figures (travelapp)
+      operationId: dashboardTravelTeam
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: awayTravellers, awayCountries, endedNotCompleted, poCount, poOldestDays, poByAge
+            (4 counts), frequentTravellers and agentWorkload (label, count).
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/manager:
+    get:
+      tags:
+      - Dashboard
+      summary: Engagement Manager figures (allocation_db)
+      operationId: dashboardManager
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: engagementType
+        in: query
+        description: The engagement types the caller allocates.
+        schema:
+          type: array
+          items:
+            type: integer
+      responses:
+        '200':
+          description: withoutConsultants, startingIn14Days, mostAllocated, topBy and top.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/account-manager:
+    get:
+      tags:
+      - Dashboard
+      summary: Account Manager figures over the engagements a person created (allocation_db)
+      operationId: dashboardAccountManager
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: startedWithoutConsultants, byStatus and byMonth.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/events:
+    get:
+      tags:
+      - Dashboard
+      summary: Marketing Event figures (allocation_db)
+      operationId: dashboardEvents
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: byMonth, byRegion, fundingByBusinessUnit, campaignAvailable and campaignCreators.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
+  /dashboard/my-visas:
+    get:
+      tags:
+      - Dashboard
+      summary: A person's upcoming trips with the visa picked on each, and their Active visas (travelapp)
+      operationId: dashboardMyVisas
+      parameters:
+      - name: today
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: trips (at most 20) and visas.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/DashboardBadRequest'
   /dashboard/agency:
     get:
       tags:
@@ -5165,6 +5365,70 @@ components:
                 type: string
                 description: Card only. USD when the card was billed in USD (ccAmount is in USD), absent
                   otherwise.
+    DashboardCostEntry:
+      type: object
+      description: One cost line in its original amount and currency. ccAmount and ccCurrency are set on
+        card lines (ccCurrency is USD when the card was billed in USD).
+      properties:
+        id:
+          type: string
+          example: INV-10764
+        source:
+          type: string
+          enum:
+          - invoice
+          - perDiem
+          - card
+          - claim
+        reference:
+          type: string
+          nullable: true
+        jobNumber:
+          type: string
+          nullable: true
+        travellerEmail:
+          type: string
+          nullable: true
+        date:
+          type: string
+          format: date
+        originalAmount:
+          type: number
+        originalCurrency:
+          type: string
+        ccAmount:
+          type: number
+        ccCurrency:
+          type: string
+        costType:
+          type: string
+        sourceType:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        travelAgentId:
+          type: integer
+          nullable: true
+        travelAgentName:
+          type: string
+          nullable: true
+        customer:
+          type: string
+          nullable: true
+        paid:
+          type: string
+          enum:
+          - paid
+          - nonPaid
+          - unknown
+        engagementId:
+          type: string
+          nullable: true
+        allocationType:
+          type: string
+          nullable: true
     DashboardEngagements:
       type: object
       properties:

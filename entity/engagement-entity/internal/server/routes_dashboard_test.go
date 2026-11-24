@@ -37,6 +37,16 @@ func TestDashboardRoutes_Validation(t *testing.T) {
 		"/dashboard/engagements?engagementType=-1",
 		"/dashboard/agency",
 		"/dashboard/agency?agencyId=0",
+		"/dashboard/cost-lines",
+		"/dashboard/cost-lines?from=2026-01-01",
+		"/dashboard/cost-lines?from=2026-01-01&to=2026-02-01&limit=0",
+		"/dashboard/cost-lines?from=2026-01-01&to=2026-02-01&source=cash",
+		"/dashboard/cost-lines?from=2026-03-01&to=2026-02-01",
+		"/dashboard/travel-team?today=yesterday",
+		"/dashboard/manager?engagementType=x",
+		"/dashboard/account-manager",
+		"/dashboard/events?today=x",
+		"/dashboard/my-visas?email=nobody",
 	} {
 		if rec := serve(h, http.MethodGet, target); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400 (%s)", target, rec.Code, rec.Body)

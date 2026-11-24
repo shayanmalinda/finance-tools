@@ -46,4 +46,12 @@ func registerDashboardRoutes(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("GET /dashboard/engagements", h.Engagements)
 	// The travel agent dashboard (travelapp, one agency).
 	mux.HandleFunc("GET /dashboard/agency", h.Agency)
+	// Release 2 widgets: cost lines (travelapp, allocation_db, expense_app) and
+	// the role stats (travelapp, allocation_db).
+	mux.HandleFunc("GET /dashboard/cost-lines", h.CostLines)
+	mux.HandleFunc("GET /dashboard/travel-team", h.TravelTeam)
+	mux.HandleFunc("GET /dashboard/manager", h.Manager)
+	mux.HandleFunc("GET /dashboard/account-manager", h.AccountManager)
+	mux.HandleFunc("GET /dashboard/events", h.Events)
+	mux.HandleFunc("GET /dashboard/my-visas", h.MyVisas)
 }
