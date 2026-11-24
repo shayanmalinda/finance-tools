@@ -168,3 +168,33 @@ func TestRateSetUSD(t *testing.T) {
 		t.Error("a blank currency converted")
 	}
 }
+
+func TestDashboardRates_AnswerWithNoUsableRateIsKeptAsLongAsARate(t *testing.T) {
+	f := &fakeRates{rates: map[string]float64{"LKR": 0}}
+	r := newDashboardRates(f, dashboardNow)
+	p := ratePair{"LKR", "2026-10-31"}
+	if got := r.resolve(context.Background(), []ratePair{p}); len(got) != 0 {
+		t.Fatalf("resolve = %v, want none", got)
+	}
+	r.resolve(context.Background(), []ratePair{p})
+	if f.count() != 1 {
+		t.Errorf("calls = %d, want 1", f.count())
+	}
+	if _, short := r.failed.Get(r.key(p)); short {
+		t.Error("a settled answer must not sit in the 2 minute failure cache")
+	}
+	if _, kept := r.past.Get(r.key(p)); !kept {
+		t.Error("a settled answer must be kept in the rate cache for its normal TTL")
+	}
+}
+
+func TestDashboardRates_FetchLooksAgainBeforeCallingOut(t *testing.T) {
+	f := &fakeRates{rates: map[string]float64{"LKR": 300}}
+	r := newDashboardRates(f, dashboardNow)
+	p := ratePair{"LKR", "2026-10-31"}
+	// A request that finished between resolve's check and fetch's lock leaves the pair cached.
+	r.past.Set(r.key(p), 310)
+	if v, ok := r.fetch(context.Background(), p); !ok || v != 310 || f.count() != 0 {
+		t.Errorf("fetch = %v, %v after %d calls, want the cached 310 and no call", v, ok, f.count())
+	}
+}

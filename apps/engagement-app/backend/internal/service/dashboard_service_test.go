@@ -560,16 +560,17 @@ type fakeRates struct {
 func (f *fakeRates) Rates(ctx context.Context, base, date string) (map[string]float64, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, base+"|"+date)
+	delay, fail := f.delay, f.err
 	f.mu.Unlock()
-	if f.delay > 0 {
+	if delay > 0 {
 		select {
-		case <-time.After(f.delay):
+		case <-time.After(delay):
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
-	if f.err != nil {
-		return nil, f.err
+	if fail != nil {
+		return nil, fail
 	}
 	return map[string]float64{"USD": f.rates[base]}, nil
 }
@@ -598,7 +599,7 @@ func TestDashboard_TravelCostConvertsAtMonthEndRate(t *testing.T) {
 	if c.TravelInvoices != 400 || c.PerDiems != 400 || *c.CreditCardExpenses != 48.2 || *c.ExpenseClaims != 111.11 || c.Total != 959.31 {
 		t.Errorf("totals = %+v", c)
 	}
-	if c.CurrentMonth != 100 || c.LastMonth != 959.31-100 {
+	if c.CurrentMonth != 100 || c.LastMonth != 859.31 {
 		t.Errorf("months: last %v current %v", c.LastMonth, c.CurrentMonth)
 	}
 	if c.RateRule != "monthEnd" || len(c.NotConverted) != 0 {

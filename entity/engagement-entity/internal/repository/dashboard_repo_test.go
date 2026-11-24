@@ -325,7 +325,7 @@ func TestDashboardCostLines(t *testing.T) {
 		WithArgs(w.YearStart, w.NextMonth).
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("2026-10", "", "USD", 400))
 	m.expense.ExpectQuery(re(`UPPER(TRIM(COALESCE(c.txn_currency, ''))) AS d_currency,
-			CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' THEN 'USD' ELSE '' END AS d_cc_currency,
+			CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' AND c.cc_amount IS NOT NULL THEN 'USD' ELSE '' END AS d_cc_currency,
 			SUM(c.txn_amount) AS amount, SUM(c.cc_amount) AS cc_amount
 		FROM cc_txn AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?

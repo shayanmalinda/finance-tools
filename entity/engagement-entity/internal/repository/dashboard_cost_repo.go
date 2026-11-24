@@ -243,7 +243,7 @@ func (r *dashboardRepo) expenseLines(ctx context.Context, f domain.DashboardCost
 		return nil, ErrDashboardNoExpenseDB
 	}
 	table, prefix, refCol, status, ccCols := "cc_txn", "CC-", "c.txn_reference_number", `COALESCE(c.status, '') != 'invalid'`,
-		`CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' THEN 'USD' ELSE '' END, c.cc_amount`
+		`CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' AND c.cc_amount IS NOT NULL THEN 'USD' ELSE '' END, c.cc_amount`
 	if source == domain.DashboardCostClaim {
 		table, prefix, refCol, status, ccCols = "expense_claims", "EC-", "c.report_seq_number", `COALESCE(c.status, '') NOT IN ('-1', '1')`, `'', 0`
 	}
