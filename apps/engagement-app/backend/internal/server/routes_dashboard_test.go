@@ -246,6 +246,23 @@ func TestDashboardRoutes_Sections(t *testing.T) {
 	}
 }
 
+// An explicit empty `sections=` is the widget catalogue alone: the date and the
+// widgets the caller may see, with no section computed and no entity call (the
+// embedded entity client is nil here, so any call would panic).
+func TestDashboardRoutes_EmptySectionsIsTheCatalogue(t *testing.T) {
+	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardEmployeeRoles)
+	rec := get(h, "/dashboard?sections=", "valid")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `"date":"2026-11-05"`) || !strings.Contains(body, `"widgets":[{"id":"allocations-today","defaultOn":false}]`) {
+		t.Fatalf("catalogue: %d %s", rec.Code, body)
+	}
+	for _, section := range []string{"waitingOnYou", "travelTeam", "engagements", "allocationsOverTime"} {
+		if strings.Contains(body, `"`+section+`"`) {
+			t.Errorf("catalogue carries section %s: %s", section, body)
+		}
+	}
+}
+
 // The cost summary of a travel request is audited as a View of travel_cost
 // with the job number, only when the caller may see it.
 func TestDashboardRoutes_JobCostSummaryAudit(t *testing.T) {

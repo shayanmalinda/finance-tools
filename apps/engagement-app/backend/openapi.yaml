@@ -340,8 +340,14 @@ paths:
         both apps); `defaultOn` follows the working roles (own privileges;
         the Travel Super Admin counts as the Travel Team). `sections` asks
         for exactly those sections; absent means every section behind a
-        widget that is on by default for the caller. An unknown key is 400;
-        a section the caller may not see is left out without error.
+        widget that is on by default for the caller; an explicit empty
+        `sections=` computes no section and returns only `date` and `widgets`
+        (the catalogue, cheap enough to call first so the page can draw every
+        widget's frame at once). An unknown key is 400; a section the caller
+        may not see is left out without error, so section data is only ever
+        returned for a widget the caller may see. Sections that share one
+        entity call (`engagements`, `availableConsultants` and
+        `allocationsOverTime`) are best asked for together, in one request.
         `travelCost` is deprecated: use `GET /dashboard/travel-costs` (it is
         removed one release after the webapp stops reading it).
       operationId: getDashboard
