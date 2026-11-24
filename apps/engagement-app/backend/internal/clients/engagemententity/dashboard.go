@@ -44,6 +44,18 @@ type DashboardAPI interface {
 	DashboardEngagements(ctx context.Context, f DashboardEngagementsFilter) (*DashboardEngagements, error)
 	// DashboardAgency returns the travel agent dashboard of one agency.
 	DashboardAgency(ctx context.Context, agencyID int, today string) (*DashboardAgency, error)
+	// DashboardCostLines returns the travel cost lines in their original
+	// amounts (GET /dashboard/cost-lines).
+	DashboardCostLines(ctx context.Context, f DashboardCostLinesFilter) (*DashboardCostLines, error)
+	// DashboardTravelTeam, DashboardManager, DashboardAccountManager and
+	// DashboardEvents return the figures behind the role widgets.
+	DashboardTravelTeam(ctx context.Context, today string) (*DashboardTravelTeam, error)
+	DashboardManager(ctx context.Context, today string, engagementTypes []int) (*DashboardManager, error)
+	DashboardAccountManager(ctx context.Context, email, today string) (*DashboardAccountManager, error)
+	DashboardEvents(ctx context.Context, today string) (*DashboardEvents, error)
+	// DashboardMyVisas returns the person's upcoming trips with the visa
+	// picked on each, and their Active visas.
+	DashboardMyVisas(ctx context.Context, email, today string) (*DashboardMyVisas, error)
 }
 
 // DashboardEngagementTypeCount is a legacy "allocations by engagement type" row.

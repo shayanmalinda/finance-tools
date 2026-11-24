@@ -103,6 +103,21 @@ func queryList(r *http.Request, key string) []string {
 	return out
 }
 
+// queryMulti is queryList that also splits comma-joined values, for
+// parameters whose values never contain a comma (enums, ids, emails, job
+// numbers).
+func queryMulti(r *http.Request, key string) []string {
+	var out []string
+	for _, v := range r.URL.Query()[key] {
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
 // queryInts is queryList parsed as integers; a malformed value is a 400.
 func queryInts(r *http.Request, key string) ([]int, error) {
 	var out []int

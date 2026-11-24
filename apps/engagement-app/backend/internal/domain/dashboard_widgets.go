@@ -1,0 +1,306 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package domain
+
+// Dashboard widgets (Release 2): the widget list, the role sections of GET
+// /dashboard, the Travel Costs endpoints and the Me visas.
+
+// DashboardWidget is one widget the caller may see. DefaultOn is whether it
+// is shown until the person changes it.
+type DashboardWidget struct {
+	ID        string `json:"id"`
+	DefaultOn bool   `json:"defaultOn"`
+}
+
+// ── Role sections of GET /dashboard ─────────────────────────────────────────
+
+// DashboardPoQueue is the invoices waiting for PO approval.
+type DashboardPoQueue struct {
+	Count      int               `json:"count"`
+	OldestDays int               `json:"oldestDays"`
+	ByAge      []DashboardBucket `json:"byAge"`
+}
+
+// DashboardFrequentTraveller is a traveller with their trip count.
+type DashboardFrequentTraveller struct {
+	Traveller Person `json:"traveller"`
+	Trips     int    `json:"trips"`
+}
+
+// DashboardTravelTeam is the Travel Team section.
+type DashboardTravelTeam struct {
+	AwayThisWeek struct {
+		Travellers int `json:"travellers"`
+		Countries  int `json:"countries"`
+	} `json:"awayThisWeek"`
+	EndedNotCompleted struct {
+		Count int `json:"count"`
+	} `json:"endedNotCompleted"`
+	PoQueue            DashboardPoQueue             `json:"poQueue"`
+	FrequentTravellers []DashboardFrequentTraveller `json:"frequentTravellers"`
+	AgentWorkload      []DashboardBucket            `json:"agentWorkload"`
+}
+
+// DashboardEngagementList is a short list of engagements with the total.
+type DashboardEngagementList struct {
+	Total int                   `json:"total"`
+	Items []DashboardEngagement `json:"items"`
+}
+
+// DashboardStartingAllocation is an allocation starting soon.
+type DashboardStartingAllocation struct {
+	AllocationID    string `json:"allocationId"`
+	Consultant      Person `json:"consultant"`
+	EngagementID    string `json:"engagementId"`
+	EngagementTitle string `json:"engagementTitle"`
+	StartDate       string `json:"startDate"`
+	EndDate         string `json:"endDate"`
+	TravelRequired  bool   `json:"travelRequired"`
+}
+
+// DashboardMostAllocated is a consultant with their allocated days.
+type DashboardMostAllocated struct {
+	Consultant Person `json:"consultant"`
+	Days       int    `json:"days"`
+}
+
+// DashboardEngagementManager is the Engagement Manager section.
+type DashboardEngagementManager struct {
+	WithoutConsultants DashboardEngagementList `json:"withoutConsultants"`
+	StartingIn14Days   struct {
+		Total int                           `json:"total"`
+		Items []DashboardStartingAllocation `json:"items"`
+	} `json:"startingIn14Days"`
+	MostAllocated []DashboardMostAllocated `json:"mostAllocated"`
+	TopCustomers  struct {
+		By    string            `json:"by"`
+		Items []DashboardBucket `json:"items"`
+	} `json:"topCustomers"`
+}
+
+// DashboardAccountManager is the Account Manager section.
+type DashboardAccountManager struct {
+	StartedWithoutConsultants DashboardEngagementList `json:"startedWithoutConsultants"`
+	ByStatus                  []DashboardBucket       `json:"byStatus"`
+	ByMonth                   []DashboardSeriesPoint  `json:"byMonth"`
+}
+
+// DashboardCampaignCreator is the campaign coverage of one creator.
+type DashboardCampaignCreator struct {
+	Creator      Person  `json:"creator"`
+	Total        int     `json:"total"`
+	WithCampaign int     `json:"withCampaign"`
+	Percent      float64 `json:"percent"`
+}
+
+// DashboardCampaignCoverage is the Campaign ID coverage of recent events.
+type DashboardCampaignCoverage struct {
+	Total        int                        `json:"total"`
+	WithCampaign int                        `json:"withCampaign"`
+	Percent      float64                    `json:"percent"`
+	ByCreator    []DashboardCampaignCreator `json:"byCreator"`
+}
+
+// DashboardMarketingEvents is the Marketing Events section.
+type DashboardMarketingEvents struct {
+	ByMonth               []DashboardSeriesPoint     `json:"byMonth"`
+	ByRegion              []DashboardBucket          `json:"byRegion"`
+	FundingByBusinessUnit []DashboardBucket          `json:"fundingByBusinessUnit"`
+	CampaignCoverage      *DashboardCampaignCoverage `json:"campaignCoverage"`
+}
+
+// ── Me: visas for upcoming trips ────────────────────────────────────────────
+
+// TripMyVisa is the caller's own visa that covers a trip.
+type TripMyVisa struct {
+	Type    string `json:"type"`
+	EndDate string `json:"endDate"`
+}
+
+// TripVisa is an upcoming trip with its visa state.
+type TripVisa struct {
+	JobNumber string      `json:"jobNumber"`
+	Country   string      `json:"country"`
+	City      *string     `json:"city"`
+	StartDate string      `json:"startDate"`
+	EndDate   string      `json:"endDate"`
+	TripVisa  *string     `json:"tripVisa"`
+	MyVisa    *TripMyVisa `json:"myVisa"`
+	Waiting   bool        `json:"waiting"`
+}
+
+// ── Travel Costs ────────────────────────────────────────────────────────────
+
+// Cost line sources and paid values.
+const (
+	CostSourceInvoice = "invoice"
+	CostSourcePerDiem = "perDiem"
+	CostSourceCard    = "card"
+	CostSourceClaim   = "claim"
+)
+
+// CostKpi is a KPI with the same figure a year earlier.
+type CostKpi struct {
+	Value         float64  `json:"value"`
+	Previous      *float64 `json:"previous"`
+	ChangePercent *float64 `json:"changePercent"`
+	Thin          bool     `json:"thin"`
+}
+
+// CostBucket is a bar of a Travel Costs breakdown.
+type CostBucket struct {
+	Key            string   `json:"key"`
+	Label          string   `json:"label"`
+	Value          float64  `json:"value"`
+	Percent        float64  `json:"percent"`
+	Previous       *float64 `json:"previous"`
+	ChangePercent  *float64 `json:"changePercent"`
+	Thin           bool     `json:"thin"`
+	Trips          *int     `json:"trips,omitempty"`
+	AveragePerTrip *float64 `json:"averagePerTrip,omitempty"`
+	Categorised    *bool    `json:"categorised,omitempty"`
+}
+
+// CostNotConverted is spend with no NetSuite rate, left out of the USD figures.
+type CostNotConverted struct {
+	Source   string  `json:"source"`
+	Currency string  `json:"currency"`
+	Amount   float64 `json:"amount"`
+	Lines    int     `json:"lines"`
+}
+
+// CostPeriod is a date range.
+type CostPeriod struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// CostTravelAgent is a travel agent of a cost line or a facet.
+type CostTravelAgent struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// CostFacets are the filter lists, built before the filters.
+type CostFacets struct {
+	Countries    []string          `json:"countries"`
+	TravelAgents []CostTravelAgent `json:"travelAgents"`
+	Customers    []string          `json:"customers"`
+	CostTypes    []string          `json:"costTypes"`
+}
+
+// CostKpis are the Travel Costs KPIs.
+type CostKpis struct {
+	Total          CostKpi `json:"total"`
+	Trips          CostKpi `json:"trips"`
+	AveragePerTrip CostKpi `json:"averagePerTrip"`
+	Travellers     CostKpi `json:"travellers"`
+	UnlinkedSpend  CostKpi `json:"unlinkedSpend"`
+}
+
+// TravelCostSummary is GET /dashboard/travel-costs.
+type TravelCostSummary struct {
+	Currency           string                 `json:"currency"`
+	RateRule           string                 `json:"rateRule"`
+	From               string                 `json:"from"`
+	To                 string                 `json:"to"`
+	Compare            *CostPeriod            `json:"compare"`
+	DataAsOf           string                 `json:"dataAsOf"`
+	Kpis               CostKpis               `json:"kpis"`
+	BySource           []CostBucket           `json:"bySource"`
+	ByMonth            []DashboardSeriesPoint `json:"byMonth"`
+	ByCountry          []CostBucket           `json:"byCountry"`
+	ByCustomer         []CostBucket           `json:"byCustomer"`
+	ByTravelAgent      []CostBucket           `json:"byTravelAgent"`
+	ByCostType         []CostBucket           `json:"byCostType"`
+	ByPaid             []CostBucket           `json:"byPaid"`
+	PaidSharePercent   *float64               `json:"paidSharePercent"`
+	NotConverted       []CostNotConverted     `json:"notConverted"`
+	PossibleDuplicates int                    `json:"possibleDuplicates"`
+	FailedSources      []string               `json:"failedSources"`
+	Truncated          bool                   `json:"truncated"`
+	Facets             CostFacets             `json:"facets"`
+}
+
+// CostLine is one normalised cost line with its USD amount and how it was got.
+type CostLine struct {
+	ID               string           `json:"id"`
+	Source           string           `json:"source"`
+	Reference        *string          `json:"reference"`
+	JobNumber        *string          `json:"jobNumber"`
+	Traveller        *Person          `json:"traveller"`
+	Date             string           `json:"date"`
+	OriginalAmount   float64          `json:"originalAmount"`
+	OriginalCurrency string           `json:"originalCurrency"`
+	USDAmount        *float64         `json:"usdAmount"`
+	Rate             *float64         `json:"rate"`
+	RateDate         *string          `json:"rateDate"`
+	RateSource       *string          `json:"rateSource"`
+	CostType         string           `json:"costType"`
+	SourceType       *string          `json:"sourceType"`
+	Country          *string          `json:"country"`
+	TravelAgent      *CostTravelAgent `json:"travelAgent"`
+	Customer         *string          `json:"customer"`
+	Paid             string           `json:"paid"`
+	EngagementID     *string          `json:"engagementId"`
+	AllocationType   *string          `json:"allocationType"`
+}
+
+// CostLinePage is the transactions answer without grouping.
+type CostLinePage struct {
+	Items    []CostLine `json:"items"`
+	Total    int        `json:"total"`
+	TotalUSD float64    `json:"totalUsd"`
+	DataAsOf string     `json:"dataAsOf"`
+}
+
+// CostGroup is one group of the transactions answer.
+type CostGroup struct {
+	Key           string   `json:"key"`
+	Label         string   `json:"label"`
+	Lines         int      `json:"lines"`
+	Trips         int      `json:"trips"`
+	Travellers    int      `json:"travellers"`
+	Total         float64  `json:"total"`
+	Previous      *float64 `json:"previous"`
+	ChangePercent *float64 `json:"changePercent"`
+	Thin          bool     `json:"thin"`
+}
+
+// CostGroupPage is the transactions answer with groupBy.
+type CostGroupPage struct {
+	Groups   []CostGroup `json:"groups"`
+	Total    int         `json:"total"`
+	DataAsOf string      `json:"dataAsOf"`
+}
+
+// CostDuplicate is a pair of lines that may be the same cost.
+type CostDuplicate struct {
+	JobNumber string   `json:"jobNumber"`
+	Traveller Person   `json:"traveller"`
+	USDAmount float64  `json:"usdAmount"`
+	DaysApart int      `json:"daysApart"`
+	A         CostLine `json:"a"`
+	B         CostLine `json:"b"`
+}
+
+// CostDuplicatePage is GET /dashboard/travel-costs/duplicates.
+type CostDuplicatePage struct {
+	Items    []CostDuplicate `json:"items"`
+	Total    int             `json:"total"`
+	DataAsOf string          `json:"dataAsOf"`
+}

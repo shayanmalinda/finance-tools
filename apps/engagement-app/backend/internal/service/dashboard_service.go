@@ -39,7 +39,11 @@ import (
 // use the privileges without the super admin groups (Perms.AllocOwn /
 // TravelOwn).
 type DashboardService interface {
-	Dashboard(ctx context.Context, p domain.Perms) (domain.Dashboard, error)
+	// Dashboard builds the caller's sections. sections asks for exactly
+	// those (unknown keys are a validation error, sections the caller may
+	// not see are left out); nil means every section behind a widget that
+	// is on by default.
+	Dashboard(ctx context.Context, p domain.Perms, sections []string) (domain.Dashboard, error)
 	AllocationsToday(ctx context.Context, p domain.Perms, date string, businessUnitID int) (domain.DashboardAllocationsToday, error)
 	MeOverview(ctx context.Context, p domain.Perms) (domain.MeOverview, error)
 }
@@ -211,7 +215,18 @@ func (g *dashboardGroup) allFailed() bool { return g.failedCalls == g.calls }
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
-func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domain.Dashboard, error) {
+func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sections []string) (domain.Dashboard, error) {
+	asked := map[string]bool{}
+	for _, k := range sections {
+		known := false
+		for _, v := range DashboardSectionKeys {
+			known = known || v == k
+		}
+		if !known {
+			return domain.Dashboard{}, &apierror.ValidationError{Msg: "sections: unknown section " + strconv.Quote(k) + "."}
+		}
+		asked[k] = true
+	}
 	today := s.today()
 	todayStr := today.Format(dashboardDateLayout)
 	if p.IsAgent() {
@@ -227,17 +242,30 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 			people = append(people, &agent.PerDiemsOnOpenTrips[i].Traveller)
 		}
 		s.people.fillNames(ctx, people...)
-		return domain.Dashboard{Agent: agent, FailedSections: []string{}}, nil
+		return domain.Dashboard{Agent: agent, FailedSections: []string{}, Widgets: []domain.DashboardWidget{}}, nil
 	}
 
 	var out domain.Dashboard
+	out.Widgets = dashboardWidgets(p)
+	// The sections to build: the ones asked for, else those behind a widget
+	// that is on by default; either way only those the caller may see.
+	visibleSections := dashboardSectionSet(out.Widgets, false)
+	want := map[string]bool{}
+	if sections == nil {
+		want = dashboardSectionSet(out.Widgets, true)
+	} else {
+		for k := range asked {
+			want[k] = visibleSections[k]
+		}
+	}
 	g := &dashboardGroup{}
 	gctx := ctx
+	tsa := domain.HasRole(p.TravelRoles, domain.TravelSuperAdminGroup)
 
 	// My Work: own allocations (Allocations 1, every employee) and own trips
 	// (My Travel Requests, Travel 49 / 36).
 	myAllocs, myTrips := p.Alloc.Has(1), p.Travel.Any(49, 36)
-	if myAllocs || myTrips {
+	if want[sectionMyWork] && (myAllocs || myTrips) {
 		g.Go(ctx, []string{"myWork"}, func() error {
 			mw, err := s.entity.DashboardMyWork(gctx, engagemententity.DashboardMyWorkFilter{
 				Email: p.Email, Today: todayStr, Trips: myTrips, TripLimit: 3,
@@ -252,7 +280,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 
 	// Waiting on You.
 	plan := dashboardPlanQueues(p)
-	if plan.any() {
+	if want[sectionWaitingOnYou] && plan.any() {
 		g.Go(ctx, []string{"waitingOnYou"}, func() error {
 			q, err := s.entity.DashboardQueues(gctx, plan.filter)
 			if err != nil {
@@ -263,26 +291,34 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 		})
 	}
 
-	// Travel: the Travel Team (own Travel 1) and super admins. Travel Cost:
-	// travel finance groups only (own Travel 39 or 41).
-	tf := engagemententity.DashboardTravelFilter{Today: todayStr,
-		Trips: p.TravelOwn.Has(1) || domain.HasRole(p.TravelRoles, domain.TravelSuperAdminGroup)}
+	// Travel: the Travel Team (Travel 1) and the Travel Super Admin. Travel
+	// Cost (deprecated: Travel Costs has its own endpoints) is built only
+	// when no sections are asked for, for the finance groups and the Travel
+	// Super Admin.
+	tf := engagemententity.DashboardTravelFilter{Today: todayStr, Trips: want[sectionTravel] && (p.Travel.Has(1) || tsa)}
 	card := dashboardHasCardRole(p) && p.TravelOwn.Any(39, 41)
-	if card {
-		tf.CostInvoices = p.TravelOwn.Any(39, 30)
-		tf.CostPayments = p.TravelOwn.Any(41, 42)
-		tf.CostCards, tf.CostClaims = true, true
+	if sections == nil && (card || tsa) {
+		if tsa {
+			tf.CostInvoices, tf.CostPayments, tf.CostCards, tf.CostClaims = true, true, true, true
+		} else {
+			tf.CostInvoices = p.TravelOwn.Any(39, 30)
+			tf.CostPayments = p.TravelOwn.Any(41, 42)
+			tf.CostCards, tf.CostClaims = true, true
+		}
+		card = true
+	} else {
+		card = false
 	}
 	cost := tf.CostInvoices || tf.CostPayments || tf.CostCards || tf.CostClaims
 	if tf.Trips || cost {
-		var sections []string
+		var secs []string
 		if tf.Trips {
-			sections = append(sections, "travel")
+			secs = append(secs, "travel")
 		}
 		if cost {
-			sections = append(sections, "travelCost")
+			secs = append(secs, "travelCost")
 		}
-		g.Go(ctx, sections, func() error {
+		g.Go(ctx, secs, func() error {
 			t, err := s.entity.DashboardTravel(gctx, tf)
 			if err != nil {
 				return err
@@ -301,7 +337,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 	// Allocations Over Time (1 and an allocation, report, approval or
 	// allocate privilege).
 	ef := engagemententity.DashboardEngagementsFilter{Today: todayStr}
-	showEngs := p.Alloc.Any(3, 13)
+	showEngs := want[sectionEngagements]
 	if showEngs {
 		for _, t := range dashboardEngagementTypeIDs {
 			if dashboardSeesEngagementType(p.Alloc, t) {
@@ -309,21 +345,20 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 			}
 		}
 	}
-	ef.Bench = p.Alloc.Any(9, 19, 21)
-	ef.Trend = p.Alloc.Has(1) && (p.Alloc.Any(9, 19, 21, 22, 26, 29) ||
-		dashboardCanAllocateType(p.Alloc, 1) || dashboardCanAllocateType(p.Alloc, 3) || dashboardCanAllocateType(p.Alloc, 4))
+	ef.Bench = want[sectionAvailableConsultants]
+	ef.Trend = want[sectionAllocationsOverTime]
 	if showEngs || ef.Bench || ef.Trend {
-		var sections []string
+		var secs []string
 		if showEngs {
-			sections = append(sections, "engagements")
+			secs = append(secs, sectionEngagements)
 		}
 		if ef.Bench {
-			sections = append(sections, "availableConsultants")
+			secs = append(secs, sectionAvailableConsultants)
 		}
 		if ef.Trend {
-			sections = append(sections, "allocationsOverTime")
+			secs = append(secs, sectionAllocationsOverTime)
 		}
-		g.Go(ctx, sections, func() error {
+		g.Go(ctx, secs, func() error {
 			e, err := s.entity.DashboardEngagements(gctx, ef)
 			if err != nil {
 				return err
@@ -341,17 +376,30 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 		})
 	}
 
+	s.roleSections(ctx, g, p, want, todayStr, today, &out)
+
 	failed, err := g.Wait()
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
 	out.FailedSections = failed
+	var people []*domain.Person
 	if out.Travel != nil {
-		people := make([]*domain.Person, 0, len(out.Travel.Upcoming))
 		for i := range out.Travel.Upcoming {
 			people = append(people, &out.Travel.Upcoming[i].Traveller)
 		}
-		s.people.fillNames(ctx, people...)
+	}
+	people = append(people, dashboardRolePeople(&out)...)
+	s.people.fillNames(ctx, people...)
+	if mc := out.MarketingEvents; mc != nil && mc.CampaignCoverage == nil {
+		// The campaign_id column is absent here: ev-campaign is not offered.
+		kept := out.Widgets[:0]
+		for _, w := range out.Widgets {
+			if w.ID != "ev-campaign" {
+				kept = append(kept, w)
+			}
+		}
+		out.Widgets = kept
 	}
 	return out, nil
 }
