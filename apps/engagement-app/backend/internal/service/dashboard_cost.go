@@ -106,7 +106,7 @@ type costSet struct {
 }
 
 func (s *dashboardService) costSetFor(ctx context.Context, from, to string) (*costSet, error) {
-	return s.costCache.get(from+"|"+to, func() (*costSet, error) {
+	return s.costCache.get(ctx, from+"|"+to, func() (*costSet, error) {
 		ectx, cancel := context.WithTimeout(ctx, costEntityBudget)
 		defer cancel()
 		res, err := s.entity.DashboardCostLines(ectx, engagemententity.DashboardCostLinesFilter{From: from, To: to})
@@ -599,8 +599,9 @@ func costSummary(cur, prev, facetLines []costLine, allowed []string, p costPerio
 		UnlinkedSpend:  costKpi(cs.unlinked, ps.unlinked, compare),
 	}
 
-	// bySource: every allowed source, even at zero.
+	// bySource: every allowed source, even at zero. A source with no current lines still has last year's spend to compare with.
 	srcBuckets := costBuckets(cur, prev, compare, sourceKey, 0, false, nil)
+	prevBySource, _, _ := costGroupSums(prev, sourceKey)
 	have := map[string]domain.CostBucket{}
 	for _, b := range srcBuckets {
 		have[b.Key] = b
@@ -613,7 +614,7 @@ func costSummary(cur, prev, facetLines []costLine, allowed []string, p costPerio
 		b, ok := have[src]
 		if !ok {
 			b = domain.CostBucket{Key: src, Label: costSourceLabel[src]}
-			b.Previous, b.ChangePercent, b.Thin = costChange(0, 0, compare)
+			b.Previous, b.ChangePercent, b.Thin = costChange(0, prevBySource[src], compare)
 		}
 		out.BySource = append(out.BySource, b)
 	}
@@ -648,6 +649,7 @@ func costSummary(cur, prev, facetLines []costLine, allowed []string, p costPerio
 
 	// byPaid: three fixed bars.
 	paidBuckets := costBuckets(cur, prev, compare, paidKey, 0, false, nil)
+	prevByPaid, _, _ := costGroupSums(prev, paidKey)
 	hp := map[string]domain.CostBucket{}
 	for _, b := range paidBuckets {
 		hp[b.Key] = b
@@ -657,7 +659,7 @@ func costSummary(cur, prev, facetLines []costLine, allowed []string, p costPerio
 		b, ok := hp[k]
 		if !ok {
 			b = domain.CostBucket{Key: k, Label: costPaidLabel[k]}
-			b.Previous, b.ChangePercent, b.Thin = costChange(0, 0, compare)
+			b.Previous, b.ChangePercent, b.Thin = costChange(0, prevByPaid[k], compare)
 		}
 		out.ByPaid = append(out.ByPaid, b)
 	}
@@ -830,6 +832,15 @@ var costGroupKeys = map[string]func(costLine) (costKey, bool){
 	"month":    monthKey,
 }
 
+// costMonthLastYear is the same month a year earlier: 2026-10 becomes 2025-10.
+func costMonthLastYear(month string) string {
+	t, err := time.Parse("2006-01", month)
+	if err != nil {
+		return month
+	}
+	return t.AddDate(-1, 0, 0).Format("2006-01")
+}
+
 func costGroups(cur, prev []costLine, compare bool, groupBy, sortBy string) ([]domain.CostGroup, error) {
 	keyOf, ok := costGroupKeys[groupBy]
 	if !ok {
@@ -865,7 +876,12 @@ func costGroups(cur, prev []costLine, compare bool, groupBy, sortBy string) ([]d
 	out := make([]domain.CostGroup, 0, len(groups))
 	for key, g := range groups {
 		cg := domain.CostGroup{Key: key, Label: g.k.label, Lines: g.lines, Trips: len(g.trips), Travellers: len(g.travellers), Total: dashboardRound(g.total)}
-		cg.Previous, cg.ChangePercent, cg.Thin = costChange(g.total, psums[key], compare)
+		// The previous period is the same dates a year earlier, so a month is compared with the same month last year.
+		prevKey := key
+		if groupBy == "month" {
+			prevKey = costMonthLastYear(key)
+		}
+		cg.Previous, cg.ChangePercent, cg.Thin = costChange(g.total, psums[prevKey], compare)
 		out = append(out, cg)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -962,6 +978,46 @@ type costPrepared struct {
 	cur, prev  []costLine
 	facetLines []costLine
 	set        *costSet
+	prevSet    *costSet
+}
+
+// prevFailed is the sources the caller may see that could not be read for the comparison period.
+func (c *costPrepared) prevFailed() []string {
+	if c.prevSet == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range c.prevSet.failed {
+		if contains(c.allowed, f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// comparable is whether last year's figures are complete enough to compare with.
+func (c *costPrepared) comparable() bool {
+	return c.prevSet == nil || (len(c.prevFailed()) == 0 && !c.prevSet.truncated)
+}
+
+// incompleteText names what is missing from the data, or is empty when nothing is.
+func (c *costPrepared) incompleteText() string {
+	var parts []string
+	for _, f := range c.set.failed {
+		if contains(c.allowed, f) {
+			parts = append(parts, costSourceLabel[f]+" could not be read, so it is left out")
+		}
+	}
+	if c.set.truncated {
+		parts = append(parts, "a source hit the 20,000 line cap, so some lines are left out")
+	}
+	for _, f := range c.prevFailed() {
+		parts = append(parts, costSourceLabel[f]+" could not be read for the comparison period, so no change is shown")
+	}
+	if c.prevSet != nil && c.prevSet.truncated {
+		parts = append(parts, "the comparison period hit the 20,000 line cap, so no change is shown")
+	}
+	return strings.Join(parts, "; ")
 }
 
 func (s *dashboardService) prepare(ctx context.Context, p domain.Perms, q CostQuery) (*costPrepared, error) {
@@ -978,7 +1034,7 @@ func (s *dashboardService) prepare(ctx context.Context, p domain.Perms, q CostQu
 		return nil, err
 	}
 	trimmed := costTrim(curSet.lines, allowed)
-	out := &costPrepared{period: cur, prevPeriod: prevP, allowed: allowed, set: curSet, facetLines: trimmed,
+	out := &costPrepared{period: cur, prevPeriod: prevP, allowed: allowed, set: curSet, prevSet: prevSet, facetLines: trimmed,
 		cur: costApply(trimmed, q.Filter)}
 	if prevSet != nil {
 		out.prev = costApply(costTrim(prevSet.lines, allowed), q.Filter)
@@ -991,7 +1047,12 @@ func (s *dashboardService) TravelCosts(ctx context.Context, p domain.Perms, q Co
 	if err != nil {
 		return nil, err
 	}
-	sum := costSummary(pr.cur, pr.prev, pr.facetLines, pr.allowed, pr.period, q.Compare)
+	// Last year's figures with a source missing would read as a fall in spend, so then only the current figures are given.
+	sum := costSummary(pr.cur, pr.prev, pr.facetLines, pr.allowed, pr.period, q.Compare && pr.comparable())
+	sum.ComparisonFailedSources = pr.prevFailed()
+	if pr.prevSet != nil {
+		sum.ComparisonTruncated = pr.prevSet.truncated
+	}
 	if pr.prevPeriod != nil {
 		f, t := pr.prevPeriod.strings()
 		sum.Compare = &domain.CostPeriod{From: f, To: t}
@@ -1030,7 +1091,7 @@ func (s *dashboardService) CostTransactions(ctx context.Context, p domain.Perms,
 	}
 	asOf := pr.set.asOf.Format(time.RFC3339)
 	if t.GroupBy != "" {
-		groups, err := costGroups(pr.cur, pr.prev, q.Compare, t.GroupBy, t.Sort)
+		groups, err := costGroups(pr.cur, pr.prev, q.Compare && pr.comparable(), t.GroupBy, t.Sort)
 		if err != nil {
 			return nil, err
 		}
@@ -1138,7 +1199,7 @@ func costHeaderBlock(title string, pr *costPrepared, q CostQuery) [][]string {
 		pf, pt := pr.prevPeriod.strings()
 		cmp = pf + " to " + pt
 	}
-	return [][]string{
+	rows := [][]string{
 		{costRateRuleText},
 		{title},
 		{"Date range", f + " to " + t},
@@ -1148,6 +1209,11 @@ func costHeaderBlock(title string, pr *costPrepared, q CostQuery) [][]string {
 		{"Rate rule", "NetSuite month-end rate (today's rate for the current month)"},
 		{"Data as of", pr.set.asOf.Format("2006-01-02 15:04") + " UTC"},
 	}
+	// A total with a source missing must not look complete to whoever reads the file.
+	if text := pr.incompleteText(); text != "" {
+		rows = append(rows, []string{"Incomplete data", text})
+	}
+	return rows
 }
 
 var costSectionTitle = map[string]string{
@@ -1248,7 +1314,7 @@ func (s *dashboardService) TravelCostsCSV(ctx context.Context, p domain.Perms, q
 	if err != nil {
 		return nil, err
 	}
-	sum := costSummary(pr.cur, pr.prev, pr.facetLines, pr.allowed, pr.period, q.Compare)
+	sum := costSummary(pr.cur, pr.prev, pr.facetLines, pr.allowed, pr.period, q.Compare && pr.comparable())
 	f, t := pr.period.strings()
 	names := map[string]string{"summary": "Summary"}
 	for k := range costSectionTitle {

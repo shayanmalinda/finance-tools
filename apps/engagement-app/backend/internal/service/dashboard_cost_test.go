@@ -526,3 +526,76 @@ func TestCostCSV_HeaderAndSections(t *testing.T) {
 		t.Errorf("transactions row = %v", last)
 	}
 }
+
+func TestTravelCosts_FixedBarsKeepLastYearsSpend(t *testing.T) {
+	prevCard := entry("CC-p", "card", "T1", "2025-10-01", "USD", 100)
+	f := &fakeDashboardEntity{costFn: func(fl engagemententity.DashboardCostLinesFilter) *engagemententity.DashboardCostLines {
+		if strings.HasPrefix(fl.From, "2025") {
+			return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{prevCard}}
+		}
+		return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{entry("INV-1", "invoice", "T1", "2026-10-01", "USD", 10)}}
+	}}
+	s := mustSummary(t, NewDashboardService(f, nil, nil, dashboardNow), finPerms(39, 41), cq)
+	for _, b := range s.BySource {
+		if b.Key != "card" {
+			continue
+		}
+		if b.Value != 0 || b.Previous == nil || *b.Previous != 100 || b.ChangePercent == nil || *b.ChangePercent != -100 {
+			t.Errorf("card bar = %+v, want 0 against 100 last year", b)
+		}
+	}
+	for _, b := range s.ByPaid {
+		if b.Key == "unknown" && (b.Previous == nil || *b.Previous != 100) {
+			t.Errorf("unknown paid bar previous = %v, want 100", b.Previous)
+		}
+	}
+}
+
+func TestCostGroups_MonthIsComparedWithTheSameMonthLastYear(t *testing.T) {
+	f := &fakeDashboardEntity{costFn: func(fl engagemententity.DashboardCostLinesFilter) *engagemententity.DashboardCostLines {
+		if strings.HasPrefix(fl.From, "2025") {
+			return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{entry("INV-p", "invoice", "T1", "2025-10-14", "USD", 100)}}
+		}
+		return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{entry("INV-1", "invoice", "T1", "2026-10-14", "USD", 200)}}
+	}}
+	out, err := NewDashboardService(f, nil, nil, dashboardNow).CostTransactions(context.Background(), finPerms(39, 41), cq, CostTransactionsQuery{GroupBy: "month", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := out.(domain.CostGroupPage).Groups[0]
+	if g.Key != "2026-10" || g.Previous == nil || *g.Previous != 100 || g.ChangePercent == nil || *g.ChangePercent != 100 {
+		t.Errorf("month group = %+v, want +100%% on 100 from 2025-10", g)
+	}
+}
+
+func TestTravelCosts_IncompleteLastYearGivesNoComparisonAndTheCsvSaysSo(t *testing.T) {
+	f := &fakeDashboardEntity{costFn: func(fl engagemententity.DashboardCostLinesFilter) *engagemententity.DashboardCostLines {
+		if strings.HasPrefix(fl.From, "2025") {
+			return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{entry("INV-p", "invoice", "T1", "2025-10-14", "USD", 100)}, Unavailable: []string{"card"}}
+		}
+		return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{entry("INV-1", "invoice", "T1", "2026-10-14", "USD", 200)}, Unavailable: []string{"claim"}}
+	}}
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
+	s := mustSummary(t, svc, finPerms(39, 41), cq)
+	if len(s.ComparisonFailedSources) != 1 || s.ComparisonFailedSources[0] != "card" || s.Compare == nil {
+		t.Errorf("comparison failed sources %v compare %v", s.ComparisonFailedSources, s.Compare)
+	}
+	if s.Kpis.Total.Value != 200 || s.Kpis.Total.Previous != nil || s.Kpis.Total.ChangePercent != nil {
+		t.Errorf("total = %+v, want 200 with no comparison", s.Kpis.Total)
+	}
+	c, err := svc.TravelCostsCSV(context.Background(), finPerms(39, 41), cq, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := ""
+	for _, r := range c.Rows {
+		text += strings.Join(r, ",") + "\n"
+	}
+	if !strings.Contains(text, "Incomplete data,") || !strings.Contains(text, "Expense Claims could not be read") || !strings.Contains(text, "Credit Card Expenses could not be read for the comparison period") {
+		t.Errorf("csv header lacks the incomplete data row:\n%s", text)
+	}
+	tx, err := svc.CostTransactionsCSV(context.Background(), finPerms(39, 41), cq)
+	if err != nil || !strings.Contains(fmt.Sprint(tx.Rows), "Incomplete data") {
+		t.Errorf("transactions csv: %v %v", tx.Rows, err)
+	}
+}

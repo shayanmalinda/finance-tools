@@ -337,3 +337,15 @@ func dashboardIsValidation(err error) bool {
 	var v *apierror.ValidationError
 	return errors.As(err, &v)
 }
+
+// The visas are an extra on the card: a failed lookup leaves the allocations and trips already read.
+func TestMeOverview_VisaFailureKeepsTheRest(t *testing.T) {
+	f := &fakeDashboardEntity{
+		myWorkResp: &engagemententity.DashboardMyWork{Trips: []engagemententity.DashboardTrip{{JobNumber: "T1", StartDate: "2026-12-01", EndDate: "2026-12-10"}}},
+		visasErr:   errors.New("hr database down"),
+	}
+	got, err := NewDashboardService(f, nil, nil, dashboardNow).MeOverview(context.Background(), dashboardPerms("j@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
+	if err != nil || len(got.UpcomingTrips) != 1 || got.TripVisas != nil {
+		t.Errorf("overview = %+v, %v; want the trip and no visas", got, err)
+	}
+}

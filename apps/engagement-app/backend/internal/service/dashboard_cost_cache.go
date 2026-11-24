@@ -17,6 +17,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -74,8 +75,10 @@ func (c *costSetCache) touch(key string) {
 }
 
 // get returns the cached set for key, or runs load once for all callers that
-// ask at the same time and caches its result (a failure is not cached).
-func (c *costSetCache) get(key string, load func() (*costSet, error)) (*costSet, error) {
+// ask at the same time and caches its result (a failure is not cached). A
+// caller that joins a load in flight stops waiting when its own ctx ends;
+// the load goes on for the others.
+func (c *costSetCache) get(ctx context.Context, key string, load func() (*costSet, error)) (*costSet, error) {
 	c.mu.Lock()
 	if e, ok := c.items[key]; ok && c.now().Before(e.expires) {
 		c.touch(key)
@@ -84,8 +87,12 @@ func (c *costSetCache) get(key string, load func() (*costSet, error)) (*costSet,
 	}
 	if call, busy := c.inflight[key]; busy {
 		c.mu.Unlock()
-		<-call.done
-		return call.set, call.err
+		select {
+		case <-call.done:
+			return call.set, call.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	call := &costSetCall{done: make(chan struct{})}
 	c.inflight[key] = call

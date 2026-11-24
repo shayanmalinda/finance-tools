@@ -59,6 +59,7 @@ type fakeDashboardEntity struct {
 	amResp      *engagemententity.DashboardAccountManager
 	eventsResp  *engagemententity.DashboardEvents
 	visasResp   *engagemententity.DashboardMyVisas
+	visasErr    error
 	calls       []string
 }
 
@@ -115,6 +116,9 @@ func (f *fakeDashboardEntity) DashboardEvents(context.Context, string) (*engagem
 }
 func (f *fakeDashboardEntity) DashboardMyVisas(context.Context, string, string) (*engagemententity.DashboardMyVisas, error) {
 	f.call("myVisas")
+	if f.visasErr != nil {
+		return nil, f.visasErr
+	}
 	if f.visasResp != nil {
 		return f.visasResp, f.fail
 	}

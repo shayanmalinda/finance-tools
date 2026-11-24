@@ -995,8 +995,11 @@ func (s *dashboardService) MeOverview(ctx context.Context, p domain.Perms) (doma
 	}
 	if trips {
 		out.UpcomingTrips = dashboardTrips(mw.Trips)
-		if out.TripVisas, err = s.tripVisas(ctx, p.Email, today); err != nil {
-			return domain.MeOverview{}, err
+		// The visas are an extra on the card: when their lookup fails the allocations and trips already read are still returned.
+		if visas, verr := s.tripVisas(ctx, p.Email, today); verr != nil {
+			slog.WarnContext(ctx, "me overview trip visas failed", "err", verr)
+		} else {
+			out.TripVisas = visas
 		}
 	}
 	return out, nil

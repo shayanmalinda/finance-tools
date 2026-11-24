@@ -257,7 +257,13 @@ type TravelCostSummary struct {
 	PossibleDuplicates int                    `json:"possibleDuplicates"`
 	FailedSources      []string               `json:"failedSources"`
 	Truncated          bool                   `json:"truncated"`
-	Facets             CostFacets             `json:"facets"`
+	// ComparisonFailedSources are the sources that could not be read for the
+	// comparison period. When any is listed, or the comparison period was cut
+	// at the line cap, no change against last year is given, because last
+	// year's figures are incomplete.
+	ComparisonFailedSources []string   `json:"comparisonFailedSources,omitempty"`
+	ComparisonTruncated     bool       `json:"comparisonTruncated,omitempty"`
+	Facets                  CostFacets `json:"facets"`
 }
 
 // CostLine is one normalised cost line with its USD amount and how it was got.
