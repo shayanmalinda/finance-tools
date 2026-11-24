@@ -246,25 +246,30 @@ func TestDashboardManagerQueries(t *testing.T) {
 		t.Fatalf("AllocationsStarting = %+v %d %v", starting, total, err)
 	}
 
-	m.alloc.ExpectQuery(re(`SUM(DATEDIFF(a.end_date, a.start_date) + 1) AS d_days`)).
-		WithArgs(3, "2026-08-07", "2026-11-06", 8).
-		WillReturnRows(sqlmock.NewRows([]string{"e", "d"}).AddRow("dev@example.com", 42))
-	if got, err := m.repo.MostAllocated(context.Background(), []int{3}, "2026-08-07", "2026-11-06", 8); err != nil || len(got) != 1 || got[0].Count != 42 {
+	// Window 2026-08-07 to 2026-11-05 (91 days). Only the days inside count.
+	m.alloc.ExpectQuery(re(`a.start_date < ? AND a.end_date >= ?`)).
+		WithArgs(3, "2026-11-06", "2026-08-07").
+		WillReturnRows(sqlmock.NewRows([]string{"e", "s", "en"}).
+			AddRow("dev@example.com", "2026-08-01", "2026-08-10"). // straddles the start: 4 days
+			AddRow("dev@example.com", "2026-11-01", "2026-11-30"). // straddles the end: 5 days
+			AddRow("dev@example.com", "2024-01-01", "2027-01-01"). // spans the window: 91 days
+			AddRow("dev@example.com", "2026-09-01", "2026-09-10")) // inside: 10 days
+	if got, err := m.repo.MostAllocated(context.Background(), []int{3}, "2026-08-07", "2026-11-06", 8); err != nil || len(got) != 1 || got[0].Count != 110 {
 		t.Fatalf("MostAllocated = %+v %v", got, err)
 	}
 
 	// A customer type among the caller's types groups by customer, over the customer types only.
 	m.alloc.ExpectQuery(re(`SELECT TRIM(e.customer_name) AS d_label`)).
-		WithArgs(3, 4, "2025-12-01", "2026-11-06", 8).
-		WillReturnRows(sqlmock.NewRows([]string{"l", "d"}).AddRow("Acme", 100))
+		WithArgs(3, 4, "2026-11-06", "2025-12-01").
+		WillReturnRows(sqlmock.NewRows([]string{"l", "s", "en"}).AddRow("Acme", "2025-12-01", "2025-12-10"))
 	by, top, err := m.repo.TopCustomers(context.Background(), []int{1, 3, 4, 5}, "2025-12-01", "2026-11-06", 8)
 	if err != nil || by != "customer" || len(top) != 1 || top[0].Label != "Acme" {
 		t.Fatalf("TopCustomers = %q %+v %v", by, top, err)
 	}
 	// None of them: group by country over all the types.
 	m.alloc.ExpectQuery(re(`SELECT TRIM(e.country) AS d_label`)).
-		WithArgs(1, 5, "2025-12-01", "2026-11-06", 8).
-		WillReturnRows(sqlmock.NewRows([]string{"l", "d"}).AddRow("India", 60))
+		WithArgs(1, 5, "2026-11-06", "2025-12-01").
+		WillReturnRows(sqlmock.NewRows([]string{"l", "s", "en"}).AddRow("India", "2025-12-01", "2025-12-10"))
 	by, top, err = m.repo.TopCustomers(context.Background(), []int{1, 5}, "2025-12-01", "2026-11-06", 8)
 	if err != nil || by != "country" || len(top) != 1 || top[0].Label != "India" {
 		t.Fatalf("TopCustomers by country = %q %+v %v", by, top, err)
@@ -348,4 +353,31 @@ func TestDashboardMyVisaQueries(t *testing.T) {
 		t.Fatalf("OwnActiveVisas = %+v %v", visas, err)
 	}
 	m.verify(t)
+}
+
+func TestDaysInWindow(t *testing.T) {
+	// Window 2026-08-07 to 2026-11-05 inclusive, given as [from, to).
+	const from, to = "2026-08-07", "2026-11-06"
+	cases := []struct {
+		name, start, end string
+		want             int
+	}{
+		{"straddles the window start", "2026-08-01", "2026-08-10", 4},
+		{"straddles the window end", "2026-11-01", "2026-11-30", 5},
+		{"spans the whole window", "2024-01-01", "2027-01-01", 91},
+		{"outside, before", "2026-01-01", "2026-08-06", 0},
+		{"outside, after", "2026-11-06", "2026-12-31", 0},
+		{"inside", "2026-09-01", "2026-09-10", 10},
+		{"single day on the last window day", "2026-11-05", "2026-11-05", 1},
+		{"end before start", "2026-09-10", "2026-09-01", 0},
+	}
+	for _, c := range cases {
+		got, err := daysInWindow(c.start, c.end, from, to)
+		if err != nil || got != c.want {
+			t.Errorf("%s: daysInWindow = %d %v, want %d", c.name, got, err, c.want)
+		}
+	}
+	if _, err := daysInWindow("bad", "2026-01-01", from, to); err == nil {
+		t.Error("a bad date must fail")
+	}
 }

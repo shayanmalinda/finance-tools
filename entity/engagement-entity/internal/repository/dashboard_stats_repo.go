@@ -20,6 +20,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"sort"
+	"time"
 
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/domain"
 )
@@ -208,33 +211,32 @@ func (r *dashboardRepo) AllocationsStarting(ctx context.Context, engagementTypes
 	return out, total, nil
 }
 
-// MostAllocated sums, per consultant, the calendar days of the active
-// engagement allocations of the given types that started in [from, to); the
-// top limit. Label is the consultant's email.
+// MostAllocated sums, per consultant, the calendar days that the active
+// engagement allocations of the given types spend inside [from, to), so an
+// allocation that starts before the window or ends after it counts only its
+// days in the window; the top limit. Label is the consultant's email.
 func (r *dashboardRepo) MostAllocated(ctx context.Context, engagementTypes []int, from, to string, limit int) ([]domain.DashboardCount, error) {
 	if len(engagementTypes) == 0 {
 		return []domain.DashboardCount{}, nil
 	}
-	q := `SELECT a.email, SUM(DATEDIFF(a.end_date, a.start_date) + 1) AS d_days
+	q := `SELECT a.email AS d_label, DATE_FORMAT(a.start_date, '%Y-%m-%d'), DATE_FORMAT(a.end_date, '%Y-%m-%d')
 		FROM allocation AS a
 		JOIN engagement AS e ON a.engagement_id = e.id
 		JOIN allocation_type AS aT ON e.allocation_type = aT.id
 		WHERE ` + dashboardActiveAllocation + ` AND ` + dashboardEngagementAllocation + `
 			AND aT.engagement_type IN (` + Placeholders(len(engagementTypes)) + `)
-			AND a.start_date >= ? AND a.start_date < ?
-		GROUP BY a.email
-		ORDER BY d_days DESC, a.email
-		LIMIT ?`
-	rows, err := r.alloc.QueryContext(ctx, q, append(Args(engagementTypes), from, to, limit)...)
+			AND a.start_date < ? AND a.end_date >= ?`
+	rows, err := r.alloc.QueryContext(ctx, q, append(Args(engagementTypes), to, from)...)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard.MostAllocated: %w", err)
 	}
-	return dashboardCountRows(rows, "dashboard.MostAllocated")
+	return dashboardWindowDays(rows, "dashboard.MostAllocated", from, to, limit)
 }
 
-// TopCustomers sums the calendar days of the same allocations per customer
-// (over the customer types among engagementTypes) or, when there is none,
-// per country over all of them. It returns what it grouped by.
+// TopCustomers sums the calendar days of the same allocations inside the
+// window per customer (over the customer types among engagementTypes) or,
+// when there is none, per country over all of them. It returns what it
+// grouped by.
 func (r *dashboardRepo) TopCustomers(ctx context.Context, engagementTypes []int, from, to string, limit int) (by string, _ []domain.DashboardCount, _ error) {
 	var customer []int
 	for _, t := range engagementTypes {
@@ -251,23 +253,87 @@ func (r *dashboardRepo) TopCustomers(ctx context.Context, engagementTypes []int,
 	if len(types) == 0 {
 		return by, []domain.DashboardCount{}, nil
 	}
-	q := `SELECT TRIM(` + col + `) AS d_label, SUM(DATEDIFF(a.end_date, a.start_date) + 1) AS d_days
+	q := `SELECT TRIM(` + col + `) AS d_label, DATE_FORMAT(a.start_date, '%Y-%m-%d'), DATE_FORMAT(a.end_date, '%Y-%m-%d')
 		FROM allocation AS a
 		JOIN engagement AS e ON a.engagement_id = e.id
 		JOIN allocation_type AS aT ON e.allocation_type = aT.id
 		WHERE ` + dashboardActiveAllocation + ` AND ` + dashboardEngagementAllocation + `
 			AND aT.engagement_type IN (` + Placeholders(len(types)) + `)
-			AND a.start_date >= ? AND a.start_date < ?
-			AND TRIM(COALESCE(` + col + `, '')) != ''
-		GROUP BY d_label
-		ORDER BY d_days DESC, d_label
-		LIMIT ?`
-	rows, err := r.alloc.QueryContext(ctx, q, append(Args(types), from, to, limit)...)
+			AND a.start_date < ? AND a.end_date >= ?
+			AND TRIM(COALESCE(` + col + `, '')) != ''`
+	rows, err := r.alloc.QueryContext(ctx, q, append(Args(types), to, from)...)
 	if err != nil {
 		return by, nil, fmt.Errorf("dashboard.TopCustomers: %w", err)
 	}
-	out, err := dashboardCountRows(rows, "dashboard.TopCustomers")
+	out, err := dashboardWindowDays(rows, "dashboard.TopCustomers", from, to, limit)
 	return by, out, err
+}
+
+// dashboardWindowDays scans (label, start, end) allocation rows, adds up per
+// label the days each allocation has inside [from, to) and returns the top
+// limit, largest first and by label on a tie. Each row is one allocation, so a
+// multi-funded engagement is not counted twice.
+func dashboardWindowDays(rows *sql.Rows, what, from, to string, limit int) ([]domain.DashboardCount, error) {
+	defer rows.Close()
+	total := map[string]int{}
+	for rows.Next() {
+		var label sql.NullString
+		var start, end string
+		if err := rows.Scan(&label, &start, &end); err != nil {
+			return nil, fmt.Errorf("%s scan: %w", what, err)
+		}
+		d, err := daysInWindow(start, end, from, to)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", what, err)
+		}
+		if d > 0 {
+			total[label.String] += d
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s rows: %w", what, err)
+	}
+	out := make([]domain.DashboardCount, 0, len(total))
+	for l, c := range total {
+		out = append(out, domain.DashboardCount{Label: l, Count: c})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Label < out[j].Label
+	})
+	if limit >= 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// daysInWindow is max(0, min(end, windowEnd) - max(start, windowStart) + 1)
+// in calendar days, where the window is [from, to) so windowEnd is the day
+// before to. All values are YYYY-MM-DD.
+func daysInWindow(start, end, from, to string) (int, error) {
+	const layout = "2006-01-02"
+	var d [4]time.Time
+	for i, v := range []string{start, end, from, to} {
+		t, err := time.Parse(layout, v)
+		if err != nil {
+			return 0, fmt.Errorf("bad date %q: %w", v, err)
+		}
+		d[i] = t
+	}
+	lo, hi := d[0], d[1]
+	if d[2].After(lo) {
+		lo = d[2]
+	}
+	if last := d[3].AddDate(0, 0, -1); last.Before(hi) {
+		hi = last
+	}
+	n := int(math.Round(hi.Sub(lo).Hours()/24)) + 1
+	if n < 0 {
+		return 0, nil
+	}
+	return n, nil
 }
 
 // dashboardOwnEngagement keeps the engagements the person created and that

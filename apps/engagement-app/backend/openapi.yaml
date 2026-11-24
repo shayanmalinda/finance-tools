@@ -3199,7 +3199,7 @@ components:
             items: { type: array, items: { $ref: '#/components/schemas/DashboardStartingAllocation' } }
         mostAllocated:
           type: array
-          description: Top 8, last 90 days, calendar days.
+          description: Top 8, calendar days of each allocation that fall inside the last 90 days.
           items:
             type: object
             properties:
@@ -3209,7 +3209,7 @@ components:
           type: object
           properties:
             by: { type: string, enum: [customer, country], description: '`country` when the caller allocates no customer type.' }
-            items: { type: array, description: 'Top 8; value = days.', items: { $ref: '#/components/schemas/Bucket' } }
+            items: { type: array, description: 'Top 8; value = calendar days of each allocation that fall inside the last 12 months.', items: { $ref: '#/components/schemas/Bucket' } }
     DashboardAccountManager:
       type: object
       description: 'Engagements the caller created (engagement.username). Every part is optional: present only when the caller may see its widget (am-started-no-consultants, am-by-status, am-by-month).'
