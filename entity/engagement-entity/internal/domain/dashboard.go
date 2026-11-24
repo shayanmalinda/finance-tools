@@ -190,16 +190,19 @@ const (
 	DashboardCostClaim   = "claim"
 )
 
-// DashboardCostLine is a sum of amounts by source, month (YYYY-MM), cost type
-// (invoices only) and currency. Currency is USD when the record carries a USD
-// amount on either side (original or converted); otherwise it is the
-// original currency and Amount is in that currency.
+// DashboardCostLine is a sum of original amounts by source, month (YYYY-MM),
+// cost type (invoices only) and original currency (upper-cased, blank when
+// the record has none). Card groups also carry CCAmount, the sum of the
+// amount the card was billed, and CCCurrency, "USD" when that billing
+// currency is USD (blank otherwise); the BFF uses it instead of converting.
 type DashboardCostLine struct {
-	Source   string  `json:"source"`
-	Month    string  `json:"month"`
-	CostType string  `json:"costType"`
-	Currency string  `json:"currency"`
-	Amount   float64 `json:"amount"`
+	Source     string  `json:"source"`
+	Month      string  `json:"month"`
+	CostType   string  `json:"costType"`
+	Currency   string  `json:"currency"`
+	Amount     float64 `json:"amount"`
+	CCAmount   float64 `json:"ccAmount,omitempty"`
+	CCCurrency string  `json:"ccCurrency,omitempty"`
 }
 
 // DashboardTravel is the Travel and Travel Cost figures.

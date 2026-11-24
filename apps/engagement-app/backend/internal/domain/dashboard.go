@@ -141,6 +141,7 @@ type DashboardUnconverted struct {
 // DashboardTravelCost is the Travel Cost section, in USD.
 type DashboardTravelCost struct {
 	Currency           string                 `json:"currency"`
+	RateRule           string                 `json:"rateRule"`
 	From               string                 `json:"from"`
 	To                 string                 `json:"to"`
 	Total              float64                `json:"total"`

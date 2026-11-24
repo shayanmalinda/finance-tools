@@ -309,22 +309,36 @@ func TestDashboardCostLines(t *testing.T) {
 	m := newDashboardMocks(t)
 	w := dashboardTestWindow
 	cols := []string{"m", "t", "c", "a"}
-	m.travel.ExpectQuery(re(`WHERE i.added_date >= ? AND i.added_date < ?
+	m.travel.ExpectQuery(re(`UPPER(TRIM(COALESCE(i.invoice_currency, ''))) AS d_currency,
+			SUM(i.invoice_amount) AS amount
+		FROM invoice AS i
+		LEFT JOIN inv_cost_type AS ct ON i.inv_cost_type_id = ct.id
+		WHERE i.added_date >= ? AND i.added_date < ?
 			AND COALESCE(i.status, '') NOT IN ('Rejected by travel', 'Rejected by finance')
 			AND COALESCE(ct.name, '') != 'Currency'`)).
 		WithArgs(w.YearStart, w.NextMonth).
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("2026-10", "Air Ticket", "USD", 1850.5).AddRow("2026-10", "Hotel", "LKR", 90000))
-	m.travel.ExpectQuery(re(`FROM perdiem_payment AS pp
+	m.travel.ExpectQuery(re(`UPPER(TRIM(COALESCE(pp.payment_currency, ''))) AS d_currency,
+			SUM(pp.payment_amount) AS amount
+		FROM perdiem_payment AS pp
 		WHERE pp.added_date >= ? AND pp.added_date < ?`)).
 		WithArgs(w.YearStart, w.NextMonth).
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("2026-10", "", "USD", 400))
-	m.expense.ExpectQuery(re(`AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
-			AND COALESCE(c.status, '') != 'invalid'`)).
+	m.expense.ExpectQuery(re(`UPPER(TRIM(COALESCE(c.txn_currency, ''))) AS d_currency,
+			CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' THEN 'USD' ELSE '' END AS d_cc_currency,
+			SUM(c.txn_amount) AS amount, SUM(c.cc_amount) AS cc_amount
+		FROM cc_txn AS c
+		WHERE c.txn_date >= ? AND c.txn_date < ?
+			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
+			AND COALESCE(c.status, '') != 'invalid'
+		GROUP BY d_month, d_currency, d_cc_currency`)).
 		WithArgs(w.YearStart, w.NextMonth).
-		WillReturnRows(sqlmock.NewRows(cols).AddRow("2026-09", "", "USD", 48.2))
+		WillReturnRows(sqlmock.NewRows([]string{"m", "t", "c", "cc", "a", "ca"}).
+			AddRow("2026-09", "", "LKR", "USD", 15000.0, 48.2).
+			AddRow("2026-09", "", "EUR", "", 90.0, nil))
 
 	inv, err := m.repo.InvoiceCost(context.Background(), w)
-	if err != nil || len(inv) != 2 || inv[0].Source != domain.DashboardCostInvoice || inv[0].Amount != 1850.5 || inv[1].Currency != "LKR" {
+	if err != nil || len(inv) != 2 || inv[0].Source != domain.DashboardCostInvoice || inv[0].Amount != 1850.5 || inv[1].Currency != "LKR" || inv[1].Amount != 90000 {
 		t.Fatalf("InvoiceCost = %+v, %v", inv, err)
 	}
 	pay, err := m.repo.PaymentCost(context.Background(), w)
@@ -332,7 +346,9 @@ func TestDashboardCostLines(t *testing.T) {
 		t.Fatalf("PaymentCost = %+v, %v", pay, err)
 	}
 	card, err := m.repo.CardCost(context.Background(), w)
-	if err != nil || len(card) != 1 || card[0].Source != domain.DashboardCostCard || card[0].Month != "2026-09" {
+	if err != nil || len(card) != 2 || card[0].Source != domain.DashboardCostCard || card[0].Month != "2026-09" ||
+		card[0].Currency != "LKR" || card[0].Amount != 15000 || card[0].CCCurrency != "USD" || card[0].CCAmount != 48.2 ||
+		card[1].Currency != "EUR" || card[1].CCCurrency != "" || card[1].CCAmount != 0 {
 		t.Fatalf("CardCost = %+v, %v", card, err)
 	}
 	m.verify(t)
@@ -386,18 +402,16 @@ func TestDashboardAgency(t *testing.T) {
 func TestDashboardClaimCost(t *testing.T) {
 	m := newDashboardMocks(t)
 	w := dashboardTestWindow
-	m.expense.ExpectQuery(re(`CASE WHEN c.txn_currency = 'USD' OR c.reimbursement_currency = 'USD' THEN 'USD' ELSE c.txn_currency END AS d_currency,
-			SUM(CASE WHEN c.txn_currency = 'USD' THEN c.txn_amount
-				WHEN c.reimbursement_currency = 'USD' THEN c.reimbursement_amount
-				ELSE c.txn_amount END) AS amount
+	m.expense.ExpectQuery(re(`UPPER(TRIM(COALESCE(c.txn_currency, ''))) AS d_currency,
+			SUM(c.txn_amount) AS amount
 		FROM expense_claims AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?
 			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
 			AND COALESCE(c.status, '') NOT IN ('-1', '1')`)).
 		WithArgs(w.YearStart, w.NextMonth).
-		WillReturnRows(sqlmock.NewRows([]string{"d_month", "d_cost_type", "d_currency", "amount"}).AddRow("2026-10", "", "USD", 120.5))
+		WillReturnRows(sqlmock.NewRows([]string{"d_month", "d_cost_type", "d_currency", "amount"}).AddRow("2026-10", "", "LKR", 120.5))
 	got, err := m.repo.ClaimCost(context.Background(), w)
-	if err != nil || len(got) != 1 || got[0].Source != domain.DashboardCostClaim || got[0].Amount != 120.5 {
+	if err != nil || len(got) != 1 || got[0].Source != domain.DashboardCostClaim || got[0].Amount != 120.5 || got[0].Currency != "LKR" {
 		t.Fatalf("ClaimCost = %+v, %v", got, err)
 	}
 	m.verify(t)
