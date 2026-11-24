@@ -393,7 +393,7 @@ func TestDashboardClaimCost(t *testing.T) {
 		FROM expense_claims AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?
 			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
-			AND c.status NOT IN ('-1', '1')`)).
+			AND COALESCE(c.status, '') NOT IN ('-1', '1')`)).
 		WithArgs(w.YearStart, w.NextMonth).
 		WillReturnRows(sqlmock.NewRows([]string{"d_month", "d_cost_type", "d_currency", "amount"}).AddRow("2026-10", "", "USD", 120.5))
 	got, err := m.repo.ClaimCost(context.Background(), w)

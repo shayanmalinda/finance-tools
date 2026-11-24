@@ -2864,11 +2864,11 @@ components:
             travelInvoices: { type: number }
             perDiems: { type: number }
             creditCardExpenses: { type: number, nullable: true, description: 'Present only for the travel finance groups.' }
-            expenseClaims: { type: number, nullable: true, description: 'Expense claims tagged with a travel, except deleted and rejected. Present only for the travel finance groups.' }
+            expenseClaims: { type: number, nullable: true, description: 'Expense claims tagged with a travel, except deleted and rejected, so including claims not yet approved. Present only for the travel finance groups.' }
             lastMonth: { type: number }
             currentMonth: { type: number, description: '"{month} so far".' }
             byMonth: { type: array, items: { $ref: '#/components/schemas/SeriesPoint' }, description: 'values keyed Travel Invoices, Per Diems and (card roles) Credit Card Expenses and Expense Claims.' }
-            byType: { type: array, items: { $ref: '#/components/schemas/Bucket' }, description: 'Invoice cost types, Per Diems, Credit Card Expenses.' }
+            byType: { type: array, items: { $ref: '#/components/schemas/Bucket' }, description: 'Invoice cost types, Per Diems and (card roles) Credit Card Expenses and Expense Claims.' }
             notConverted:
               type: array
               items:

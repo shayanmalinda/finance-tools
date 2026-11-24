@@ -133,7 +133,6 @@ type FinancePaymentBasis struct {
 	PaymentCount     int                   `json:"paymentCount"`
 }
 
-// FinanceTravelCard is a travel card.
 // FinanceCardExpense is a credit card transaction tagged with a travel.
 type FinanceCardExpense struct {
 	ID            int      `json:"id"`
@@ -168,6 +167,7 @@ type FinanceTripExpenses struct {
 	ExpenseClaims []FinanceExpenseClaim `json:"expenseClaims"`
 }
 
+// FinanceTravelCard is a travel card.
 type FinanceTravelCard struct {
 	ID        int     `json:"id"`
 	JobNumber string  `json:"jobNumber"`

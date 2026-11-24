@@ -390,12 +390,12 @@ func TestTripExpenses(t *testing.T) {
 	r := NewFinanceExpenseRepository(db)
 	mock.ExpectQuery(re(`FROM cc_txn AS t
 			LEFT JOIN expense_type AS et ON et.id = t.expense_type_id
-		WHERE TRIM(t.travel_job_number) = ? AND COALESCE(t.status, '') != 'invalid'`)).WithArgs("TRV-2026-11-0001", financeMaxRows).
+		WHERE t.travel_job_number = ? AND COALESCE(t.status, '') != 'invalid'`)).WithArgs("TRV-2026-11-0001", financeMaxRows).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "date", "type", "ref", "amount", "cur", "email", "status"}).
 			AddRow(4, "2026-11-02", "Taxi", "UBER", 18.4, "USD", "e@example.com", "submitted"))
 	mock.ExpectQuery(re(`FROM expense_claims AS c
 			LEFT JOIN expense_type AS et ON et.id = c.expense_type_id
-		WHERE TRIM(c.travel_job_number) = ? AND c.status != '-1'`)).WithArgs("TRV-2026-11-0001", financeMaxRows).
+		WHERE c.travel_job_number = ? AND COALESCE(c.status, '') != '-1'`)).WithArgs("TRV-2026-11-0001", financeMaxRows).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "num", "date", "type", "amount", "cur", "ramount", "rcur", "email", "status"}).
 			AddRow(9, "1201", "2026-11-03", "Meals", 3000.0, "LKR", 10.1, "USD", "e@example.com", "3").
 			AddRow(10, "1201", nil, nil, nil, nil, nil, nil, nil, "0"))

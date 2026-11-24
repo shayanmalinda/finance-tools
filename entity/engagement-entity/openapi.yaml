@@ -1528,6 +1528,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinanceTripExpenses'
+        '400':
+          $ref: '#/components/responses/Error'
   /finance/travel-requests/{jobNumber}/invoices:
     post:
       tags:
@@ -5137,10 +5139,13 @@ components:
             properties:
               source:
                 type: string
+                description: claim is expense claims except deleted and rejected, so including claims
+                  not yet approved.
                 enum:
                 - invoice
                 - perDiem
                 - card
+                - claim
               month:
                 type: string
                 example: 2026-10

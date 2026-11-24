@@ -333,7 +333,8 @@ func (r *dashboardRepo) CardCost(ctx context.Context, w DashboardWindow) ([]doma
 }
 
 // ClaimCost sums the expense claims (expense_app.expense_claims) tagged with a
-// travel job number, except deleted (-1) and rejected (1) ones, by
+// travel job number, except deleted (-1) and rejected (1) ones (so claims
+// not yet approved count), by
 // transaction month and currency, the same way as CardCost: USD when the
 // transaction or the reimbursement is in USD.
 func (r *dashboardRepo) ClaimCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
@@ -348,7 +349,7 @@ func (r *dashboardRepo) ClaimCost(ctx context.Context, w DashboardWindow) ([]dom
 		FROM expense_claims AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?
 			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
-			AND c.status NOT IN ('-1', '1')
+			AND COALESCE(c.status, '') NOT IN ('-1', '1')
 		GROUP BY d_month, d_currency`
 	rows, err := r.expense.QueryContext(ctx, q, w.YearStart, w.NextMonth)
 	if err != nil {

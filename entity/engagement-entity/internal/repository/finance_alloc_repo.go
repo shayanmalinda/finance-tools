@@ -197,15 +197,16 @@ func (r *financeExpenseRepo) Subsidiary(ctx context.Context, company string) (*d
 	return &s, nil
 }
 
-// TripExpenses implements FinanceExpenseRepository. The job number tag is
-// free text in expense_app, so it is matched trimmed.
+// TripExpenses implements FinanceExpenseRepository. The job number is matched
+// exactly, as the expense apps store the one picked from the travel list.
+// status is nullable in both tables, so a NULL status is kept.
 func (r *financeExpenseRepo) TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error) {
 	out := domain.FinanceTripExpenses{CardExpenses: []domain.FinanceCardExpense{}, ExpenseClaims: []domain.FinanceExpenseClaim{}}
 	rows, err := r.db.QueryContext(ctx, `SELECT t.id, DATE_FORMAT(t.txn_date, '%Y-%m-%d'), et.expense_type, t.txn_reference,
 			t.txn_amount, t.txn_currency, t.employee_email, t.status
 		FROM cc_txn AS t
 			LEFT JOIN expense_type AS et ON et.id = t.expense_type_id
-		WHERE TRIM(t.travel_job_number) = ? AND COALESCE(t.status, '') != 'invalid'
+		WHERE t.travel_job_number = ? AND COALESCE(t.status, '') != 'invalid'
 		ORDER BY t.txn_date, t.id LIMIT ?`, jobNumber, financeMaxRows)
 	if err != nil {
 		return out, fmt.Errorf("finance.TripExpenses cards: %w", err)
@@ -229,7 +230,7 @@ func (r *financeExpenseRepo) TripExpenses(ctx context.Context, jobNumber string)
 			c.txn_amount, c.txn_currency, c.reimbursement_amount, c.reimbursement_currency, c.employee_email, c.status
 		FROM expense_claims AS c
 			LEFT JOIN expense_type AS et ON et.id = c.expense_type_id
-		WHERE TRIM(c.travel_job_number) = ? AND c.status != '-1'
+		WHERE c.travel_job_number = ? AND COALESCE(c.status, '') != '-1'
 		ORDER BY c.txn_date, c.id LIMIT ?`, jobNumber, financeMaxRows)
 	if err != nil {
 		return out, fmt.Errorf("finance.TripExpenses claims: %w", err)
