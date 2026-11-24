@@ -448,8 +448,7 @@ func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs 
 // ── Waiting on You ──────────────────────────────────────────────────────────
 
 // dashboardQueuePlan is which cards apply to the caller and the entity
-// counts they need. Every gate uses the own privileges (no super admin),
-// except Ready for Clearance.
+// counts they need. Every gate uses the own privileges (no super admin).
 type dashboardQueuePlan struct {
 	filter                                    engagemententity.DashboardQueuesFilter
 	pending, clearance, newTravel             bool
@@ -472,7 +471,7 @@ func dashboardPlanQueues(p domain.Perms) dashboardQueuePlan {
 		}
 	}
 	pl.pending = len(pl.filter.PendingApprovalTypes) > 0
-	pl.filter.ClearanceTypes = dashboardClearanceTypes(p.Alloc)
+	pl.filter.ClearanceTypes = dashboardClearanceTypes(ao)
 	pl.clearance = len(pl.filter.ClearanceTypes) > 0
 	pl.newTravel = to.Has(1)
 	pl.filter.TravelRequests = pl.newTravel

@@ -167,14 +167,14 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	for _, c := range got.WaitingOnYou {
 		keys = append(keys, c.Key)
 	}
-	if strings.Join(keys, ",") != "readyForClearance,newTravelRequests,approve-po" {
+	if strings.Join(keys, ",") != "newTravelRequests,approve-po" {
 		t.Errorf("cards = %v", keys)
 	}
 	if f.queues.Invoices != true || f.queues.Payments || len(f.queues.PendingApprovalTypes) != 0 ||
-		!reflect.DeepEqual(f.queues.ClearanceTypes, []int{1, 3, 4, 5, 6, 7}) {
+		len(f.queues.ClearanceTypes) != 0 {
 		t.Errorf("queues filter = %+v", f.queues)
 	}
-	if got.WaitingOnYou[1].Count != 4 || got.WaitingOnYou[2].Count != 2 || got.WaitingOnYou[2].List.Path != "/finance/engagement-app/invoices/po" {
+	if got.WaitingOnYou[0].Count != 4 || got.WaitingOnYou[1].Count != 2 || got.WaitingOnYou[1].List.Path != "/finance/engagement-app/invoices/po" {
 		t.Errorf("cards = %+v", got.WaitingOnYou)
 	}
 	if f.travel == nil || !f.travel.Trips || f.travel.CostInvoices || f.travel.CostPayments || f.travel.CostCards || got.TravelCost != nil {
@@ -192,7 +192,7 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !f.travel.Trips || f.travel.CostInvoices || got.TravelCost != nil || f.queues.TravelRequests || f.queues.Invoices || f.queues.Payments {
+	if !f.travel.Trips || f.travel.CostInvoices || got.TravelCost != nil || f.queues != nil {
 		t.Errorf("super admin: travel %+v queues %+v", f.travel, f.queues)
 	}
 }
@@ -285,6 +285,32 @@ func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
 	}
 	if types := dashboardClearanceTypes(domain.NewPrivilegeSet([]int{1, 2, 3, 6, 9, 10, 33})); !reflect.DeepEqual(types, []int{3, 7}) {
 		t.Errorf("customer manager + pre sale: %v", types)
+	}
+}
+
+// Ready for Clearance counts on own privileges only: a super admin who holds
+// the privileges through the super admin group alone gets no tile.
+func TestDashboard_ClearanceIgnoresSuperAdmin(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	svc := NewDashboardService(f, nil, dashboardNow)
+	all := dashboardRange(1, 40)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("sa@wso2.com", all, nil, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range got.WaitingOnYou {
+		if c.Key == "readyForClearance" {
+			t.Errorf("super admin got a clearance tile: %+v", got.WaitingOnYou)
+		}
+	}
+	if f.queues != nil && len(f.queues.ClearanceTypes) != 0 {
+		t.Errorf("clearance types for a super admin: %v", f.queues.ClearanceTypes)
+	}
+
+	own := append(append([]int{1, 11}, dashboardRange(13, 21)...), 26, 27, 28)
+	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", all, own, nil, nil))
+	if f.queues == nil || len(f.queues.ClearanceTypes) == 0 {
+		t.Errorf("own-privilege manager lost the clearance queue: %+v", got.WaitingOnYou)
 	}
 }
 
