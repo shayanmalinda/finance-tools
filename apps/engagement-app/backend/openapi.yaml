@@ -303,13 +303,13 @@ paths:
           (Travel 49 or 36). Absent when all are empty.
 
         - `waitingOnYou`: counts from the caller's own privileges (super
-          admin groups never create a queue, except Ready for Clearance);
+          admin groups never create a queue);
           `list.path` is the One WSO2 screen to open. Keys -
           `pendingApproval` (only for people who can approve: own Allocations
           28 and 4, 14, 7, 17 or 5; counts the queues they see, internal with
           26 and events with 29; always highlighted; approvals/internal or
           approvals/marketing), `readyForClearance`
-          (Allocations, super admin included; not the retired Paid type;
+          (own Allocations, no super admin; not the retired Paid type;
           allocations/engagement?clearanceStatus=Ready%20for%20Clearance plus one
           engagementTypeId per type counted, so the list matches the count), `newTravelRequests`
           (own Travel 1; travel-requests/new), `approve-po` (own 32;
