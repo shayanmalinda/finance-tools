@@ -120,7 +120,9 @@ func (r *dashboardRates) resolve(ctx context.Context, pairs []ratePair) rateSet 
 		}
 		seen[p] = true
 		if v, ok := r.cacheFor(p).Get(r.key(p)); ok {
-			out[p] = v
+			if v > 0 {
+				out[p] = v
+			}
 			continue
 		}
 		if _, bad := r.failed.Get(r.key(p)); bad {
@@ -176,6 +178,16 @@ func (r *dashboardRates) resolve(ctx context.Context, pairs []ratePair) rateSet 
 func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) {
 	k := r.key(p)
 	r.mu.Lock()
+	// Another request may have finished this pair between resolve's check and
+	// this lock, so look again before registering as the one that calls out.
+	if v, ok := r.cacheFor(p).Get(k); ok {
+		r.mu.Unlock()
+		return v, v > 0
+	}
+	if _, bad := r.failed.Get(k); bad {
+		r.mu.Unlock()
+		return 0, false
+	}
 	if ch, busy := r.inflight[k]; busy {
 		r.mu.Unlock()
 		select {
@@ -184,7 +196,7 @@ func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) 
 			return 0, false
 		}
 		v, ok := r.cacheFor(p).Get(k)
-		return v, ok
+		return v, ok && v > 0
 	}
 	ch := make(chan struct{})
 	r.inflight[k] = ch
@@ -209,7 +221,10 @@ func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) 
 	}
 	v, ok := rates["USD"]
 	if !ok || v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
-		r.failed.Set(k, struct{}{})
+		// The service answered and has no usable USD rate for this pair. That
+		// is a settled answer, so it is kept as long as a rate would be
+		// (stored as 0) instead of being asked again every two minutes.
+		r.cacheFor(p).Set(k, 0)
 		return 0, false
 	}
 	r.cacheFor(p).Set(k, v)

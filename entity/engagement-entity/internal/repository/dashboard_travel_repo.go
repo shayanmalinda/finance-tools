@@ -307,7 +307,8 @@ func (r *dashboardRepo) AgencyPerDiems(ctx context.Context, agencyID, limit int)
 // travel job number, except invalid ones, by transaction month, original
 // currency (txn_currency) and whether the card was billed in USD. Amount is
 // the sum of txn_amount; CCAmount is the sum of cc_amount and CCCurrency is
-// "USD" for the groups billed in USD, blank otherwise. The tag is free text;
+// "USD" for the groups billed in USD (a USD card row with no billed amount
+// counts as not billed in USD), blank otherwise. The tag is free text;
 // it is not checked against travelapp.
 func (r *dashboardRepo) CardCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
 	if r.expense == nil {
@@ -315,7 +316,7 @@ func (r *dashboardRepo) CardCost(ctx context.Context, w DashboardWindow) ([]doma
 	}
 	q := `SELECT DATE_FORMAT(c.txn_date, '%Y-%m') AS d_month, '' AS d_cost_type,
 			UPPER(TRIM(COALESCE(c.txn_currency, ''))) AS d_currency,
-			CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' THEN 'USD' ELSE '' END AS d_cc_currency,
+			CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' AND c.cc_amount IS NOT NULL THEN 'USD' ELSE '' END AS d_cc_currency,
 			SUM(c.txn_amount) AS amount, SUM(c.cc_amount) AS cc_amount
 		FROM cc_txn AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?
