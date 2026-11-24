@@ -214,14 +214,9 @@ type TravelActivePerDiemList struct {
 	Items []TravelActivePerDiem `json:"items"`
 }
 
-// TravelEmailAuditInput is one email_auditlog row (legacy insertEmailAuditLog).
-type TravelEmailAuditInput struct {
-	Subject            string `json:"subject"`
-	TemplateID         string `json:"templateId"`
-	ContentKeyValPairs string `json:"contentKeyValPairs"`
-	Recipients         string `json:"recipients"`
-	CCRecipients       string `json:"ccRecipients"`
-}
+// TravelEmailAuditInput is one travelapp email_auditlog row (legacy
+// insertEmailAuditLog, plus the send status).
+type TravelEmailAuditInput = EmailAuditInput
 
 // TravelPassportRef is the passport a visa is tagged with.
 type TravelPassportRef struct {

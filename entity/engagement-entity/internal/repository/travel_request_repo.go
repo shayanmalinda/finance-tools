@@ -308,27 +308,40 @@ func (r *travelRequestRepo) ActivePerDiems(ctx context.Context, jobNumber string
 	return out, rows.Err()
 }
 
-// travelAuditLimits are the email_auditlog column sizes; longer values are
-// cut so that a strict-mode insert never fails on length.
+// Column sizes of email_auditlog (travelapp and allocation_db); longer values
+// are cut so that a strict-mode insert never fails on length.
 const (
-	travelAuditShort   = 255
-	travelAuditContent = 3000
+	emailAuditShort   = 255
+	emailAuditContent = 3000
+	emailAuditError   = 500
 )
 
-// InsertEmailAudit ports the legacy insertEmailAuditLogQuery.
+// InsertEmailAudit ports the legacy insertEmailAuditLogQuery. status and
+// error_message are the columns of Resources/travelapp_table_update_v1.1.0.sql;
+// until it is applied the insert fails and the caller logs it.
 func (r *travelRequestRepo) InsertEmailAudit(ctx context.Context, in domain.TravelEmailAuditInput) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO email_auditlog
-		(subject, templateId, contentKeyValPairs, recipients, cc_recipients, datetime)
-		VALUES (?, ?, ?, ?, ?, NOW())`,
-		textnorm.Truncate(textnorm.Latin1(in.Subject), travelAuditShort),
-		textnorm.Truncate(textnorm.Latin1(in.TemplateID), travelAuditShort),
-		textnorm.Truncate(textnorm.Latin1(in.ContentKeyValPairs), travelAuditContent),
-		textnorm.Truncate(textnorm.Latin1(in.Recipients), travelAuditShort),
-		textnorm.Truncate(textnorm.Latin1(in.CCRecipients), travelAuditShort))
+		(subject, templateId, contentKeyValPairs, recipients, cc_recipients, datetime, status, error_message)
+		VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)`,
+		textnorm.Truncate(textnorm.Latin1(in.Subject), emailAuditShort),
+		textnorm.Truncate(textnorm.Latin1(in.TemplateID), emailAuditShort),
+		textnorm.Truncate(textnorm.Latin1(in.ContentKeyValPairs), emailAuditContent),
+		textnorm.Truncate(textnorm.Latin1(in.Recipients), emailAuditShort),
+		textnorm.Truncate(textnorm.Latin1(in.CCRecipients), emailAuditShort),
+		in.Status, emailAuditErrorValue(in.ErrorMessage, textnorm.Latin1))
 	if err != nil {
 		return fmt.Errorf("emailAuditlog.Insert: %w", err)
 	}
 	return nil
+}
+
+// emailAuditErrorValue is the error_message value: NULL when empty, else cut
+// to the column.
+func emailAuditErrorValue(msg string, norm func(string) string) any {
+	if msg == "" {
+		return nil
+	}
+	return textnorm.Truncate(norm(msg), emailAuditError)
 }
 
 // travelScanner is a *sql.Row or *sql.Rows.

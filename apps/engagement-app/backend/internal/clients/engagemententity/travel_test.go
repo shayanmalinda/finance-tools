@@ -80,8 +80,11 @@ func TestTravelClient_PathsMethodsAndBodies(t *testing.T) {
 	if agents, err := c.TravelAgencies(ctx, "Active"); err != nil || agents[0].Name != "Acorn Travels" {
 		t.Errorf("agencies = %+v %v", agents, err)
 	}
-	if err := c.InsertTravelEmailAudit(ctx, TravelEmailAudit{Subject: "s", TemplateID: "noContent"}); err != nil {
+	if err := c.InsertTravelEmailAudit(ctx, TravelEmailAudit{Subject: "s", TemplateID: "noContent", Status: EmailAuditFailed, ErrorMessage: "down"}); err != nil {
 		t.Errorf("audit: %v", err)
+	}
+	if err := c.InsertAllocationEmailAudit(ctx, EmailAudit{Subject: "s", TemplateID: "noContent", Status: EmailAuditSent}); err != nil {
+		t.Errorf("allocation audit: %v", err)
 	}
 	_, _ = c.SearchVisas(ctx, TravelVisaFilter{Emails: []string{"a@wso2.com"}, Status: "Active", CoversFrom: "2026-10-06", Limit: 5})
 	_, _ = c.UpdateVisa(ctx, 7, TravelVisaUpdate{})
@@ -97,6 +100,7 @@ func TestTravelClient_PathsMethodsAndBodies(t *testing.T) {
 		"GET /travel-requests/TRV-2026-10-1246/active-per-diems",
 		"GET /travel-agencies?status=Active",
 		"POST /travel-email-audit-logs",
+		"POST /allocation-email-audit-logs",
 		"GET /visas?coversFrom=2026-10-06&email=a%40wso2.com&limit=5&status=Active",
 		"PUT /visas/7",
 		"GET /travel-documents?documentType=Passport&offset=10",

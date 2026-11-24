@@ -165,7 +165,7 @@ HTTP request (from the Engagement App Backend)
 | Lookups | `GET /engagement-types`, `GET /allocation-types`, `GET /reference-data` |
 | Engagements | `POST /engagements/search`, `GET /engagements/facets`, `POST /engagements`, `GET`/`PATCH /engagements/{id}` (Cancelled cascades to allocations and travel), `GET /engagements/{id}/roster` |
 | Settings | `GET /role-settings/{app}`, `PUT /role-settings/{app}/roles/{roleId}/privileges`, `/settings/allocation-types` CRUD |
-| Allocations | `GET /allocations/engagements/{id}`, `GET`/`PATCH`/`DELETE /allocations/{id}`, `POST /allocations/search`, `/allocations/timeline`, `/allocations/bulk`, `/allocations/visas`, `GET /consultant-allocations` (+ `/non-allocated`, `/team-defaults`, `/engagement-codes`) |
+| Allocations | `GET /allocations/engagements/{id}`, `GET`/`PATCH`/`DELETE /allocations/{id}`, `POST /allocations/search`, `/allocations/timeline`, `/allocations/bulk`, `/allocations/visas`, `POST /allocation-email-audit-logs`, `GET /consultant-allocations` (+ `/non-allocated`, `/team-defaults`, `/engagement-codes`) |
 | Travel | `POST /travel-requests/search`, `GET`/`PATCH /travel-requests/{jobNumber}`, `/active-per-diems`, `GET /travel-agencies`, `POST /travel-email-audit-logs`, `/visas` and `/travel-documents` (list, add with the override rule, get, update) |
 | Finance (`/finance/...`) | per diems, travel cards, invoices (add, decisions, push, re-sync, NetSuite reference), per diem payments (add, edit, push, re-sync), counts, cost types, subsidiaries |
 | Dashboard (`/dashboard/...`) | `allocations-today`, `my-work`, `queues`, `travel`, `engagements`, `agency` |

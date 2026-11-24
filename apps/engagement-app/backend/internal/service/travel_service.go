@@ -42,10 +42,6 @@ type TravelOptions struct {
 	NoValidVisaID       int
 	// Email holds the legacy travel email settings.
 	Email email.TravelSettings
-	// AuditEmails writes an email_auditlog row per sent email, as the legacy
-	// app did when it generated emails (isGenerateEmails). Off when the email
-	// service is not configured.
-	AuditEmails bool
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// Campaigns resolves campaign names; nil leaves them unset.
@@ -733,40 +729,10 @@ func (s *travelService) completedEmail(ctx context.Context, r engagemententity.T
 	s.send(ctx, email.TravelCompleted(s.opts.Email, travelEmailTrip(r), travelEmailVisa(r), agentName, company, rows))
 }
 
-// send sends m and writes its email_auditlog row; failures are logged only.
+// send sends m; a failure is logged only. The sender writes the
+// email_auditlog row (email.HTTPSender.WithAudit).
 func (s *travelService) send(ctx context.Context, m email.Message) {
-	travelSendEmail(ctx, s.mail, s.entity, s.opts, m)
-}
-
-func travelSendEmail(ctx context.Context, mail email.Sender, entity engagemententity.TravelAPI, opts TravelOptions, m email.Message) {
-	if err := mail.Send(ctx, m); err != nil {
+	if err := s.mail.Send(ctx, m); err != nil {
 		slog.ErrorContext(ctx, "travel: email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "err", err)
-		return
-	}
-	if !opts.AuditEmails {
-		return
-	}
-	TravelAuditEmail(ctx, entity, opts.now(), m)
-}
-
-// TravelAuditEmail writes the legacy travelapp.email_auditlog row for a sent
-// Travel app email (finance emails too); a failure is logged only.
-func TravelAuditEmail(ctx context.Context, entity engagemententity.TravelAPI, now time.Time, m email.Message) {
-	nonEmpty := func(list []string) string {
-		var out []string
-		for _, a := range list {
-			if a = strings.TrimSpace(a); a != "" {
-				out = append(out, a)
-			}
-		}
-		return strings.Join(out, ", ")
-	}
-	audit := engagemententity.TravelEmailAudit{
-		Subject: m.Subject, TemplateID: m.TemplateID,
-		ContentKeyValPairs: email.TravelAuditContent(m, now.UTC().Year()),
-		Recipients:         nonEmpty(m.To), CCRecipients: nonEmpty(m.CC),
-	}
-	if err := entity.InsertTravelEmailAudit(ctx, audit); err != nil {
-		slog.ErrorContext(ctx, "travel: email_auditlog not written", "type", m.NotificationType, "ref", m.ReferenceID, "err", err)
 	}
 }

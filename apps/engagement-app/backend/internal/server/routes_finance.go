@@ -17,7 +17,6 @@
 package server
 
 import (
-	"context"
 	"log/slog"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
@@ -48,11 +47,6 @@ func registerFinanceRoutes(a *area) {
 		CompanyRecipients: rc.CompanyRecipients, AppBaseURL: rc.AppBaseURL,
 	}, a.Converter, a.Now)
 	svc.Campaigns = a.Campaigns
-	if a.Recipients.Enabled() {
-		svc.WithEmailAudit(func(ctx context.Context, m email.Message) {
-			service.TravelAuditEmail(ctx, a.Entity, a.Now(), m)
-		})
-	}
 	h := handler.NewFinanceHandler(svc)
 	travel := func(ids ...int) domain.Gate { return domain.Gate{domain.AppTravel: ids} }
 

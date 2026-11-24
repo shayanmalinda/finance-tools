@@ -81,7 +81,7 @@ func TestTravelEmails_LegacyShape(t *testing.T) {
 	}
 
 	var content map[string]string
-	if err := json.Unmarshal([]byte(TravelAuditContent(m, 2026)), &content); err != nil ||
+	if err := json.Unmarshal([]byte(AuditContent(m, 2026)), &content); err != nil ||
 		content["CURRENT_YEAR"] != "2026" || content["APP_NAME"] != "Engagement App" || content["title"] != "New Travel Request Assigned" {
 		t.Errorf("audit content = %v %v", content, err)
 	}

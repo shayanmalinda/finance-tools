@@ -89,6 +89,7 @@ The routes are listed from `internal/server/routes*.go`. `GET /health` needs no 
 | GET /finance/travel-requests/{jobNumber}/payment-basis | travel-requests:read | engagement:read |
 | PATCH /travel-requests/{jobNumber} | travel-requests:write | engagement:write |
 | POST /travel-email-audit-logs | travel-requests:write | engagement:write |
+| POST /allocation-email-audit-logs | allocations:write | engagement:write |
 | GET /visas | visas:read | engagement:read |
 | GET /visas/{id} | visas:read | engagement:read |
 | POST /visas | visas:write | engagement:write |

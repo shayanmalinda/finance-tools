@@ -293,8 +293,9 @@ func (s *travelRequestService) ActivePerDiems(ctx context.Context, jobNumber str
 }
 
 func (s *travelRequestService) InsertEmailAudit(ctx context.Context, in domain.TravelEmailAuditInput) error {
-	if strings.TrimSpace(in.Subject) == "" || strings.TrimSpace(in.TemplateID) == "" {
-		return &apierror.ValidationError{Msg: "subject and templateId are required"}
+	in, err := normalizeEmailAudit(in)
+	if err != nil {
+		return err
 	}
 	return s.travel.InsertEmailAudit(ctx, in)
 }

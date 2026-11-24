@@ -49,7 +49,6 @@ type travelFakeEntity struct {
 	visaWrite *engagemententity.TravelVisaCreate
 	docWrite  *engagemententity.TravelDocumentCreate
 	visaQuery engagemententity.TravelVisaFilter
-	audits    []engagemententity.TravelEmailAudit
 	perDiems  []engagemententity.TravelActivePerDiem
 	writeErr  error // returned by CreateVisa, UpdateVisa and CreateTravelDocument when set
 }
@@ -103,13 +102,6 @@ func (f *travelFakeEntity) TravelAgencies(context.Context, string) ([]engagement
 
 func (f *travelFakeEntity) TravelActivePerDiems(context.Context, string) ([]engagemententity.TravelActivePerDiem, error) {
 	return f.perDiems, nil
-}
-
-func (f *travelFakeEntity) InsertTravelEmailAudit(_ context.Context, in engagemententity.TravelEmailAudit) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.audits = append(f.audits, in)
-	return nil
 }
 
 func (f *travelFakeEntity) GetVisa(_ context.Context, id int) (engagemententity.TravelVisaRecord, error) {
@@ -301,7 +293,7 @@ func newTravelFixture(trip engagemententity.TravelRequestRecord) *travelFixture 
 		files: &travelMemStore{blobs: map[string][]byte{}},
 	}
 	opts := TravelOptions{
-		VisaNotApplicableID: 332, NoValidVisaID: 333, AuditEmails: true, Now: travelNow,
+		VisaNotApplicableID: 332, NoValidVisaID: 333, Now: travelNow,
 		Email: email.TravelSettings{LogisticsGroup: "travel-logistics@wso2.com", FinanceGroup: "finance@wso2.com",
 			AppBaseURL: "https://one.wso2.com", CompanyRecipients: map[string][]string{"WSO2 - UK": {"uk-entity@wso2.com", "uk-pay@wso2.com"}}},
 	}
@@ -623,10 +615,6 @@ func TestTravelAssign_InProgressSendsAssignedEmail(t *testing.T) {
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
 		t.Errorf("email = %+v", m)
 	}
-	if len(f.entity.audits) != 1 || f.entity.audits[0].Recipients != "travel-logistics@wso2.com" ||
-		!strings.Contains(f.entity.audits[0].ContentKeyValPairs, `"APP_NAME":"Engagement App"`) {
-		t.Errorf("audits = %+v", f.entity.audits)
-	}
 }
 
 func TestTravelAssign_CancelledAndOnHold(t *testing.T) {
@@ -768,8 +756,8 @@ func TestTravelUpdate_EmailFailureDoesNotFail(t *testing.T) {
 	if _, err := f.svc.Update(context.Background(), travelTeam, "TRV-2026-10-1246", domain.TravelRequestUpdate{Status: travelP("Cancelled")}); err != nil {
 		t.Fatalf("err = %v", err)
 	}
-	if len(f.entity.writes) != 1 || len(f.entity.audits) != 0 {
-		t.Errorf("writes %d audits %d", len(f.entity.writes), len(f.entity.audits))
+	if len(f.entity.writes) != 1 {
+		t.Errorf("writes %d", len(f.entity.writes))
 	}
 }
 

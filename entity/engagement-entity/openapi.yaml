@@ -769,6 +769,25 @@ paths:
                       $ref: '#/components/schemas/AllocationVisa'
         '400':
           $ref: '#/components/responses/Error'
+  /allocation-email-audit-logs:
+    post:
+      tags:
+      - Allocations
+      summary: Write one allocation_db email_auditlog row, one per send attempt
+      description: Same body and rules as POST /travel-email-audit-logs, written to allocation_db.
+        Needs Resources/allocation_db_table_update_v1.2.0.sql; without it the insert answers 500.
+      operationId: insertAllocationEmailAudit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailAuditInput'
+      responses:
+        '204':
+          description: Written
+        '400':
+          $ref: '#/components/responses/Error'
   /consultant-allocations:
     get:
       tags:
@@ -1020,8 +1039,10 @@ paths:
     post:
       tags:
       - Travel
-      summary: Write one email_auditlog row (legacy insertEmailAuditLog)
-      description: Values longer than the columns (255, contentKeyValPairs 3000) are cut.
+      summary: Write one travelapp email_auditlog row, one per send attempt (legacy insertEmailAuditLog)
+      description: Values longer than the columns (255, contentKeyValPairs 3000, errorMessage 500) are
+        cut. status is Sent or Failed (empty means Sent); errorMessage says why a send failed. Needs
+        Resources/travelapp_table_update_v1.1.0.sql; without it the insert answers 500.
       operationId: insertTravelEmailAudit
       requestBody:
         required: true
@@ -4418,7 +4439,10 @@ components:
           additionalProperties: true
           description: For example the list filters, the page or the report range.
     TravelEmailAuditInput:
+      $ref: '#/components/schemas/EmailAuditInput'
+    EmailAuditInput:
       type: object
+      description: One email_auditlog row (travelapp or allocation_db), one per send attempt.
       required:
       - subject
       - templateId
@@ -4432,9 +4456,18 @@ components:
           description: The final content map as JSON.
         recipients:
           type: string
-          description: To, joined with ", ".
+          description: The intended To, joined with ", ".
         ccRecipients:
           type: string
+        status:
+          type: string
+          enum:
+          - Sent
+          - Failed
+          description: Empty means Sent.
+        errorMessage:
+          type: string
+          description: Why a send failed (cut to 500). Ignored for Sent.
     TravelPassportRef:
       type: object
       nullable: true

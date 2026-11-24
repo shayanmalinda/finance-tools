@@ -39,6 +39,7 @@ import (
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/middleware"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/oidc"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/server"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/service"
 )
 
 func main() {
@@ -82,18 +83,6 @@ func main() {
 		slog.Warn("HR_ENTITY_URL is not set: employee and organisation lookups answer 503")
 	}
 
-	var sender email.Sender = email.LogSender{}
-	if e := cfg.Email; e.Enabled() {
-		sender = email.New(email.Config{
-			ServiceURL:     e.ServiceURL,
-			From:           map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
-			TestRecipients: testRecipients(e),
-			Suppressed:     e.Suppressed,
-		}, rest.New("email", e.ServiceURL, oauth))
-	} else {
-		slog.Warn("EMAIL_DISABLED is set: emails are logged, not sent")
-	}
-
 	var files filestore.Store = filestore.Unconfigured{}
 	if f := cfg.Files; f.Enabled() {
 		az, err := filestore.NewAzure(f.Account, f.AccessKey, "", nil)
@@ -115,6 +104,21 @@ func main() {
 		entityHTTP = &c
 	}
 	entity := engagemententity.New(cfg.EngagementEntityBaseURL, entityHTTP)
+
+	// Every send attempt is logged (Sent or Failed) in the entity's
+	// email_auditlog. With emails disabled the LogSender sends nothing, so
+	// nothing is logged.
+	var sender email.Sender = email.LogSender{}
+	if e := cfg.Email; e.Enabled() {
+		sender = email.New(email.Config{
+			ServiceURL:     e.ServiceURL,
+			From:           map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
+			TestRecipients: testRecipients(e),
+			Suppressed:     e.Suppressed,
+		}, rest.New("email", e.ServiceURL, oauth)).WithAudit(service.EmailAuditor(entity, nil))
+	} else {
+		slog.Warn("EMAIL_DISABLED is set: emails are logged, not sent")
+	}
 
 	handler := server.NewRouter(server.Deps{
 		Verifier:            verifier,

@@ -185,3 +185,71 @@ func TestSenders_LogNoAddressesOrSubject(t *testing.T) {
 		t.Errorf("log = %s", out)
 	}
 }
+
+type auditCall struct {
+	m   Message
+	err error
+}
+
+func auditedSender(t *testing.T, status int) (*HTTPSender, *[]auditCall) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+	t.Cleanup(srv.Close)
+	var calls []auditCall
+	s := New(Config{ServiceURL: srv.URL, TestRecipients: []string{"test@wso2.com"}},
+		rest.New("email", srv.URL, srv.Client())).
+		WithAudit(func(_ context.Context, m Message, err error) { calls = append(calls, auditCall{m, err}) })
+	return s, &calls
+}
+
+func TestHTTPSender_AuditSuccess(t *testing.T) {
+	s, calls := auditedSender(t, http.StatusOK)
+	msg := Message{App: AppTravel, To: []string{"t@wso2.com"}, Subject: "s", TemplateID: "noContent"}
+	if err := s.Send(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
+	// One record, no error. Even with a test-recipient redirect on, the
+	// record carries the intended recipients, not the redirect.
+	if len(*calls) != 1 || (*calls)[0].err != nil || (*calls)[0].m.To[0] != "t@wso2.com" {
+		t.Errorf("calls = %+v", *calls)
+	}
+}
+
+func TestHTTPSender_AuditSendFailure(t *testing.T) {
+	s, calls := auditedSender(t, http.StatusBadGateway)
+	err := s.Send(context.Background(), Message{App: AppAllocations, To: []string{"t@wso2.com"}, Subject: "s", TemplateID: "noContent"})
+	if err == nil {
+		t.Fatal("want the send error")
+	}
+	if len(*calls) != 1 || (*calls)[0].err == nil || (*calls)[0].err.Error() != err.Error() {
+		t.Errorf("calls = %+v", *calls)
+	}
+}
+
+func TestHTTPSender_AuditRenderFailureAndSkip(t *testing.T) {
+	s, calls := auditedSender(t, http.StatusOK)
+	if err := s.Send(context.Background(), Message{App: AppTravel, To: []string{"t@wso2.com"}, TemplateID: "nope"}); err == nil {
+		t.Fatal("want a render error")
+	}
+	if len(*calls) != 1 || !errors.Is((*calls)[0].err, ErrUnknownTemplate) {
+		t.Errorf("render failure not recorded: %+v", *calls)
+	}
+	// No recipient: nothing was attempted, nothing is recorded.
+	if err := s.Send(context.Background(), Message{App: AppTravel, To: []string{" "}, TemplateID: "noContent"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 1 {
+		t.Errorf("a skipped email was recorded: %+v", *calls)
+	}
+}
+
+func TestLogSenderNeverAudits(t *testing.T) {
+	// The LogSender (EMAIL_DISABLED) has no audit hook at all: it cannot
+	// write a row.
+	if _, ok := any(LogSender{}).(interface{ WithAudit(AuditFunc) *HTTPSender }); ok {
+		t.Error("LogSender must not record")
+	}
+	if err := (LogSender{}).Send(context.Background(), Message{To: []string{"a@wso2.com"}}); err != nil {
+		t.Error(err)
+	}
+}
