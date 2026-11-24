@@ -53,6 +53,10 @@ type DashboardService interface {
 	// CostTransactions returns a domain.CostLinePage, or a domain.CostGroupPage with groupBy.
 	CostTransactions(ctx context.Context, p domain.Perms, q CostQuery, t CostTransactionsQuery) (any, error)
 	CostTransactionsCSV(ctx context.Context, p domain.Perms, q CostQuery) (*CostCSV, error)
+
+	// JobCostSummary is the cost so far of one travel request, for whoever may
+	// open that request (no per-source split for a travel agent).
+	JobCostSummary(ctx context.Context, p domain.Perms, jobNumber string) (*domain.JobCostSummary, error)
 }
 
 // DashboardOption configures a DashboardService.

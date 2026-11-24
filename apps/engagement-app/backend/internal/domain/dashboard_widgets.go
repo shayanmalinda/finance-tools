@@ -316,3 +316,25 @@ type CostGroupPage struct {
 	Total    int         `json:"total"`
 	DataAsOf string      `json:"dataAsOf"`
 }
+
+// JobCostSource is one source of a trip's total cost so far.
+type JobCostSource struct {
+	Key   string  `json:"key"`
+	Label string  `json:"label"`
+	USD   float64 `json:"usd"`
+	Lines int     `json:"lines"`
+}
+
+// JobCostSummary is GET /travel-requests/{jobNumber}/cost-summary: what the
+// trip has cost so far, from the same lines and rates as Travel Costs.
+// BySource is left out for a travel agent.
+type JobCostSummary struct {
+	TotalUSD     float64            `json:"totalUsd"`
+	BySource     []JobCostSource    `json:"bySource,omitempty"`
+	NotConverted []CostNotConverted `json:"notConverted"`
+	// Incomplete is true when a source could not be read or the line cap was
+	// reached, so the total may be too low.
+	Incomplete    bool     `json:"incomplete"`
+	FailedSources []string `json:"failedSources"`
+	DataAsOf      string   `json:"dataAsOf"`
+}

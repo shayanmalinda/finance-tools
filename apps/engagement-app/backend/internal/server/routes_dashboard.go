@@ -41,6 +41,10 @@ func registerDashboardRoutes(a *area) {
 	// route gate is the effective Travel 1, 39 or 41 (a Travel Super Admin may not hold 39 or 41); the service then checks the
 	// finance group or the Travel Super Admin and answers 403 otherwise.
 	costGate := domain.Gate{domain.AppTravel: {1, 39, 41}}
+	// Total cost so far of one travel request: the same gate as the request
+	// itself, and the service applies its full / agency / own scope.
+	a.handleAudited("GET /travel-requests/{jobNumber}/cost-summary", domain.Gate{domain.AppTravel: {1, 2, 5, 18, 36}},
+		auditOne(domain.AuditView, "travel_cost", "jobNumber"), h.JobCostSummary)
 	a.handleReport("GET /dashboard/travel-costs", costGate, auditExport("travel_cost", "travel-costs"), h.TravelCosts)
 	a.handleReport("GET /dashboard/travel-costs/transactions", costGate, auditExport("travel_cost", "travel-cost-transactions"), h.CostTransactions)
 }

@@ -45,6 +45,9 @@ type DashboardAPI interface {
 	DashboardEngagements(ctx context.Context, f DashboardEngagementsFilter) (*DashboardEngagements, error)
 	// DashboardAgency returns the travel agent dashboard of one agency.
 	DashboardAgency(ctx context.Context, agencyID int, today string) (*DashboardAgency, error)
+	// GetTravelRequest is the travel request the per-trip cost summary is for;
+	// an unknown job number is a 404 UpstreamError.
+	GetTravelRequest(ctx context.Context, jobNumber string) (TravelRequestRecord, error)
 	// DashboardCostLines returns the travel cost lines in their original
 	// amounts (GET /dashboard/cost-lines).
 	DashboardCostLines(ctx context.Context, f DashboardCostLinesFilter) (*DashboardCostLines, error)

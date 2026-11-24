@@ -113,52 +113,59 @@ func (s *dashboardService) costSetFor(ctx context.Context, from, to string) (*co
 		if err != nil {
 			return nil, err
 		}
-		set := &costSet{failed: append([]string{}, res.Unavailable...), truncated: len(res.Truncated) > 0, asOf: s.now().UTC()}
-
-		persons := map[string]*domain.Person{}
-		var toFill []*domain.Person
-		for _, e := range res.Items {
-			if e.TravellerEmail == nil || strings.TrimSpace(*e.TravellerEmail) == "" {
-				continue
-			}
-			k := strings.ToLower(strings.TrimSpace(*e.TravellerEmail))
-			if persons[k] == nil {
-				persons[k] = &domain.Person{Email: k}
-				toFill = append(toFill, persons[k])
-			}
-		}
-		s.people.fillNames(ctx, toFill...)
-
-		today := s.today()
-		var pairs []ratePair
-		for _, e := range res.Items {
-			if usdNeedsRate(e.OriginalCurrency, e.CCCurrency) {
-				pairs = append(pairs, ratePair{strings.ToUpper(strings.TrimSpace(e.OriginalCurrency)), dashboardRateDate(monthOf(e.Date), today)})
-			}
-		}
-		rs := s.rates.resolve(ctx, pairs)
-
-		set.lines = make([]costLine, 0, len(res.Items))
-		for _, e := range res.Items {
-			l := costLine{e: e, month: monthOf(e.Date)}
-			if e.JobNumber != nil {
-				l.job = strings.ToUpper(strings.TrimSpace(*e.JobNumber))
-			}
-			if e.TravellerEmail != nil {
-				l.traveller = persons[strings.ToLower(strings.TrimSpace(*e.TravellerEmail))]
-			}
-			l.usd, l.converted = rs.usd(e.OriginalCurrency, e.OriginalAmount, e.CCCurrency, e.CCAmount, l.month, today)
-			set.lines = append(set.lines, l)
-		}
-		sort.SliceStable(set.lines, func(i, j int) bool {
-			a, b := set.lines[i].e, set.lines[j].e
-			if a.Date != b.Date {
-				return a.Date < b.Date
-			}
-			return a.ID < b.ID
-		})
-		return set, nil
+		return s.buildCostSet(ctx, res), nil
 	})
+}
+
+// buildCostSet turns the entity's cost lines into costLines: traveller names
+// filled, each line converted to USD and rounded to cents once, sorted by date.
+// Travel Costs and the per-trip cost summary both use it, so they never differ.
+func (s *dashboardService) buildCostSet(ctx context.Context, res *engagemententity.DashboardCostLines) *costSet {
+	set := &costSet{failed: append([]string{}, res.Unavailable...), truncated: len(res.Truncated) > 0, asOf: s.now().UTC()}
+
+	persons := map[string]*domain.Person{}
+	var toFill []*domain.Person
+	for _, e := range res.Items {
+		if e.TravellerEmail == nil || strings.TrimSpace(*e.TravellerEmail) == "" {
+			continue
+		}
+		k := strings.ToLower(strings.TrimSpace(*e.TravellerEmail))
+		if persons[k] == nil {
+			persons[k] = &domain.Person{Email: k}
+			toFill = append(toFill, persons[k])
+		}
+	}
+	s.people.fillNames(ctx, toFill...)
+
+	today := s.today()
+	var pairs []ratePair
+	for _, e := range res.Items {
+		if usdNeedsRate(e.OriginalCurrency, e.CCCurrency) {
+			pairs = append(pairs, ratePair{strings.ToUpper(strings.TrimSpace(e.OriginalCurrency)), dashboardRateDate(monthOf(e.Date), today)})
+		}
+	}
+	rs := s.rates.resolve(ctx, pairs)
+
+	set.lines = make([]costLine, 0, len(res.Items))
+	for _, e := range res.Items {
+		l := costLine{e: e, month: monthOf(e.Date)}
+		if e.JobNumber != nil {
+			l.job = strings.ToUpper(strings.TrimSpace(*e.JobNumber))
+		}
+		if e.TravellerEmail != nil {
+			l.traveller = persons[strings.ToLower(strings.TrimSpace(*e.TravellerEmail))]
+		}
+		l.usd, l.converted = rs.usd(e.OriginalCurrency, e.OriginalAmount, e.CCCurrency, e.CCAmount, l.month, today)
+		set.lines = append(set.lines, l)
+	}
+	sort.SliceStable(set.lines, func(i, j int) bool {
+		a, b := set.lines[i].e, set.lines[j].e
+		if a.Date != b.Date {
+			return a.Date < b.Date
+		}
+		return a.ID < b.ID
+	})
+	return set
 }
 
 func monthOf(date string) string {
@@ -667,19 +674,27 @@ func costSummary(cur, prev, facetLines []costLine, allowed []string, p costPerio
 		out.PaidSharePercent = fptr(round1(paid / (paid + non) * 100))
 	}
 
-	// notConverted.
+	out.NotConverted = costNotConverted(cur)
+
+	out.Facets = costFacets(facetLines)
+	out.FailedSources = []string{}
+	return out
+}
+
+// costNotConverted lists the spend of lines with no rate, by source and currency.
+func costNotConverted(lines []costLine) []domain.CostNotConverted {
 	type nk struct{ src, cur string }
 	sums, counts := map[nk]float64{}, map[nk]int{}
-	for _, l := range cur {
+	for _, l := range lines {
 		if !l.converted {
 			k := nk{l.e.Source, strings.ToUpper(strings.TrimSpace(l.e.OriginalCurrency))}
 			sums[k] += l.e.OriginalAmount
 			counts[k]++
 		}
 	}
-	out.NotConverted = []domain.CostNotConverted{}
+	out := []domain.CostNotConverted{}
 	for k, v := range sums {
-		out.NotConverted = append(out.NotConverted, domain.CostNotConverted{Source: k.src, Currency: k.cur, Amount: dashboardRound(v), Lines: counts[k]})
+		out = append(out, domain.CostNotConverted{Source: k.src, Currency: k.cur, Amount: dashboardRound(v), Lines: counts[k]})
 	}
 	order := func(s string) int {
 		for i, o := range costSourceOrder {
@@ -689,16 +704,13 @@ func costSummary(cur, prev, facetLines []costLine, allowed []string, p costPerio
 		}
 		return len(costSourceOrder)
 	}
-	sort.Slice(out.NotConverted, func(i, j int) bool {
-		a, b := out.NotConverted[i], out.NotConverted[j]
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
 		if a.Source != b.Source {
 			return order(a.Source) < order(b.Source)
 		}
 		return a.Currency < b.Currency
 	})
-
-	out.Facets = costFacets(facetLines)
-	out.FailedSources = []string{}
 	return out
 }
 

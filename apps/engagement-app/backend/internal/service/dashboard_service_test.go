@@ -60,6 +60,7 @@ type fakeDashboardEntity struct {
 	eventsResp  *engagemententity.DashboardEvents
 	visasResp   *engagemententity.DashboardMyVisas
 	visasErr    error
+	trips       map[string]engagemententity.TravelRequestRecord
 	calls       []string
 }
 
@@ -67,6 +68,13 @@ func (f *fakeDashboardEntity) call(name string) {
 	f.mu.Lock()
 	f.calls = append(f.calls, name)
 	f.mu.Unlock()
+}
+
+func (f *fakeDashboardEntity) GetTravelRequest(_ context.Context, jn string) (engagemententity.TravelRequestRecord, error) {
+	if t, ok := f.trips[jn]; ok {
+		return t, nil
+	}
+	return engagemententity.TravelRequestRecord{}, &apierror.UpstreamError{Service: "engagement-entity", StatusCode: 404, Msg: "not found"}
 }
 
 func (f *fakeDashboardEntity) DashboardCostLines(_ context.Context, fl engagemententity.DashboardCostLinesFilter) (*engagemententity.DashboardCostLines, error) {

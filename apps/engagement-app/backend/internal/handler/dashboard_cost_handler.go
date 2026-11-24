@@ -166,3 +166,17 @@ func costPaging(r *http.Request) (limit, offset int, err error) {
 	}
 	return limit, offset, nil
 }
+
+// JobCostSummary handles GET /travel-requests/{jobNumber}/cost-summary.
+func (h *DashboardHandler) JobCostSummary(w http.ResponseWriter, r *http.Request) {
+	p, ok := permsFrom(w, r)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.JobCostSummary(r.Context(), p, r.PathValue("jobNumber"))
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, resp)
+}

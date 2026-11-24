@@ -21,11 +21,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/middleware"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/oidc"
 )
 
@@ -35,15 +38,31 @@ type dashboardEntity struct {
 	roles     map[domain.App]map[string][]int
 	allocDate string
 	buID      int
+	agency    *domain.TravelAgency
+	mu        sync.Mutex
+	audits    []domain.AuditEvent
 }
 
-func (*dashboardEntity) RecordAuditEvent(context.Context, domain.AuditEvent) error { return nil }
+func (f *dashboardEntity) RecordAuditEvent(_ context.Context, e domain.AuditEvent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.audits = append(f.audits, e)
+	return nil
+}
+
+func (f *dashboardEntity) GetTravelRequest(_ context.Context, jn string) (engagemententity.TravelRequestRecord, error) {
+	if jn != "TRV-2026-10-0001" {
+		return engagemententity.TravelRequestRecord{}, &apierror.UpstreamError{Service: "engagement-entity", StatusCode: 404, Msg: "not found"}
+	}
+	id := 7
+	return engagemententity.TravelRequestRecord{JobNumber: jn, TravellerEmail: "bob@wso2.com", StartDate: "2026-10-10", EndDate: "2026-10-20", TravelAgentID: &id}, nil
+}
 
 func (f *dashboardEntity) RolePrivileges(_ context.Context, app domain.App) (map[string][]int, error) {
 	return f.roles[app], nil
 }
 func (f *dashboardEntity) TravelAgency(context.Context, string) (*domain.TravelAgency, error) {
-	return nil, nil
+	return f.agency, nil
 }
 func (f *dashboardEntity) DashboardAllocationsToday(_ context.Context, date string, bu int) (*engagemententity.DashboardAllocationsToday, error) {
 	f.allocDate, f.buID = date, bu
@@ -224,5 +243,44 @@ func TestDashboardRoutes_Sections(t *testing.T) {
 	rec := get(h, "/dashboard?sections=waitingOnYou&sections=travelTeam", "valid")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"widgets":[{"id":"allocations-today","defaultOn":false}]`) || strings.Contains(rec.Body.String(), "travelTeam") {
 		t.Errorf("sections: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// The cost summary of a travel request is audited as a View of travel_cost
+// with the job number, only when the caller may see it.
+func TestDashboardRoutes_JobCostSummaryAudit(t *testing.T) {
+	roles := map[domain.App]map[string][]int{
+		domain.AppAllocations: {"wso2-employees": {1}},
+		domain.AppTravel:      {"wso2-travel": {2}, "wso2-agents": {18}, "wso2-employees": {49}},
+	}
+	h, e := newDashboardRouter([]string{"wso2-travel"}, roles)
+	if rec := get(h, "/travel-requests/TRV-2026-10-0001/cost-summary", "valid"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := get(h, "/travel-requests/TRV-2026-10-0009/cost-summary", "valid"); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown job: status = %d, want 404", rec.Code)
+	}
+	// An agent of another agency is refused, and nothing is audited for it.
+	e.agency = &domain.TravelAgency{ID: 9, Name: "Other"}
+	ha, ea := newDashboardRouter([]string{"wso2-agents"}, roles)
+	ea.agency = &domain.TravelAgency{ID: 9, Name: "Other"}
+	if rec := get(ha, "/travel-requests/TRV-2026-10-0001/cost-summary", "valid"); rec.Code != http.StatusForbidden {
+		t.Errorf("other agency: status = %d, want 403", rec.Code)
+	}
+	if err := middleware.WaitAudits(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.audits) != 1 {
+		t.Fatalf("audit events = %+v, want exactly one", e.audits)
+	}
+	if a := e.audits[0]; a.Action != domain.AuditView || a.EntityType != "travel_cost" || a.EntityID != "TRV-2026-10-0001" {
+		t.Errorf("audit event = %+v", a)
+	}
+	ea.mu.Lock()
+	defer ea.mu.Unlock()
+	if len(ea.audits) != 0 {
+		t.Errorf("the refused request was audited: %+v", ea.audits)
 	}
 }
