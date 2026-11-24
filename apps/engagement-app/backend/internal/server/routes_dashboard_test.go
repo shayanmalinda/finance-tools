@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,15 @@ func (f *dashboardEntity) DashboardAllocationsToday(_ context.Context, date stri
 	return &engagemententity.DashboardAllocationsToday{
 		ByEngagementType: []engagemententity.DashboardEngagementTypeCount{{EngagementTypeID: 5, EngagementType: "Marketing Event", Count: 3}},
 	}, nil
+}
+func (f *dashboardEntity) DashboardCostLines(context.Context, engagemententity.DashboardCostLinesFilter) (*engagemententity.DashboardCostLines, error) {
+	cust := "=SUM(A1)"
+	return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{
+		{ID: "INV-1", Source: "invoice", Date: "2026-10-01", OriginalCurrency: "USD", OriginalAmount: 12.5, CostType: "Hotel", Customer: &cust, Paid: "paid"},
+	}}, nil
+}
+func (f *dashboardEntity) DashboardMyVisas(context.Context, string, string) (*engagemententity.DashboardMyVisas, error) {
+	return &engagemententity.DashboardMyVisas{}, nil
 }
 func (f *dashboardEntity) DashboardMyWork(context.Context, engagemententity.DashboardMyWorkFilter) (*engagemententity.DashboardMyWork, error) {
 	return &engagemententity.DashboardMyWork{
@@ -128,5 +138,86 @@ func TestDashboardRoutes_MeOverview(t *testing.T) {
 	const want = `{"upcomingAllocations":[],"upcomingTrips":[{"jobNumber":"TRV-2026-11-0001","status":null,"traveller":{"email":"jane@wso2.com","name":null},"city":null,"country":null,"startDate":"2026-11-10","endDate":"2026-11-12","agency":null}]}` + "\n"
 	if rec.Body.String() != want {
 		t.Errorf("body = %s\nwant   %s", rec.Body, want)
+	}
+}
+
+var dashboardFinanceRoles = map[domain.App]map[string][]int{
+	domain.AppAllocations: {"wso2-employees": {1}},
+	domain.AppTravel: {
+		"wso2-employees":              {19, 20, 21, 22, 23, 24, 36, 37, 38, 47, 48, 49},
+		"app-travel-approver-finance": {39, 41},
+	},
+}
+
+func TestDashboardRoutes_TravelCosts(t *testing.T) {
+	costPaths := []string{"/dashboard/travel-costs", "/dashboard/travel-costs/transactions", "/dashboard/travel-costs/duplicates"}
+	// An employee is not allowed: 403 on all three.
+	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardFinanceRoles)
+	for _, path := range costPaths {
+		if rec := get(h, path, "valid"); rec.Code != http.StatusForbidden {
+			t.Errorf("employee %s: status = %d, want 403", path, rec.Code)
+		}
+		if rec := get(h, path, ""); rec.Code != http.StatusUnauthorized {
+			t.Errorf("no token %s: status = %d, want 401", path, rec.Code)
+		}
+	}
+	h, _ = newDashboardRouter([]string{"wso2-employees", "app-travel-approver-finance"}, dashboardFinanceRoles)
+	for _, path := range costPaths {
+		if rec := get(h, path+"?from=2026-01-01&to=2026-11-05", "valid"); rec.Code != http.StatusOK {
+			t.Errorf("finance %s: status = %d, body %s", path, rec.Code, rec.Body)
+		}
+	}
+	// Parameter validation.
+	for _, q := range []string{
+		"?from=2026-01-01", "?from=x&to=2026-01-02", "?from=2026-02-01&to=2026-01-01", "?from=2024-01-01&to=2026-11-05",
+		"?compare=maybe", "?source=cash", "?paid=maybe", "?travelAgent=x", "?travelAgent=-1", "?unlinked=2", "?format=xml",
+	} {
+		if rec := get(h, "/dashboard/travel-costs"+q, "valid"); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 (%s)", q, rec.Code, rec.Body)
+		}
+	}
+	for _, q := range []string{"?groupBy=colour", "?sort=size", "?limit=0", "?limit=101", "?offset=-1"} {
+		if rec := get(h, "/dashboard/travel-costs/transactions"+q, "valid"); rec.Code != http.StatusBadRequest {
+			t.Errorf("transactions %s: status = %d, want 400", q, rec.Code)
+		}
+	}
+	if rec := get(h, "/dashboard/travel-costs?section=nope&format=csv", "valid"); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad csv section: status = %d", rec.Code)
+	}
+}
+
+// The CSV total equals the JSON total, and a cell that starts like a formula is neutralised.
+func TestDashboardRoutes_TravelCostsCSV(t *testing.T) {
+	h, _ := newDashboardRouter([]string{"wso2-employees", "app-travel-approver-finance"}, dashboardFinanceRoles)
+	rec := get(h, "/dashboard/travel-costs/transactions?from=2026-01-01&to=2026-11-05&format=csv", "valid")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/csv") ||
+		!strings.Contains(rec.Header().Get("Content-Disposition"), "Travel_Costs_Transactions_2026-01-01_2026-11-05.csv") {
+		t.Fatalf("csv: %d %v", rec.Code, rec.Header())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Total USD,12.50") || !strings.Contains(body, "'=SUM(A1)") || strings.Contains(body, ",=SUM(A1)") {
+		t.Errorf("csv body:\n%s", body)
+	}
+	rec = get(h, "/dashboard/travel-costs/transactions?from=2026-01-01&to=2026-11-05", "valid")
+	var page struct {
+		TotalUSD float64 `json:"totalUsd"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&page); err != nil || page.TotalUSD != 12.5 {
+		t.Errorf("json total = %v %v", page.TotalUSD, err)
+	}
+	rec = get(h, "/dashboard/travel-costs?from=2026-01-01&to=2026-11-05&format=csv&section=kpis", "valid")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Total Spend (USD),12.50") {
+		t.Errorf("summary csv: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDashboardRoutes_Sections(t *testing.T) {
+	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardEmployeeRoles)
+	if rec := get(h, "/dashboard?sections=myWork,nope", "valid"); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown section: status = %d", rec.Code)
+	}
+	rec := get(h, "/dashboard?sections=myWork&sections=travelTeam", "valid")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"widgets":[{"id":"my-work","defaultOn":true}`) || strings.Contains(rec.Body.String(), "travelTeam") {
+		t.Errorf("sections: %d %s", rec.Code, rec.Body)
 	}
 }

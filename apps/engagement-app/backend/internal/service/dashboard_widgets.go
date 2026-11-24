@@ -194,3 +194,18 @@ func dashboardSectionSet(widgets []domain.DashboardWidget, defaultsOnly bool) ma
 	}
 	return out
 }
+
+// widgetSet is the ids of the widgets the caller may see. Section builders
+// fill a part of a section only when its widget is in the set, so the API
+// never returns data for a widget the caller may not see.
+type widgetSet map[string]bool
+
+func (v widgetSet) has(id string) bool { return v[id] }
+
+func newWidgetSet(widgets []domain.DashboardWidget) widgetSet {
+	out := widgetSet{}
+	for _, w := range widgets {
+		out[w.ID] = true
+	}
+	return out
+}

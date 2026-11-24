@@ -46,6 +46,22 @@ type DashboardService interface {
 	Dashboard(ctx context.Context, p domain.Perms, sections []string) (domain.Dashboard, error)
 	AllocationsToday(ctx context.Context, p domain.Perms, date string, businessUnitID int) (domain.DashboardAllocationsToday, error)
 	MeOverview(ctx context.Context, p domain.Perms) (domain.MeOverview, error)
+
+	// Travel Costs (finance groups and the Travel Super Admin; 403 otherwise).
+	TravelCosts(ctx context.Context, p domain.Perms, q CostQuery) (*domain.TravelCostSummary, error)
+	TravelCostsCSV(ctx context.Context, p domain.Perms, q CostQuery, section string) (*CostCSV, error)
+	// CostTransactions returns a domain.CostLinePage, or a domain.CostGroupPage with groupBy.
+	CostTransactions(ctx context.Context, p domain.Perms, q CostQuery, t CostTransactionsQuery) (any, error)
+	CostTransactionsCSV(ctx context.Context, p domain.Perms, q CostQuery) (*CostCSV, error)
+	CostDuplicates(ctx context.Context, p domain.Perms, q CostQuery, limit, offset int) (*domain.CostDuplicatePage, error)
+}
+
+// DashboardOption configures a DashboardService.
+type DashboardOption func(*dashboardService)
+
+// WithNoValidVisaID sets the visa_status id of "No Valid Visa Available".
+func WithNoValidVisaID(id int) DashboardOption {
+	return func(s *dashboardService) { s.noValidVisaID = id }
 }
 
 type dashboardService struct {
@@ -53,16 +69,23 @@ type dashboardService struct {
 	people *travelPeople
 	rates  *dashboardRates
 	now    func() time.Time
+
+	costCache     *costSetCache
+	noValidVisaID int
 }
 
 // NewDashboardService constructs a DashboardService. hr may be nil (no
 // traveller names); currency may be nil (every non-USD amount is then listed
 // as not converted); now may be nil (time.Now).
-func NewDashboardService(entity engagemententity.DashboardAPI, hr hrentity.Client, currency FinanceCurrencyConverter, now func() time.Time) DashboardService {
+func NewDashboardService(entity engagemententity.DashboardAPI, hr hrentity.Client, currency FinanceCurrencyConverter, now func() time.Time, opts ...DashboardOption) DashboardService {
 	if now == nil {
 		now = time.Now
 	}
-	s := &dashboardService{entity: entity, now: now, rates: newDashboardRates(currency, now)}
+	s := &dashboardService{entity: entity, now: now, rates: newDashboardRates(currency, now),
+		costCache: newCostSetCache(costSetCacheSize, costSetCacheTTL, nil), noValidVisaID: 333}
+	for _, o := range opts {
+		o(s)
+	}
 	if hr != nil {
 		s.people = newTravelPeople(hr)
 	}
@@ -376,7 +399,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 		})
 	}
 
-	s.roleSections(ctx, g, p, want, todayStr, today, &out)
+	s.roleSections(ctx, g, p, want, newWidgetSet(out.Widgets), todayStr, today, &out)
 
 	failed, err := g.Wait()
 	if err != nil {
@@ -391,7 +414,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 	}
 	people = append(people, dashboardRolePeople(&out)...)
 	s.people.fillNames(ctx, people...)
-	if mc := out.MarketingEvents; mc != nil && mc.CampaignCoverage == nil {
+	if mc := out.MarketingEvents; mc != nil && mc.CampaignCoverage == nil && newWidgetSet(out.Widgets).has("ev-campaign") {
 		// The campaign_id column is absent here: ev-campaign is not offered.
 		kept := out.Widgets[:0]
 		for _, w := range out.Widgets {
@@ -972,6 +995,9 @@ func (s *dashboardService) MeOverview(ctx context.Context, p domain.Perms) (doma
 	}
 	if trips {
 		out.UpcomingTrips = dashboardTrips(mw.Trips)
+		if out.TripVisas, err = s.tripVisas(ctx, p.Email, today); err != nil {
+			return domain.MeOverview{}, err
+		}
 	}
 	return out, nil
 }

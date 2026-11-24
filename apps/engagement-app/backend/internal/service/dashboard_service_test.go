@@ -48,6 +48,77 @@ type fakeDashboardEntity struct {
 	queuesResp *engagemententity.DashboardQueues
 	travelResp *engagemententity.DashboardTravel
 	engsResp   *engagemententity.DashboardEngagements
+
+	costResp    *engagemententity.DashboardCostLines
+	costCalls   int
+	costRanges  []string
+	costFn      func(engagemententity.DashboardCostLinesFilter) *engagemententity.DashboardCostLines
+	teamResp    *engagemententity.DashboardTravelTeam
+	managerResp *engagemententity.DashboardManager
+	managerArgs []int
+	amResp      *engagemententity.DashboardAccountManager
+	eventsResp  *engagemententity.DashboardEvents
+	visasResp   *engagemententity.DashboardMyVisas
+	calls       []string
+}
+
+func (f *fakeDashboardEntity) call(name string) {
+	f.mu.Lock()
+	f.calls = append(f.calls, name)
+	f.mu.Unlock()
+}
+
+func (f *fakeDashboardEntity) DashboardCostLines(_ context.Context, fl engagemententity.DashboardCostLinesFilter) (*engagemententity.DashboardCostLines, error) {
+	f.mu.Lock()
+	f.costCalls++
+	f.costRanges = append(f.costRanges, fl.From+"|"+fl.To)
+	fn := f.costFn
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(fl), f.fail
+	}
+	if f.costResp != nil {
+		return f.costResp, f.fail
+	}
+	return &engagemententity.DashboardCostLines{}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardTravelTeam(context.Context, string) (*engagemententity.DashboardTravelTeam, error) {
+	f.call("travelTeam")
+	if f.teamResp != nil {
+		return f.teamResp, f.fail
+	}
+	return &engagemententity.DashboardTravelTeam{POByAge: []int{1, 2, 3, 4}, POCount: 10, POOldestDays: 99}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardManager(_ context.Context, _ string, types []int) (*engagemententity.DashboardManager, error) {
+	f.call("manager")
+	f.mu.Lock()
+	f.managerArgs = types
+	f.mu.Unlock()
+	if f.managerResp != nil {
+		return f.managerResp, f.fail
+	}
+	return &engagemententity.DashboardManager{TopBy: "customer"}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardAccountManager(context.Context, string, string) (*engagemententity.DashboardAccountManager, error) {
+	f.call("accountManager")
+	if f.amResp != nil {
+		return f.amResp, f.fail
+	}
+	return &engagemententity.DashboardAccountManager{}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardEvents(context.Context, string) (*engagemententity.DashboardEvents, error) {
+	f.call("events")
+	if f.eventsResp != nil {
+		return f.eventsResp, f.fail
+	}
+	return &engagemententity.DashboardEvents{}, f.fail
+}
+func (f *fakeDashboardEntity) DashboardMyVisas(context.Context, string, string) (*engagemententity.DashboardMyVisas, error) {
+	f.call("myVisas")
+	if f.visasResp != nil {
+		return f.visasResp, f.fail
+	}
+	return &engagemententity.DashboardMyVisas{}, f.fail
 }
 
 func (f *fakeDashboardEntity) DashboardAllocationsToday(_ context.Context, date string, _ int) (*engagemententity.DashboardAllocationsToday, error) {
@@ -136,7 +207,7 @@ var (
 func TestDashboard_Employee(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,8 +218,8 @@ func TestDashboard_Employee(t *testing.T) {
 		t.Errorf("unexpected calls: queues %+v travel %+v engs %+v", f.queues, f.travel, f.engs)
 	}
 	b, _ := json.Marshal(got)
-	if string(b) != `{"failedSections":[]}` {
-		t.Errorf("nothing to show must be only failedSections, got %s", b)
+	if string(b) != `{"failedSections":[],"widgets":[{"id":"my-work","defaultOn":true},{"id":"allocations-today","defaultOn":false}]}` {
+		t.Errorf("nothing to show must be only failedSections and widgets, got %s", b)
 	}
 }
 
@@ -159,7 +230,7 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{NewTravelRequests: 4, InvoicesPending: 2, InvoicesToPush: 9}}
 	poOwn := append(dashboardRange(1, 17), 25, 26, 27, 28, 30, 32, 41, 42, 45, 46)
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("employee@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("employee@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,22 +248,30 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	if got.WaitingOnYou[0].Count != 4 || got.WaitingOnYou[1].Count != 2 || got.WaitingOnYou[1].List.Path != "/finance/engagement-app/invoices/po" {
 		t.Errorf("cards = %+v", got.WaitingOnYou)
 	}
-	if f.travel == nil || !f.travel.Trips || f.travel.CostInvoices || f.travel.CostPayments || f.travel.CostCards || got.TravelCost != nil {
+	// The Travel Super Admin sees Travel and (deprecated) Travel Cost with all four sources.
+	if f.travel == nil || !f.travel.Trips || !f.travel.CostInvoices || !f.travel.CostPayments || !f.travel.CostCards || !f.travel.CostClaims || got.TravelCost == nil {
 		t.Errorf("travel filter = %+v cost %+v", f.travel, got.TravelCost)
 	}
-	// Super admin sees every engagement type, bench and trend.
-	if f.engs == nil || len(f.engs.EngagementTypes) != 7 || !f.engs.Bench || !f.engs.Trend {
-		t.Errorf("engagements filter = %+v", f.engs)
+	// Allocation sections are not on by default (own privileges are only Dashboard Page) ...
+	if f.engs != nil {
+		t.Errorf("engagements read by default: %+v", f.engs)
+	}
+	// ... but are served when asked for, since the effective privileges allow them.
+	f.engs = nil
+	got, err = svc.Dashboard(context.Background(), dashboardPerms("employee@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"),
+		[]string{"engagements", "availableConsultants", "allocationsOverTime"})
+	if err != nil || f.engs == nil || len(f.engs.EngagementTypes) != 7 || !f.engs.Bench || !f.engs.Trend || got.Engagements == nil {
+		t.Errorf("engagements filter = %+v, %v", f.engs, err)
 	}
 
 	// Super admin alone (no Travel Team group): Travel, but no travel queues.
 	f = &fakeDashboardEntity{}
 	got, err = NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("s@wso2.com",
-		dashboardRange(1, 25), []int{1}, dashboardRange(1, 49), dashboardEmployeeTravel, "app-travel-admin-super-stg", "wso2-employees"))
+		dashboardRange(1, 25), []int{1}, dashboardRange(1, 49), dashboardEmployeeTravel, "app-travel-admin-super-stg", "wso2-employees"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !f.travel.Trips || f.travel.CostInvoices || got.TravelCost != nil || f.queues != nil {
+	if !f.travel.Trips || !f.travel.CostInvoices || got.TravelCost == nil || f.queues != nil {
 		t.Errorf("super admin: travel %+v queues %+v", f.travel, f.queues)
 	}
 }
@@ -206,7 +285,7 @@ func TestDashboard_FinanceQueuesAndCardSpend(t *testing.T) {
 	}}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	p := dashboardPerms("analyst@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, approverFinance, approverFinance, "App-Travel-Approver-Finance-stg")
-	got, err := svc.Dashboard(context.Background(), p)
+	got, err := svc.Dashboard(context.Background(), p, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +307,7 @@ func TestDashboard_FinanceQueuesAndCardSpend(t *testing.T) {
 
 	// With own HR approval (32), the finance step is not theirs.
 	p.TravelOwn = domain.NewPrivilegeSet(append(approverFinance, 32))
-	got, _ = svc.Dashboard(context.Background(), p)
+	got, _ = svc.Dashboard(context.Background(), p, nil)
 	for _, c := range got.WaitingOnYou {
 		if c.Key == "approve" {
 			t.Error("approve card shown to a holder of 32")
@@ -244,7 +323,7 @@ func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
 		PendingApproval: map[int]int{1: 2, 5: 9}, Clearance: map[string]int{"Ready for Clearance": 4},
 	}}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", internalMgr, internalMgr, nil, nil))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", internalMgr, internalMgr, nil, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,13 +347,13 @@ func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
 
 	// An approver without an engagement update privilege cannot approve: no tile.
 	approver := []int{1, 26, 27, 28, 29, 30, 31}
-	if got, _ := svc.Dashboard(context.Background(), dashboardPerms("ap@wso2.com", approver, approver, nil, nil)); len(got.WaitingOnYou) != 0 {
+	if got, _ := svc.Dashboard(context.Background(), dashboardPerms("ap@wso2.com", approver, approver, nil, nil), nil); len(got.WaitingOnYou) != 0 {
 		t.Errorf("approver-only cards = %+v", got.WaitingOnYou)
 	}
 
 	// A manager without 28 has no Pending Approval.
 	mgr := internalMgr[:len(internalMgr)-1]
-	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", mgr, mgr, nil, nil))
+	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", mgr, mgr, nil, nil), nil)
 	if len(got.WaitingOnYou) != 1 || got.WaitingOnYou[0].Key != "readyForClearance" {
 		t.Errorf("manager cards = %+v", got.WaitingOnYou)
 	}
@@ -294,7 +373,7 @@ func TestDashboard_ClearanceIgnoresSuperAdmin(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	all := dashboardRange(1, 40)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("sa@wso2.com", all, nil, nil, nil))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("sa@wso2.com", all, nil, nil, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +387,7 @@ func TestDashboard_ClearanceIgnoresSuperAdmin(t *testing.T) {
 	}
 
 	own := append(append([]int{1, 11}, dashboardRange(13, 21)...), 26, 27, 28)
-	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", all, own, nil, nil))
+	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", all, own, nil, nil), nil)
 	if f.queues == nil || len(f.queues.ClearanceTypes) == 0 {
 		t.Errorf("own-privilege manager lost the clearance queue: %+v", got.WaitingOnYou)
 	}
@@ -318,7 +397,7 @@ func TestDashboard_ClearanceIgnoresSuperAdmin(t *testing.T) {
 func TestDashboard_AvailableConsultantsWithoutEngagements(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("rm@wso2.com", []int{21}, []int{21}, nil, nil))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("rm@wso2.com", []int{21}, []int{21}, nil, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +413,7 @@ func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	p := dashboardPerms("agent@acorn.com", nil, nil, []int{3, 4, 6, 18, 26, 27, 28, 30, 31}, []int{3, 4, 6, 18, 26, 27, 28, 30, 31})
 	p.Agency = &domain.TravelAgency{ID: 3, Name: "Acorn Travels"}
-	got, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), p)
+	got, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), p, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +432,7 @@ func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 
 func TestDashboard_EntityErrorFailsTheRequest(t *testing.T) {
 	f := &fakeDashboardEntity{fail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
-	_, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil))
+	_, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil), nil)
 	var up *apierror.UpstreamError
 	if !errors.As(err, &up) {
 		t.Errorf("err = %v", err)
@@ -364,7 +443,7 @@ func TestDashboard_EntityErrorFailsTheRequest(t *testing.T) {
 func TestDashboard_FailedSectionKeepsTheOthers(t *testing.T) {
 	f := &fakeDashboardEntity{travelFail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
 	got, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(),
-		dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{1, 2, 49}, []int{1, 2, 49}))
+		dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{1, 2, 49}, []int{1, 2, 49}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +468,7 @@ func TestDashboard_MyWork(t *testing.T) {
 		TripCount:      2,
 	}}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,7 +643,7 @@ func TestDashboard_TravelCostSectionSurvivesRateFailure(t *testing.T) {
 	f := &fakeDashboardEntity{travelResp: dashboardCostFixture()}
 	svc := NewDashboardService(f, nil, &fakeRates{err: errors.New("down")}, dashboardNow)
 	got, err := svc.Dashboard(context.Background(), dashboardPerms("fin@wso2.com", nil, nil, []int{39, 41}, []int{39, 41},
-		"App-Travel-Approver-Finance-stg"))
+		"App-Travel-Approver-Finance-stg"), nil)
 	if err != nil || got.TravelCost == nil || len(got.FailedSections) != 0 || len(got.TravelCost.NotConverted) != 2 {
 		t.Fatalf("got %+v, %v", got.TravelCost, err)
 	}

@@ -32,7 +32,7 @@ type DashboardWidget struct {
 type DashboardPoQueue struct {
 	Count      int               `json:"count"`
 	OldestDays int               `json:"oldestDays"`
-	ByAge      []DashboardBucket `json:"byAge"`
+	ByAge      []DashboardBucket `json:"byAge,omitempty"`
 }
 
 // DashboardFrequentTraveller is a traveller with their trip count.
@@ -41,18 +41,27 @@ type DashboardFrequentTraveller struct {
 	Trips     int    `json:"trips"`
 }
 
-// DashboardTravelTeam is the Travel Team section.
+// DashboardAway is who is travelling this week.
+type DashboardAway struct {
+	Travellers int `json:"travellers"`
+	Countries  int `json:"countries"`
+}
+
+// DashboardCount is a bare count.
+type DashboardCount struct {
+	Count int `json:"count"`
+}
+
+// DashboardTravelTeam is the Travel Team section. Each part is present only
+// when the caller may see the widget it feeds (tt-glance: awayThisWeek,
+// endedNotCompleted and poQueue count and oldestDays; tt-po-age: poQueue
+// byAge; tt-frequent; tt-agent-workload).
 type DashboardTravelTeam struct {
-	AwayThisWeek struct {
-		Travellers int `json:"travellers"`
-		Countries  int `json:"countries"`
-	} `json:"awayThisWeek"`
-	EndedNotCompleted struct {
-		Count int `json:"count"`
-	} `json:"endedNotCompleted"`
-	PoQueue            DashboardPoQueue             `json:"poQueue"`
-	FrequentTravellers []DashboardFrequentTraveller `json:"frequentTravellers"`
-	AgentWorkload      []DashboardBucket            `json:"agentWorkload"`
+	AwayThisWeek       *DashboardAway               `json:"awayThisWeek,omitempty"`
+	EndedNotCompleted  *DashboardCount              `json:"endedNotCompleted,omitempty"`
+	PoQueue            *DashboardPoQueue            `json:"poQueue,omitempty"`
+	FrequentTravellers []DashboardFrequentTraveller `json:"frequentTravellers,omitempty"`
+	AgentWorkload      []DashboardBucket            `json:"agentWorkload,omitempty"`
 }
 
 // DashboardEngagementList is a short list of engagements with the total.
@@ -78,25 +87,33 @@ type DashboardMostAllocated struct {
 	Days       int    `json:"days"`
 }
 
-// DashboardEngagementManager is the Engagement Manager section.
-type DashboardEngagementManager struct {
-	WithoutConsultants DashboardEngagementList `json:"withoutConsultants"`
-	StartingIn14Days   struct {
-		Total int                           `json:"total"`
-		Items []DashboardStartingAllocation `json:"items"`
-	} `json:"startingIn14Days"`
-	MostAllocated []DashboardMostAllocated `json:"mostAllocated"`
-	TopCustomers  struct {
-		By    string            `json:"by"`
-		Items []DashboardBucket `json:"items"`
-	} `json:"topCustomers"`
+// DashboardStartingList is the allocations starting soon, with the total.
+type DashboardStartingList struct {
+	Total int                           `json:"total"`
+	Items []DashboardStartingAllocation `json:"items"`
 }
 
-// DashboardAccountManager is the Account Manager section.
+// DashboardTopCustomers is the top customers (or countries) by allocated days.
+type DashboardTopCustomers struct {
+	By    string            `json:"by"`
+	Items []DashboardBucket `json:"items"`
+}
+
+// DashboardEngagementManager is the Engagement Manager section. Each part is
+// present only when the caller may see its widget.
+type DashboardEngagementManager struct {
+	WithoutConsultants *DashboardEngagementList `json:"withoutConsultants,omitempty"`
+	StartingIn14Days   *DashboardStartingList   `json:"startingIn14Days,omitempty"`
+	MostAllocated      []DashboardMostAllocated `json:"mostAllocated,omitempty"`
+	TopCustomers       *DashboardTopCustomers   `json:"topCustomers,omitempty"`
+}
+
+// DashboardAccountManager is the Account Manager section. Each part is
+// present only when the caller may see its widget.
 type DashboardAccountManager struct {
-	StartedWithoutConsultants DashboardEngagementList `json:"startedWithoutConsultants"`
-	ByStatus                  []DashboardBucket       `json:"byStatus"`
-	ByMonth                   []DashboardSeriesPoint  `json:"byMonth"`
+	StartedWithoutConsultants *DashboardEngagementList `json:"startedWithoutConsultants,omitempty"`
+	ByStatus                  []DashboardBucket        `json:"byStatus,omitempty"`
+	ByMonth                   []DashboardSeriesPoint   `json:"byMonth,omitempty"`
 }
 
 // DashboardCampaignCreator is the campaign coverage of one creator.
@@ -117,10 +134,10 @@ type DashboardCampaignCoverage struct {
 
 // DashboardMarketingEvents is the Marketing Events section.
 type DashboardMarketingEvents struct {
-	ByMonth               []DashboardSeriesPoint     `json:"byMonth"`
-	ByRegion              []DashboardBucket          `json:"byRegion"`
-	FundingByBusinessUnit []DashboardBucket          `json:"fundingByBusinessUnit"`
-	CampaignCoverage      *DashboardCampaignCoverage `json:"campaignCoverage"`
+	ByMonth               []DashboardSeriesPoint     `json:"byMonth,omitempty"`
+	ByRegion              []DashboardBucket          `json:"byRegion,omitempty"`
+	FundingByBusinessUnit []DashboardBucket          `json:"fundingByBusinessUnit,omitempty"`
+	CampaignCoverage      *DashboardCampaignCoverage `json:"campaignCoverage,omitempty"`
 }
 
 // ── Me: visas for upcoming trips ────────────────────────────────────────────
@@ -151,6 +168,13 @@ const (
 	CostSourcePerDiem = "perDiem"
 	CostSourceCard    = "card"
 	CostSourceClaim   = "claim"
+)
+
+// Paid values of a cost line.
+const (
+	CostPaid    = "paid"
+	CostNonPaid = "nonPaid"
+	CostUnknown = "unknown"
 )
 
 // CostKpi is a KPI with the same figure a year earlier.

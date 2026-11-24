@@ -386,7 +386,7 @@ paths:
         own Travel 39 or 30, per diems with 41 or 42, and always cards and
         claims. A Travel Super Admin sees all four sources, employee-level
         data included. `format=csv` returns the same figures as a CSV with a
-        header block (see the CSV section) and is audited.
+        header block (its first line is the USD rule, then the title, range, comparison, filters, currency, rate rule and data time) and is audited.
       operationId: getTravelCosts
       x-privileges: { travel: [39, 41] }
       parameters:
@@ -3138,6 +3138,10 @@ components:
         count: { type: integer }
     DashboardTravelTeam:
       type: object
+      description: >-
+        Every part is optional: a part is present only when the caller may see the widget it feeds
+        (awayThisWeek, endedNotCompleted and poQueue count and oldestDays: tt-glance; poQueue.byAge:
+        tt-po-age; frequentTravellers: tt-frequent; agentWorkload: tt-agent-workload).
       properties:
         awayThisWeek:
           type: object
@@ -3154,7 +3158,7 @@ components:
           properties:
             count: { type: integer }
             oldestDays: { type: integer }
-            byAge: { type: array, description: 'Always 4 buckets: Under 7 days, 7 to 30 days, 31 to 90 days, Over 90 days.', items: { $ref: '#/components/schemas/Bucket' } }
+            byAge: { type: array, description: 'Only with tt-po-age. Always 4 buckets: Under 7 days, 7 to 30 days, 31 to 90 days, Over 90 days.', items: { $ref: '#/components/schemas/Bucket' } }
         frequentTravellers:
           type: array
           description: Top 8, 12-month window.
@@ -3181,6 +3185,7 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/DashboardEngagement' } }
     DashboardEngagementManager:
       type: object
+      description: 'Every part is optional: present only when the caller may see its widget (em-no-consultants, em-starting-14, em-most-allocated, em-top-customers).'
       properties:
         withoutConsultants: { allOf: [{ $ref: '#/components/schemas/DashboardEngagementList' }], description: 'First 6.' }
         startingIn14Days:
@@ -3203,13 +3208,14 @@ components:
             items: { type: array, description: 'Top 8; value = days.', items: { $ref: '#/components/schemas/Bucket' } }
     DashboardAccountManager:
       type: object
-      description: Engagements the caller created (engagement.username).
+      description: 'Engagements the caller created (engagement.username). Every part is optional: present only when the caller may see its widget (am-started-no-consultants, am-by-status, am-by-month).'
       properties:
         startedWithoutConsultants: { allOf: [{ $ref: '#/components/schemas/DashboardEngagementList' }], description: 'First 6.' }
         byStatus: { type: array, items: { $ref: '#/components/schemas/Bucket' } }
         byMonth: { type: array, description: 'values.Engagements, current month and the next 5.', items: { $ref: '#/components/schemas/SeriesPoint' } }
     DashboardMarketingEvents:
       type: object
+      description: 'Every part is optional: present only when the caller may see its widget (ev-by-month, ev-by-region, ev-funding-bu, ev-campaign).'
       properties:
         byMonth: { type: array, description: 'values.Events, 12-month window.', items: { $ref: '#/components/schemas/SeriesPoint' } }
         byRegion: { type: array, description: Top 8., items: { $ref: '#/components/schemas/Bucket' } }
