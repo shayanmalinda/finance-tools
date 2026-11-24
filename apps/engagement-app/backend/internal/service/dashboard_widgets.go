@@ -22,7 +22,6 @@ import (
 
 // Section keys of GET /dashboard?sections=.
 const (
-	sectionMyWork               = "myWork"
 	sectionWaitingOnYou         = "waitingOnYou"
 	sectionTravel               = "travel"
 	sectionTravelTeam           = "travelTeam"
@@ -36,7 +35,7 @@ const (
 
 // DashboardSectionKeys are the keys GET /dashboard accepts in `sections`.
 var DashboardSectionKeys = []string{
-	sectionMyWork, sectionWaitingOnYou, sectionTravel, sectionTravelTeam, sectionEngagementManager,
+	sectionWaitingOnYou, sectionTravel, sectionTravelTeam, sectionEngagementManager,
 	sectionAccountManager, sectionMarketingEvents, sectionEngagements, sectionAvailableConsultants,
 	sectionAllocationsOverTime,
 }
@@ -108,8 +107,6 @@ var (
 
 // dashboardWidgetCatalogue is the registry, in screen order (spec section 4).
 var dashboardWidgetCatalogue = []dashboardWidgetDef{
-	{"my-work", sectionMyWork,
-		func(w widgetWho) bool { return w.p.Alloc.Has(1) || w.p.Travel.Any(49, 36) }, always},
 	{"waiting-on-you", sectionWaitingOnYou,
 		func(w widgetWho) bool { return dashboardPlanQueues(w.p).any() }, always},
 	{"tc-kpis", "", visCost, func(w widgetWho) bool { return w.costView }},

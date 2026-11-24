@@ -93,9 +93,8 @@ func TestDashboardWidgets_Finance(t *testing.T) {
 	ws := dashboardWidgets(p)
 	hasAll(t, ws, allTCWidgets...)
 	// Default on: every tc-* except tc-agents, plus the Allocations ones its own privileges allow (22).
-	want := "my-work,tc-kpis,tc-source,tc-month,tc-cost-type,tc-country,tc-paid,tc-customers,tc-lines,allocations-today"
+	want := "waiting-on-you,tc-kpis,tc-source,tc-month,tc-cost-type,tc-country,tc-paid,tc-customers,tc-lines,allocations-today"
 	// waiting-on-you appears when there is a queue: finance has own 40 (pay).
-	want = strings.Replace(want, "my-work,", "my-work,waiting-on-you,", 1)
 	if got := defaultsOn(ws); got != want+",allocations-over-time" {
 		t.Errorf("finance defaults = %s\nwant %s", got, want+",allocations-over-time")
 	}
@@ -167,7 +166,7 @@ func TestDashboardWidgets_OtherPersonas(t *testing.T) {
 	// Marketing event approver.
 	ev := []int{1, 29, 31}
 	ws = dashboardWidgets(personaPerms("ev@wso2.com", ev, ev, nil, nil, nil, nil))
-	if got := defaultsOn(ws); got != "my-work,ev-by-month,ev-by-region,ev-funding-bu,ev-campaign,allocations-over-time" {
+	if got := defaultsOn(ws); got != "ev-by-month,ev-by-region,ev-funding-bu,ev-campaign,allocations-over-time" {
 		t.Errorf("ev defaults = %s", got)
 	}
 	// A travel agent has no widgets.
@@ -176,9 +175,9 @@ func TestDashboardWidgets_OtherPersonas(t *testing.T) {
 	if ws := dashboardWidgets(agent); len(ws) != 0 || ws == nil {
 		t.Errorf("agent widgets = %v", ws)
 	}
-	// An employee has My Work, and Allocations Today in Manage Widgets.
+	// An employee has only Allocations Today, in Manage Widgets.
 	ws = dashboardWidgets(dashboardPerms("e@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
-	if widgetIDs(ws) != "my-work,allocations-today" {
+	if widgetIDs(ws) != "allocations-today" {
 		t.Errorf("employee widgets = %s", widgetIDs(ws))
 	}
 }
@@ -241,24 +240,26 @@ func TestDashboard_SectionsParam(t *testing.T) {
 	p := dashboardPerms("e@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel)
 	f := &fakeDashboardEntity{}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	if _, err := svc.Dashboard(context.Background(), p, []string{"myWork", "nope"}); !dashboardIsValidation(err) {
+	if _, err := svc.Dashboard(context.Background(), p, []string{"waitingOnYou", "nope"}); !dashboardIsValidation(err) {
 		t.Errorf("unknown section: %v", err)
+	}
+	if _, err := svc.Dashboard(context.Background(), p, []string{"myWork"}); !dashboardIsValidation(err) {
+		t.Errorf("myWork is no longer a section key: %v", err)
 	}
 	if _, err := svc.Dashboard(context.Background(), p, []string{"travelCost"}); !dashboardIsValidation(err) {
 		t.Errorf("travelCost is not a section key: %v", err)
 	}
 	// A section the caller may not see is left out without error and without a call.
-	got, err := svc.Dashboard(context.Background(), p, []string{"travelTeam", "engagementManager", "accountManager", "marketingEvents", "myWork"})
+	got, err := svc.Dashboard(context.Background(), p, []string{"travelTeam", "engagementManager", "accountManager", "marketingEvents"})
 	if err != nil || got.TravelTeam != nil || got.EngagementManager != nil || got.AccountManager != nil || got.MarketingEvents != nil {
 		t.Errorf("hidden sections returned: %+v %v", got, err)
 	}
-	if len(f.calls) != 0 || f.myWork == nil {
+	if len(f.calls) != 0 || f.myWork != nil {
 		t.Errorf("entity calls = %v, myWork %+v", f.calls, f.myWork)
 	}
 	// An empty list asks for nothing.
-	f.myWork = nil
-	if got, _ := svc.Dashboard(context.Background(), p, []string{}); f.myWork != nil || got.MyWork != nil {
-		t.Error("empty sections still built My Work")
+	if _, err := svc.Dashboard(context.Background(), p, []string{}); err != nil || f.myWork != nil || len(f.calls) != 0 {
+		t.Errorf("empty sections still called the entity: %v %v", f.calls, err)
 	}
 }
 

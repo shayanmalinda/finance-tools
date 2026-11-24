@@ -68,22 +68,6 @@ type DashboardAllocationSummary struct {
 	CanOpen bool `json:"canOpen"`
 }
 
-// DashboardTeamAllocation is today's team allocation (openapi TimelineItem,
-// kind default).
-type DashboardTeamAllocation struct {
-	ID              string  `json:"id"`
-	Kind            string  `json:"kind"`
-	EngagementID    *string `json:"engagementId"`
-	Label           string  `json:"label"`
-	AllocationType  string  `json:"allocationType"`
-	EngagementCode  string  `json:"engagementCode"`
-	Color           *string `json:"color"`
-	StartDate       string  `json:"startDate"`
-	EndDate         string  `json:"endDate"`
-	ClearanceStatus string  `json:"clearanceStatus"`
-	Comment         *string `json:"comment"`
-}
-
 // DashboardTrip is a travel request row (a subset of openapi
 // TravelRequestSummary).
 type DashboardTrip struct {
@@ -106,15 +90,6 @@ type DashboardAgentTrip struct {
 	Country   *string `json:"country"`
 	StartDate string  `json:"startDate"`
 	EndDate   string  `json:"endDate"`
-}
-
-// DashboardMyWork is the caller's own work.
-type DashboardMyWork struct {
-	CurrentAllocation   *DashboardAllocationSummary `json:"currentAllocation"`
-	TodayTeamAllocation *DashboardTeamAllocation    `json:"todayTeamAllocation"`
-	NextAllocation      *DashboardAllocationSummary `json:"nextAllocation"`
-	NextTrips           []DashboardTrip             `json:"nextTrips"`
-	UpcomingTripCount   int                         `json:"upcomingTripCount"`
 }
 
 // DashboardTravel is the Travel section.
@@ -231,7 +206,6 @@ type Dashboard struct {
 	// Widgets are the widgets the caller may see, in catalogue order, with
 	// their default (always present; empty for the agent dashboard).
 	Widgets              []DashboardWidget              `json:"widgets"`
-	MyWork               *DashboardMyWork               `json:"myWork,omitempty"`
 	WaitingOnYou         []DashboardCountCard           `json:"waitingOnYou,omitempty"`
 	TravelCost           *DashboardTravelCost           `json:"travelCost,omitempty"`
 	Travel               *DashboardTravel               `json:"travel,omitempty"`

@@ -292,15 +292,11 @@ paths:
         by every employee) or Travel 18 (a travel agent) opens the page.
         Allocations Today has its own endpoint (it takes a date and a
         business unit); show it to holders of Allocations 1. Suggested order
-        (prototype) - My Work, Waiting on You, Travel Cost first when
+        (prototype) - Waiting on You, Travel Cost first when
         `travelCost.creditCardExpenses` is present, Travel, Travel Cost
         otherwise, Engagements and Available Consultants, Allocations Today,
         Allocations Over Time.
 
-
-        - `myWork` (own data): own current and next active engagement
-          allocation and today's team allocation (Allocations 1), next trips
-          (Travel 49 or 36). Absent when all are empty.
 
         - `waitingOnYou`: counts from the caller's own privileges (super
           admin groups never create a queue);
@@ -1404,9 +1400,10 @@ paths:
         agency's requests, not the agent. The fields are written in one
         update with last_updated_by = the caller. Sends the legacy emails
         (assigned, on hold, cancelled, in progress, completed with the per
-        diems, agent changed, visa changed) and an email_auditlog row per
-        email; an email failure never fails the update. Answers the
-        updated request, as GET.
+        diems, agent changed, visa changed) and logs every send attempt in
+        email_auditlog (status Sent, or Failed with the error). An email or
+        log failure never fails the update. Answers the updated request, as
+        GET.
       operationId: updateTravelRequest
       x-privileges: { travel: [1, 4, 5, 6] }
       parameters:
@@ -2952,15 +2949,7 @@ components:
         failedSections:
           type: array
           description: Sections that could not be loaded; show an error there.
-          items: { type: string, enum: [myWork, waitingOnYou, travel, travelCost, travelTeam, engagementManager, accountManager, marketingEvents, engagements, availableConsultants, allocationsOverTime] }
-        myWork:
-          type: object
-          properties:
-            currentAllocation: { $ref: '#/components/schemas/AllocationSummary' }
-            todayTeamAllocation: { type: object, allOf: [{ $ref: '#/components/schemas/TimelineItem' }], nullable: true, description: 'Not Engagement Overhead.' }
-            nextAllocation: { $ref: '#/components/schemas/AllocationSummary' }
-            nextTrips: { type: array, items: { $ref: '#/components/schemas/DashboardTrip' }, description: 'At most 3.' }
-            upcomingTripCount: { type: integer, description: 'All own upcoming trips ("N more upcoming").' }
+          items: { type: string, enum: [waitingOnYou, travel, travelCost, travelTeam, engagementManager, accountManager, marketingEvents, engagements, availableConsultants, allocationsOverTime] }
         waitingOnYou: { type: array, items: { $ref: '#/components/schemas/CountCard' } }
         travel:
           type: object
@@ -3084,14 +3073,14 @@ components:
 
     DashboardSectionKey:
       type: string
-      enum: [myWork, waitingOnYou, travel, travelTeam, engagementManager, accountManager, marketingEvents, engagements, availableConsultants, allocationsOverTime]
+      enum: [waitingOnYou, travel, travelTeam, engagementManager, accountManager, marketingEvents, engagements, availableConsultants, allocationsOverTime]
     DashboardWidget:
       type: object
       required: [id, defaultOn]
       properties:
         id:
           type: string
-          description: Widget id (my-work, waiting-on-you, tc-kpis, tc-source, tc-month, tc-cost-type, tc-country, tc-paid, tc-customers, tc-agents, tc-lines, travel, tt-glance, tt-po-age, tt-frequent, tt-agent-workload, em-no-consultants, em-starting-14, em-most-allocated, em-top-customers, am-started-no-consultants, am-by-status, am-by-month, ev-by-month, ev-by-region, ev-funding-bu, ev-campaign, engagements, available-consultants, allocations-today, allocations-over-time).
+          description: Widget id (waiting-on-you, tc-kpis, tc-source, tc-month, tc-cost-type, tc-country, tc-paid, tc-customers, tc-agents, tc-lines, travel, tt-glance, tt-po-age, tt-frequent, tt-agent-workload, em-no-consultants, em-starting-14, em-most-allocated, em-top-customers, am-started-no-consultants, am-by-status, am-by-month, ev-by-month, ev-by-region, ev-funding-bu, ev-campaign, engagements, available-consultants, allocations-today, allocations-over-time).
         defaultOn: { type: boolean, description: 'Shown by default (working roles); the person may still turn it on or off.' }
     DashboardCountItem:
       type: object

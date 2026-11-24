@@ -284,22 +284,6 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 	gctx := ctx
 	tsa := domain.HasRole(p.TravelRoles, domain.TravelSuperAdminGroup)
 
-	// My Work: own allocations (Allocations 1, every employee) and own trips
-	// (My Travel Requests, Travel 49 / 36).
-	myAllocs, myTrips := p.Alloc.Has(1), p.Travel.Any(49, 36)
-	if want[sectionMyWork] && (myAllocs || myTrips) {
-		g.Go(ctx, []string{"myWork"}, func() error {
-			mw, err := s.entity.DashboardMyWork(gctx, engagemententity.DashboardMyWorkFilter{
-				Email: p.Email, Today: todayStr, Trips: myTrips, TripLimit: 3,
-			})
-			if err != nil {
-				return err
-			}
-			out.MyWork = dashboardMyWork(mw, todayStr, myAllocs, allocListTypes(p))
-			return nil
-		})
-	}
-
 	// Waiting on You.
 	plan := dashboardPlanQueues(p)
 	if want[sectionWaitingOnYou] && plan.any() {
@@ -426,7 +410,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 	return out, nil
 }
 
-// ── My Work ─────────────────────────────────────────────────────────────────
+// ── Own allocations and trips (shared with the Me overview) ─────────────────
 
 // dashboardEngagementTitle is the prototype's engName: "Account – Title"
 // for a customer engagement whose title does not start with the account's
@@ -489,30 +473,6 @@ func dashboardTrips(list []engagemententity.DashboardTrip) []domain.DashboardTri
 			JobNumber: t.JobNumber, Status: t.Status, Traveller: domain.Person{Email: t.TravellerEmail},
 			City: t.City, Country: t.Country, StartDate: t.StartDate, EndDate: t.EndDate, Agency: t.Agency,
 		})
-	}
-	return out
-}
-
-// dashboardMyWork shapes My Work; nil when there is nothing to show.
-func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs bool, visible map[int]bool) *domain.DashboardMyWork {
-	out := &domain.DashboardMyWork{NextTrips: dashboardTrips(mw.Trips), UpcomingTripCount: mw.TripCount}
-	if allocs {
-		current, next := dashboardSplitAllocations(mw.Allocations, today, visible)
-		out.CurrentAllocation = current
-		if len(next) > 0 {
-			out.NextAllocation = &next[0]
-		}
-		if t := mw.TeamAllocation; t != nil {
-			typ, code := dashboardStr(t.AllocationType), dashboardStr(t.EngagementCode)
-			out.TodayTeamAllocation = &domain.DashboardTeamAllocation{
-				ID: t.ID, Kind: "default", Label: code + ": " + typ, AllocationType: typ, EngagementCode: code,
-				Color: t.Color, StartDate: t.StartDate, EndDate: t.EndDate,
-				ClearanceStatus: dashboardStr(t.ClearanceStatus), Comment: t.Comment,
-			}
-		}
-	}
-	if out.CurrentAllocation == nil && out.NextAllocation == nil && out.TodayTeamAllocation == nil && len(out.NextTrips) == 0 {
-		return nil
 	}
 	return out
 }

@@ -216,8 +216,11 @@ func TestDashboardRoutes_Sections(t *testing.T) {
 	if rec := get(h, "/dashboard?sections=myWork,nope", "valid"); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown section: status = %d", rec.Code)
 	}
-	rec := get(h, "/dashboard?sections=myWork&sections=travelTeam", "valid")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"widgets":[{"id":"my-work","defaultOn":true}`) || strings.Contains(rec.Body.String(), "travelTeam") {
+	if rec := get(h, "/dashboard?sections=myWork", "valid"); rec.Code != http.StatusBadRequest {
+		t.Errorf("myWork is no longer a section: status = %d", rec.Code)
+	}
+	rec := get(h, "/dashboard?sections=waitingOnYou&sections=travelTeam", "valid")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"widgets":[{"id":"allocations-today","defaultOn":false}]`) || strings.Contains(rec.Body.String(), "travelTeam") {
 		t.Errorf("sections: %d %s", rec.Code, rec.Body)
 	}
 }

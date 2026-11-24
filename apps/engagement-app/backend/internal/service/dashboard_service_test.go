@@ -206,8 +206,8 @@ var (
 	dashboardEmployeeTravel = []int{19, 20, 21, 22, 23, 24, 36, 37, 38, 47, 48, 49}
 )
 
-// Employee: My Work (when there is something) and nothing else from this
-// endpoint (Allocations Today has its own).
+// Employee: nothing from this endpoint (Allocations Today has its own; own
+// allocations and trips are on the Me overview).
 func TestDashboard_Employee(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
@@ -215,14 +215,11 @@ func TestDashboard_Employee(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.myWork == nil || !f.myWork.Trips || f.myWork.Email != "jane@wso2.com" || f.myWork.Today != "2026-11-05" {
-		t.Errorf("my work filter = %+v", f.myWork)
-	}
-	if f.queues != nil || f.travel != nil || f.engs != nil {
+	if f.myWork != nil || f.queues != nil || f.travel != nil || f.engs != nil {
 		t.Errorf("unexpected calls: queues %+v travel %+v engs %+v", f.queues, f.travel, f.engs)
 	}
 	b, _ := json.Marshal(got)
-	if string(b) != `{"failedSections":[],"widgets":[{"id":"my-work","defaultOn":true},{"id":"allocations-today","defaultOn":false}]}` {
+	if string(b) != `{"failedSections":[],"widgets":[{"id":"allocations-today","defaultOn":false}]}` {
 		t.Errorf("nothing to show must be only failedSections and widgets, got %s", b)
 	}
 }
@@ -421,7 +418,7 @@ func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Agent == nil || got.MyWork != nil || got.Travel != nil || got.WaitingOnYou != nil || f.agencyID != 3 {
+	if got.Agent == nil || got.Travel != nil || got.WaitingOnYou != nil || f.agencyID != 3 {
 		t.Fatalf("got %+v (agency %d)", got, f.agencyID)
 	}
 	a := got.Agent
@@ -436,7 +433,7 @@ func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 
 func TestDashboard_EntityErrorFailsTheRequest(t *testing.T) {
 	f := &fakeDashboardEntity{fail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
-	_, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil), nil)
+	_, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", []int{1, 2, 3}, []int{1, 2, 3}, nil, nil), nil)
 	var up *apierror.UpstreamError
 	if !errors.As(err, &up) {
 		t.Errorf("err = %v", err)
@@ -451,12 +448,13 @@ func TestDashboard_FailedSectionKeepsTheOthers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got.FailedSections, []string{"travel"}) || got.Travel != nil || f.myWork == nil {
+	if !reflect.DeepEqual(got.FailedSections, []string{"travel"}) || got.Travel != nil || f.myWork != nil {
 		t.Errorf("failed %v travel %v", got.FailedSections, got.Travel)
 	}
 }
 
-func TestDashboard_MyWork(t *testing.T) {
+// The Me overview reads the entity's my-work endpoint (the dashboard no longer does).
+func TestMeOverview_AllocationsAndTrips(t *testing.T) {
 	six, one := 6, 1
 	acme, title, purpose := "Acme Corp", "API rollout", "Platform upgrade"
 	ready := "Ready for Clearance"
@@ -472,26 +470,6 @@ func TestDashboard_MyWork(t *testing.T) {
 		TripCount:      2,
 	}}
 	svc := NewDashboardService(f, nil, nil, dashboardNow)
-	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mw := got.MyWork
-	if mw == nil || mw.CurrentAllocation == nil || mw.CurrentAllocation.ID != "A1" || !mw.CurrentAllocation.Current {
-		t.Fatalf("my work = %+v", mw)
-	}
-	if mw.CurrentAllocation.EngagementTitle != "Acme Corp – API rollout" {
-		t.Errorf("title = %q", mw.CurrentAllocation.EngagementTitle)
-	}
-	if mw.NextAllocation == nil || mw.NextAllocation.ID != "A3" || mw.NextAllocation.EngagementTitle != "Platform upgrade" {
-		t.Errorf("next = %+v", mw.NextAllocation)
-	}
-	if mw.TodayTeamAllocation == nil || mw.TodayTeamAllocation.Label != "RND-GEN: R&D" || mw.TodayTeamAllocation.Kind != "default" {
-		t.Errorf("team = %+v", mw.TodayTeamAllocation)
-	}
-	if len(mw.NextTrips) != 1 || mw.UpcomingTripCount != 2 || mw.NextTrips[0].Traveller.Email != "jane@wso2.com" {
-		t.Errorf("trips = %+v", mw.NextTrips)
-	}
 
 	// Me overview: current first, then the future ones; at most three.
 	ov, err := svc.MeOverview(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
