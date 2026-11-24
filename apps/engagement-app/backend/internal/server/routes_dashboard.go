@@ -45,6 +45,6 @@ func registerDashboardRoutes(a *area) {
 	// itself, and the service applies its full / agency / own scope.
 	a.handleAudited("GET /travel-requests/{jobNumber}/cost-summary", domain.Gate{domain.AppTravel: {1, 2, 5, 18, 36}},
 		auditOne(domain.AuditView, "travel_cost", "jobNumber"), h.JobCostSummary)
-	a.handleReport("GET /dashboard/travel-costs", costGate, auditExport("travel_cost", "travel-costs"), h.TravelCosts)
-	a.handleReport("GET /dashboard/travel-costs/transactions", costGate, auditExport("travel_cost", "travel-cost-transactions"), h.CostTransactions)
+	a.handleCSVReport("GET /dashboard/travel-costs", costGate, auditExport("travel_cost", "travel-costs"), h.TravelCosts)
+	a.handleCSVReport("GET /dashboard/travel-costs/transactions", costGate, auditExport("travel_cost", "travel-cost-transactions"), h.CostTransactions)
 }
