@@ -4402,7 +4402,7 @@ components:
         entityType:
           type: string
           enum: [engagement, allocation, allocation_type, travel_request, visa, travel_document, per_diem,
-            per_diem_payment, invoice, travel_card]
+            per_diem_payment, invoice, travel_card, travel_cost]
         entityId:
           type: string
           maxLength: 64
