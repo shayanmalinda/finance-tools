@@ -382,3 +382,26 @@ func TestDashboardAgency(t *testing.T) {
 	}
 	m.verify(t)
 }
+
+func TestDashboardClaimCost(t *testing.T) {
+	m := newDashboardMocks(t)
+	w := dashboardTestWindow
+	m.expense.ExpectQuery(re(`CASE WHEN c.txn_currency = 'USD' OR c.reimbursement_currency = 'USD' THEN 'USD' ELSE c.txn_currency END AS d_currency,
+			SUM(CASE WHEN c.txn_currency = 'USD' THEN c.txn_amount
+				WHEN c.reimbursement_currency = 'USD' THEN c.reimbursement_amount
+				ELSE c.txn_amount END) AS amount
+		FROM expense_claims AS c
+		WHERE c.txn_date >= ? AND c.txn_date < ?
+			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
+			AND COALESCE(c.status, '') NOT IN ('-1', '1')`)).
+		WithArgs(w.YearStart, w.NextMonth).
+		WillReturnRows(sqlmock.NewRows([]string{"d_month", "d_cost_type", "d_currency", "amount"}).AddRow("2026-10", "", "USD", 120.5))
+	got, err := m.repo.ClaimCost(context.Background(), w)
+	if err != nil || len(got) != 1 || got[0].Source != domain.DashboardCostClaim || got[0].Amount != 120.5 {
+		t.Fatalf("ClaimCost = %+v, %v", got, err)
+	}
+	m.verify(t)
+	if _, err := NewDashboardRepository(nil, nil, nil).ClaimCost(context.Background(), w); !errors.Is(err, ErrDashboardNoExpenseDB) {
+		t.Errorf("no expense pool: err = %v", err)
+	}
+}

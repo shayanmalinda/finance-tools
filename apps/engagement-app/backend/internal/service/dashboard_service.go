@@ -70,6 +70,7 @@ const (
 	dashboardSeriesInvoices = "Travel Invoices"
 	dashboardSeriesPerDiems = "Per Diems"
 	dashboardSeriesCards    = "Credit Card Expenses"
+	dashboardSeriesClaims   = "Expense Claims"
 )
 
 // dashboardCardGroups are the travel finance groups that see card spend.
@@ -268,9 +269,9 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 	if card {
 		tf.CostInvoices = p.TravelOwn.Any(39, 30)
 		tf.CostPayments = p.TravelOwn.Any(41, 42)
-		tf.CostCards = true
+		tf.CostCards, tf.CostClaims = true, true
 	}
-	cost := tf.CostInvoices || tf.CostPayments || tf.CostCards
+	cost := tf.CostInvoices || tf.CostPayments || tf.CostCards || tf.CostClaims
 	if tf.Trips || cost {
 		var sections []string
 		if tf.Trips {
@@ -647,9 +648,9 @@ func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, c
 	byType := map[string]float64{}
 	type key struct{ source, currency string }
 	unconverted := map[key]float64{}
-	var inv, pd, cc float64
+	var inv, pd, cc, ec float64
 	for _, l := range t.Cost {
-		if l.Source == engagemententity.DashboardCostCard && !card {
+		if (l.Source == engagemententity.DashboardCostCard || l.Source == engagemententity.DashboardCostClaim) && !card {
 			continue
 		}
 		if !inWindow[l.Month] {
@@ -673,6 +674,9 @@ func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, c
 		case engagemententity.DashboardCostCard:
 			cc += l.Amount
 			name, typ = dashboardSeriesCards, dashboardSeriesCards
+		case engagemententity.DashboardCostClaim:
+			ec += l.Amount
+			name, typ = dashboardSeriesClaims, dashboardSeriesClaims
 		default:
 			continue
 		}
@@ -685,17 +689,17 @@ func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, c
 
 	out := &domain.DashboardTravelCost{
 		Currency: "USD", From: t.From, To: t.To,
-		Total: dashboardRound(inv + pd + cc), TravelInvoices: dashboardRound(inv), PerDiems: dashboardRound(pd),
+		Total: dashboardRound(inv + pd + cc + ec), TravelInvoices: dashboardRound(inv), PerDiems: dashboardRound(pd),
 		ByMonth: make([]domain.DashboardSeriesPoint, 0, len(months)), NotConverted: []domain.DashboardUnconverted{},
 	}
 	if card {
-		v := dashboardRound(cc)
-		out.CreditCardExpenses = &v
+		v, e := dashboardRound(cc), dashboardRound(ec)
+		out.CreditCardExpenses, out.ExpenseClaims = &v, &e
 	}
 	for i, m := range months {
 		vals := map[string]float64{dashboardSeriesInvoices: 0, dashboardSeriesPerDiems: 0}
 		if card {
-			vals[dashboardSeriesCards] = 0
+			vals[dashboardSeriesCards], vals[dashboardSeriesClaims] = 0, 0
 		}
 		sum := 0.0
 		for k, v := range series[m] {

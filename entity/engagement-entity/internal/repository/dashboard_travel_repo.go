@@ -331,3 +331,29 @@ func (r *dashboardRepo) CardCost(ctx context.Context, w DashboardWindow) ([]doma
 	}
 	return dashboardCostRows(rows, domain.DashboardCostCard, "dashboard.CardCost")
 }
+
+// ClaimCost sums the expense claims (expense_app.expense_claims) tagged with a
+// travel job number, except deleted (-1) and rejected (1) ones (so claims
+// not yet approved count), by
+// transaction month and currency, the same way as CardCost: USD when the
+// transaction or the reimbursement is in USD.
+func (r *dashboardRepo) ClaimCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
+	if r.expense == nil {
+		return nil, ErrDashboardNoExpenseDB
+	}
+	q := `SELECT DATE_FORMAT(c.txn_date, '%Y-%m') AS d_month, '' AS d_cost_type,
+			CASE WHEN c.txn_currency = 'USD' OR c.reimbursement_currency = 'USD' THEN 'USD' ELSE c.txn_currency END AS d_currency,
+			SUM(CASE WHEN c.txn_currency = 'USD' THEN c.txn_amount
+				WHEN c.reimbursement_currency = 'USD' THEN c.reimbursement_amount
+				ELSE c.txn_amount END) AS amount
+		FROM expense_claims AS c
+		WHERE c.txn_date >= ? AND c.txn_date < ?
+			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
+			AND COALESCE(c.status, '') NOT IN ('-1', '1')
+		GROUP BY d_month, d_currency`
+	rows, err := r.expense.QueryContext(ctx, q, w.YearStart, w.NextMonth)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard.ClaimCost: %w", err)
+	}
+	return dashboardCostRows(rows, domain.DashboardCostClaim, "dashboard.ClaimCost")
+}

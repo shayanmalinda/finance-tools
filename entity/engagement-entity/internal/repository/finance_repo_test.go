@@ -384,3 +384,35 @@ func TestExpireStalePushes(t *testing.T) {
 	}
 	financeDone(t, mock)
 }
+
+func TestTripExpenses(t *testing.T) {
+	db, mock := mockDB(t)
+	r := NewFinanceExpenseRepository(db)
+	mock.ExpectQuery(re(`FROM cc_txn AS t
+			LEFT JOIN expense_type AS et ON et.id = t.expense_type_id
+		WHERE t.travel_job_number = ? AND COALESCE(t.status, '') != 'invalid'`)).WithArgs("TRV-2026-11-0001", financeMaxRows).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "date", "type", "ref", "amount", "cur", "email", "status"}).
+			AddRow(4, "2026-11-02", "Taxi", "UBER", 18.4, "USD", "e@example.com", "submitted"))
+	mock.ExpectQuery(re(`FROM expense_claims AS c
+			LEFT JOIN expense_type AS et ON et.id = c.expense_type_id
+		WHERE c.travel_job_number = ? AND COALESCE(c.status, '') != '-1'`)).WithArgs("TRV-2026-11-0001", financeMaxRows).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "num", "date", "type", "amount", "cur", "ramount", "rcur", "email", "status"}).
+			AddRow(9, "1201", "2026-11-03", "Meals", 3000.0, "LKR", 10.1, "USD", "e@example.com", "3").
+			AddRow(10, "1201", nil, nil, nil, nil, nil, nil, nil, "0"))
+	got, err := r.TripExpenses(context.Background(), "TRV-2026-11-0001")
+	if err != nil || len(got.CardExpenses) != 1 || len(got.ExpenseClaims) != 2 {
+		t.Fatalf("TripExpenses = %+v, %v", got, err)
+	}
+	if c := got.CardExpenses[0]; *c.Amount != 18.4 || *c.ExpenseType != "Taxi" {
+		t.Errorf("card = %+v", c)
+	}
+	if c := got.ExpenseClaims[0]; *c.ClaimNumber != "1201" || *c.ReimbursementCurrency != "USD" || *c.Status != "3" {
+		t.Errorf("claim = %+v", c)
+	}
+	if c := got.ExpenseClaims[1]; c.Amount != nil || c.Date != nil {
+		t.Errorf("nulls: %+v", c)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}

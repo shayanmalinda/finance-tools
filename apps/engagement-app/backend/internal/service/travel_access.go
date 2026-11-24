@@ -154,6 +154,7 @@ func travelTabs(p domain.Perms, scope string) domain.TravelRequestTabs {
 		Invoices:    travelSection(p, scope, "invoices", travelPrivViewInvoices, travelPrivViewOwnInvoices),
 		TravelCards: travelSection(p, scope, "card", travelPrivViewCards, travelPrivViewOwnCards),
 		Payments:    travelSection(p, scope, "payments", travelPrivViewPayments, travelPrivViewOwnPayments),
+		Expenses:    scope == domain.TravelScopeFull && p.Travel.Has(travelPrivViewCards),
 	}
 }
 

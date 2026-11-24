@@ -1501,6 +1501,24 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /travel-requests/{jobNumber}/expenses:
+    get:
+      tags: [Travel Requests]
+      summary: Card spend and expense claims tagged with a travel request
+      description: Employees' own expenses, so Travel 45 only; agency staff and the traveller (48) are refused.
+      operationId: getTripExpenses
+      x-privileges: { travel: [45] }
+      parameters:
+        - $ref: '#/components/parameters/JobNumber'
+      responses:
+        '200':
+          description: Expenses
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TripExpenses' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /travel-requests/{jobNumber}/per-diem-payments:
     get:
       tags: [Travel Requests]
@@ -2846,16 +2864,17 @@ components:
             travelInvoices: { type: number }
             perDiems: { type: number }
             creditCardExpenses: { type: number, nullable: true, description: 'Present only for the travel finance groups.' }
+            expenseClaims: { type: number, nullable: true, description: 'Expense claims tagged with a travel, except deleted and rejected, so including claims not yet approved. Present only for the travel finance groups.' }
             lastMonth: { type: number }
             currentMonth: { type: number, description: '"{month} so far".' }
-            byMonth: { type: array, items: { $ref: '#/components/schemas/SeriesPoint' }, description: 'values keyed Travel Invoices, Per Diems and (card roles) Credit Card Expenses.' }
-            byType: { type: array, items: { $ref: '#/components/schemas/Bucket' }, description: 'Invoice cost types, Per Diems, Credit Card Expenses.' }
+            byMonth: { type: array, items: { $ref: '#/components/schemas/SeriesPoint' }, description: 'values keyed Travel Invoices, Per Diems and (card roles) Credit Card Expenses and Expense Claims.' }
+            byType: { type: array, items: { $ref: '#/components/schemas/Bucket' }, description: 'Invoice cost types, Per Diems and (card roles) Credit Card Expenses and Expense Claims.' }
             notConverted:
               type: array
               items:
                 type: object
                 properties:
-                  source: { type: string, enum: [invoice, perDiem, card] }
+                  source: { type: string, enum: [invoice, perDiem, card, claim] }
                   currency: { type: string }
                   amount: { type: number }
         engagements:
@@ -3311,6 +3330,7 @@ components:
                 perDiems: { type: boolean }
                 invoices: { type: boolean }
                 travelCards: { type: boolean }
+                expenses: { type: boolean, description: 'Card spend and expense claims (Travel 45, full scope only).' }
                 payments: { type: boolean }
     TravelRequestUpdate:
       type: object
@@ -3406,6 +3426,38 @@ components:
         tabCounts:
           type: object
           additionalProperties: { type: integer }
+    TripExpenses:
+      type: object
+      description: Card spend (expense_app.cc_txn, except invalid) and expense claims (expense_app.expense_claims, except deleted) tagged with the travel's job number.
+      properties:
+        cardExpenses:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              date: {type: string, nullable: true}
+              expenseType: {type: string, nullable: true}
+              reference: {type: string, nullable: true}
+              amount: {type: number, nullable: true}
+              currency: {type: string, nullable: true}
+              employeeEmail: {type: string, nullable: true}
+              status: {type: string, nullable: true}
+        expenseClaims:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              claimNumber: {type: string, nullable: true}
+              date: {type: string, nullable: true}
+              expenseType: {type: string, nullable: true}
+              amount: {type: number, nullable: true}
+              currency: {type: string, nullable: true}
+              reimbursementAmount: {type: number, nullable: true}
+              reimbursementCurrency: {type: string, nullable: true}
+              employeeEmail: {type: string, nullable: true}
+              status: {type: string, nullable: true, description: '0 pending approval, 1 rejected, 2 lead approved, 3 approved.'}
     TravelCard:
       type: object
       properties:

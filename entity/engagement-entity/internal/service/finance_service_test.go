@@ -217,6 +217,10 @@ func (fakeFinanceAlloc) Campaigns(context.Context, []string) (map[string]domain.
 
 type fakeFinanceExpense struct{}
 
+func (fakeFinanceExpense) TripExpenses(_ context.Context, job string) (domain.FinanceTripExpenses, error) {
+	return domain.FinanceTripExpenses{CardExpenses: []domain.FinanceCardExpense{{ID: 1}}, ExpenseClaims: []domain.FinanceExpenseClaim{}}, nil
+}
+
 func (fakeFinanceExpense) Subsidiary(_ context.Context, c string) (*domain.FinanceSubsidiary, error) {
 	if c != "WSO2 - UK" {
 		return nil, nil
@@ -500,5 +504,16 @@ func TestDecideInvoices(t *testing.T) {
 		if (err == nil) != ok {
 			t.Errorf("reason of %d+→: err = %v, want accepted %v", n, err, ok)
 		}
+	}
+}
+
+func TestTripExpenses_ChecksTheJobNumber(t *testing.T) {
+	s := newFinanceSvc(&fakeFinanceRepo{}, &fakeNetSuite{})
+	if _, err := s.TripExpenses(context.Background(), "x'; DROP"); err == nil {
+		t.Error("bad job number: want an error")
+	}
+	got, err := s.TripExpenses(context.Background(), "TRV-2026-11-0001")
+	if err != nil || len(got.CardExpenses) != 1 {
+		t.Errorf("TripExpenses = %+v, %v", got, err)
 	}
 }

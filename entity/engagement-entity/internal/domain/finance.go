@@ -190,6 +190,41 @@ type FinanceTravelCard struct {
 	AddedDate string  `json:"addedDate"`
 }
 
+// FinanceCardExpense is a credit card transaction (expense_app.cc_txn)
+// tagged with a travel's job number.
+type FinanceCardExpense struct {
+	ID            int      `json:"id"`
+	Date          *string  `json:"date"`
+	ExpenseType   *string  `json:"expenseType"`
+	Reference     *string  `json:"reference"`
+	Amount        *float64 `json:"amount"`
+	Currency      *string  `json:"currency"`
+	EmployeeEmail *string  `json:"employeeEmail"`
+	Status        *string  `json:"status"`
+}
+
+// FinanceExpenseClaim is an expense claim line (expense_app.expense_claims)
+// tagged with a travel's job number. Status is the legacy code: 0 pending
+// approval, 1 rejected, 2 lead approved, 3 approved.
+type FinanceExpenseClaim struct {
+	ID                    int      `json:"id"`
+	ClaimNumber           *string  `json:"claimNumber"`
+	Date                  *string  `json:"date"`
+	ExpenseType           *string  `json:"expenseType"`
+	Amount                *float64 `json:"amount"`
+	Currency              *string  `json:"currency"`
+	ReimbursementAmount   *float64 `json:"reimbursementAmount"`
+	ReimbursementCurrency *string  `json:"reimbursementCurrency"`
+	EmployeeEmail         *string  `json:"employeeEmail"`
+	Status                *string  `json:"status"`
+}
+
+// FinanceTripExpenses is a travel's card spend and expense claims.
+type FinanceTripExpenses struct {
+	CardExpenses  []FinanceCardExpense  `json:"cardExpenses"`
+	ExpenseClaims []FinanceExpenseClaim `json:"expenseClaims"`
+}
+
 // FinanceTravelCardCreate adds a travel card.
 type FinanceTravelCardCreate struct {
 	Currency  string  `json:"currency"`

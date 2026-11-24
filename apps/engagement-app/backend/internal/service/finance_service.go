@@ -456,6 +456,33 @@ func travelCardOf(c engagemententity.FinanceTravelCard) domain.TravelCard {
 		AddedOn: financeDeref(financeDate(&c.AddedDate))}
 }
 
+// TripExpenses is GET /travel-requests/{jobNumber}/expenses: the card spend
+// and expense claims tagged with the travel. Employees' own expenses, so
+// only those who see every travel's cards (Travel 45), never agency staff
+// and not the traveller through the own-cards privilege.
+func (s *FinanceService) TripExpenses(ctx context.Context, p domain.Perms, jobNumber string) (domain.TripExpenses, error) {
+	trip, err := s.trip(ctx, jobNumber)
+	if err != nil {
+		return domain.TripExpenses{}, err
+	}
+	if _, err := viewScope(p, trip, false, []int{domain.TravelPrivViewTravelCards}, 0); err != nil {
+		return domain.TripExpenses{}, err
+	}
+	in, err := s.entity.FinanceTripExpenses(ctx, jobNumber)
+	if err != nil {
+		return domain.TripExpenses{}, err
+	}
+	out := domain.TripExpenses{CardExpenses: make([]domain.CardExpense, 0, len(in.CardExpenses)),
+		ExpenseClaims: make([]domain.ExpenseClaim, 0, len(in.ExpenseClaims))}
+	for _, c := range in.CardExpenses {
+		out.CardExpenses = append(out.CardExpenses, domain.CardExpense(c))
+	}
+	for _, c := range in.ExpenseClaims {
+		out.ExpenseClaims = append(out.ExpenseClaims, domain.ExpenseClaim(c))
+	}
+	return out, nil
+}
+
 // TravelCards is GET /travel-requests/{jobNumber}/travel-cards.
 func (s *FinanceService) TravelCards(ctx context.Context, p domain.Perms, jobNumber string) ([]domain.TravelCard, error) {
 	trip, err := s.trip(ctx, jobNumber)

@@ -149,6 +149,7 @@ type DashboardTravelFilter struct {
 	CostInvoices bool
 	CostPayments bool
 	CostCards    bool
+	CostClaims   bool
 }
 
 // DashboardCount is a label with a count.
@@ -175,6 +176,7 @@ const (
 	DashboardCostInvoice = "invoice"
 	DashboardCostPerDiem = "perDiem"
 	DashboardCostCard    = "card"
+	DashboardCostClaim   = "claim"
 )
 
 // DashboardCostLine is a sum by source, month, cost type and currency; the
@@ -336,6 +338,7 @@ func (c *HTTPClient) DashboardTravel(ctx context.Context, f DashboardTravelFilte
 	dashboardSetBool(q, "costInvoices", f.CostInvoices)
 	dashboardSetBool(q, "costPayments", f.CostPayments)
 	dashboardSetBool(q, "costCards", f.CostCards)
+	dashboardSetBool(q, "costClaims", f.CostClaims)
 	var out DashboardTravel
 	if err := c.rest.Get(ctx, withQuery("/dashboard/travel", q), &out); err != nil {
 		return nil, err

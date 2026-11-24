@@ -57,6 +57,7 @@ type DashboardRepository interface {
 
 	// expense_app
 	CardCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error)
+	ClaimCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error)
 }
 
 // DashboardWindow holds the day boundaries a dashboard query needs.

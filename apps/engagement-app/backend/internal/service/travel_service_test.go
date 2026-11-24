@@ -347,10 +347,13 @@ func TestTravelScopeTabsAndActions(t *testing.T) {
 		a.AddTravelCard || a.PushPayments {
 		t.Errorf("agent = %+v", a)
 	}
-	if tabs := travelTabs(travelAgent(), domain.TravelScopeAgency); !tabs.PerDiems || !tabs.Invoices || tabs.TravelCards || tabs.Payments {
+	if tabs := travelTabs(travelAgent(), domain.TravelScopeAgency); !tabs.PerDiems || !tabs.Invoices || tabs.TravelCards || tabs.Payments || tabs.Expenses {
 		t.Errorf("agent tabs = %+v", tabs)
 	}
 	// Finance approver: finance step (no HR approval), push invoices (L6: 34).
+	if tabs := travelTabs(perms("fin@wso2.com", 45), domain.TravelScopeFull); !tabs.Expenses {
+		t.Error("45 at full scope: no expenses tab")
+	}
 	a = travelActions(travelFinance, domain.TravelScopeFull, domain.TravelStatusExtended)
 	if !a.ApproveInvoices || a.ApproveInvoicesPo || !a.PushInvoices || !a.AddPayment || !a.PushPayments || a.Update {
 		t.Errorf("finance = %+v", a)
@@ -368,7 +371,7 @@ func TestTravelScopeTabsAndActions(t *testing.T) {
 	if a := travelActions(travelEmp, domain.TravelScopeOwn, domain.TravelStatusInProgress); a != (domain.TravelRequestActions{}) {
 		t.Errorf("own = %+v", a)
 	}
-	if tabs := travelTabs(travelEmp, domain.TravelScopeOwn); !tabs.PerDiems || !tabs.Invoices || !tabs.TravelCards || !tabs.Payments {
+	if tabs := travelTabs(travelEmp, domain.TravelScopeOwn); !tabs.PerDiems || !tabs.Invoices || !tabs.TravelCards || !tabs.Payments || tabs.Expenses {
 		t.Errorf("own tabs = %+v", tabs)
 	}
 }

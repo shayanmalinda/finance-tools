@@ -144,6 +144,7 @@ type DashboardTravelCost struct {
 	TravelInvoices     float64                `json:"travelInvoices"`
 	PerDiems           float64                `json:"perDiems"`
 	CreditCardExpenses *float64               `json:"creditCardExpenses"`
+	ExpenseClaims      *float64               `json:"expenseClaims"`
 	LastMonth          float64                `json:"lastMonth"`
 	CurrentMonth       float64                `json:"currentMonth"`
 	ByMonth            []DashboardSeriesPoint `json:"byMonth"`

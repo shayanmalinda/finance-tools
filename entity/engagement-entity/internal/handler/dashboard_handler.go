@@ -159,7 +159,7 @@ func (h *DashboardHandler) Travel(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := domain.DashboardTravelFilter{Today: q.Get("today")}
 	if err := dashboardFlags(q, map[string]*bool{
-		"trips": &f.Trips, "costInvoices": &f.CostInvoices, "costPayments": &f.CostPayments, "costCards": &f.CostCards,
+		"trips": &f.Trips, "costInvoices": &f.CostInvoices, "costPayments": &f.CostPayments, "costCards": &f.CostCards, "costClaims": &f.CostClaims,
 	}); err != nil {
 		writeServiceError(w, r, err)
 		return

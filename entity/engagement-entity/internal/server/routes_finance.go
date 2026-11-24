@@ -58,6 +58,7 @@ func registerFinanceRoutes(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("GET /finance/travel-requests/{jobNumber}/payment-basis", h.PaymentBasis)
 	mux.HandleFunc("GET /finance/travel-requests/{jobNumber}/travel-cards", h.TravelCards)
 	mux.HandleFunc("POST /finance/travel-requests/{jobNumber}/travel-cards", h.AddTravelCard)
+	mux.HandleFunc("GET /finance/travel-requests/{jobNumber}/expenses", h.TripExpenses)
 	mux.HandleFunc("POST /finance/travel-requests/{jobNumber}/invoices", h.AddInvoices)
 	mux.HandleFunc("POST /finance/travel-requests/{jobNumber}/per-diem-payments", h.AddPayment)
 

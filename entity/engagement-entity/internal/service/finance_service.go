@@ -47,6 +47,7 @@ type FinanceService interface {
 	PaymentBasis(ctx context.Context, jobNumber string) (domain.FinancePaymentBasis, error)
 
 	TravelCards(ctx context.Context, jobNumber string) ([]domain.FinanceTravelCard, error)
+	TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error)
 	AddTravelCard(ctx context.Context, jobNumber string, in domain.FinanceTravelCardCreate) (domain.FinanceTravelCard, error)
 
 	CostTypes(ctx context.Context) ([]domain.FinanceCostType, error)
@@ -243,6 +244,14 @@ func (s *financeService) PaymentBasis(ctx context.Context, jobNumber string) (do
 		return domain.FinancePaymentBasis{}, err
 	}
 	return s.repo.PaymentBasis(ctx, jobNumber)
+}
+
+// TripExpenses is a travel's card spend and expense claims (expense_app).
+func (s *financeService) TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error) {
+	if err := financeCheckJob(jobNumber); err != nil {
+		return domain.FinanceTripExpenses{}, err
+	}
+	return s.expense.TripExpenses(ctx, jobNumber)
 }
 
 // ── Travel cards ────────────────────────────────────────────────────────
