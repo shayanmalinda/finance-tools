@@ -53,7 +53,6 @@ type DashboardService interface {
 	// CostTransactions returns a domain.CostLinePage, or a domain.CostGroupPage with groupBy.
 	CostTransactions(ctx context.Context, p domain.Perms, q CostQuery, t CostTransactionsQuery) (any, error)
 	CostTransactionsCSV(ctx context.Context, p domain.Perms, q CostQuery) (*CostCSV, error)
-	CostDuplicates(ctx context.Context, p domain.Perms, q CostQuery, limit, offset int) (*domain.CostDuplicatePage, error)
 }
 
 // DashboardOption configures a DashboardService.

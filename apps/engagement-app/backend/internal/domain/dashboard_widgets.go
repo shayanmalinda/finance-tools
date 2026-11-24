@@ -238,25 +238,24 @@ type CostKpis struct {
 
 // TravelCostSummary is GET /dashboard/travel-costs.
 type TravelCostSummary struct {
-	Currency           string                 `json:"currency"`
-	RateRule           string                 `json:"rateRule"`
-	From               string                 `json:"from"`
-	To                 string                 `json:"to"`
-	Compare            *CostPeriod            `json:"compare"`
-	DataAsOf           string                 `json:"dataAsOf"`
-	Kpis               CostKpis               `json:"kpis"`
-	BySource           []CostBucket           `json:"bySource"`
-	ByMonth            []DashboardSeriesPoint `json:"byMonth"`
-	ByCountry          []CostBucket           `json:"byCountry"`
-	ByCustomer         []CostBucket           `json:"byCustomer"`
-	ByTravelAgent      []CostBucket           `json:"byTravelAgent"`
-	ByCostType         []CostBucket           `json:"byCostType"`
-	ByPaid             []CostBucket           `json:"byPaid"`
-	PaidSharePercent   *float64               `json:"paidSharePercent"`
-	NotConverted       []CostNotConverted     `json:"notConverted"`
-	PossibleDuplicates int                    `json:"possibleDuplicates"`
-	FailedSources      []string               `json:"failedSources"`
-	Truncated          bool                   `json:"truncated"`
+	Currency         string                 `json:"currency"`
+	RateRule         string                 `json:"rateRule"`
+	From             string                 `json:"from"`
+	To               string                 `json:"to"`
+	Compare          *CostPeriod            `json:"compare"`
+	DataAsOf         string                 `json:"dataAsOf"`
+	Kpis             CostKpis               `json:"kpis"`
+	BySource         []CostBucket           `json:"bySource"`
+	ByMonth          []DashboardSeriesPoint `json:"byMonth"`
+	ByCountry        []CostBucket           `json:"byCountry"`
+	ByCustomer       []CostBucket           `json:"byCustomer"`
+	ByTravelAgent    []CostBucket           `json:"byTravelAgent"`
+	ByCostType       []CostBucket           `json:"byCostType"`
+	ByPaid           []CostBucket           `json:"byPaid"`
+	PaidSharePercent *float64               `json:"paidSharePercent"`
+	NotConverted     []CostNotConverted     `json:"notConverted"`
+	FailedSources    []string               `json:"failedSources"`
+	Truncated        bool                   `json:"truncated"`
 	// ComparisonFailedSources are the sources that could not be read for the
 	// comparison period. When any is listed, or the comparison period was cut
 	// at the line cap, no change against last year is given, because last
@@ -316,21 +315,4 @@ type CostGroupPage struct {
 	Groups   []CostGroup `json:"groups"`
 	Total    int         `json:"total"`
 	DataAsOf string      `json:"dataAsOf"`
-}
-
-// CostDuplicate is a pair of lines that may be the same cost.
-type CostDuplicate struct {
-	JobNumber string   `json:"jobNumber"`
-	Traveller Person   `json:"traveller"`
-	USDAmount float64  `json:"usdAmount"`
-	DaysApart int      `json:"daysApart"`
-	A         CostLine `json:"a"`
-	B         CostLine `json:"b"`
-}
-
-// CostDuplicatePage is GET /dashboard/travel-costs/duplicates.
-type CostDuplicatePage struct {
-	Items    []CostDuplicate `json:"items"`
-	Total    int             `json:"total"`
-	DataAsOf string          `json:"dataAsOf"`
 }

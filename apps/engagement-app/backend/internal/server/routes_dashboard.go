@@ -43,5 +43,4 @@ func registerDashboardRoutes(a *area) {
 	costGate := domain.Gate{domain.AppTravel: {1, 39, 41}}
 	a.handleReport("GET /dashboard/travel-costs", costGate, auditExport("travel_cost", "travel-costs"), h.TravelCosts)
 	a.handleReport("GET /dashboard/travel-costs/transactions", costGate, auditExport("travel_cost", "travel-cost-transactions"), h.CostTransactions)
-	a.handleAudited("GET /dashboard/travel-costs/duplicates", costGate, auditList("travel_cost", false), h.CostDuplicates)
 }

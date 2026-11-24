@@ -240,7 +240,7 @@ func TestTravelCosts_Authorisation(t *testing.T) {
 	svc, _ := costService(lines, nil)
 	ctx := context.Background()
 
-	// A Travel Super Admin who is in no finance group gets all four sources, the employee filter, duplicates and both CSVs.
+	// A Travel Super Admin who is in no finance group gets all four sources, the employee filter and both CSVs.
 	tsa := tsaPerms()
 	s := mustSummary(t, svc, tsa, cq)
 	if s.Kpis.Total.Value != 100 || len(s.BySource) != 4 {
@@ -250,9 +250,6 @@ func TestTravelCosts_Authorisation(t *testing.T) {
 	byEmp.Filter.Employees = []string{"cardholder@example.com"}
 	if s := mustSummary(t, svc, tsa, byEmp); s.Kpis.Total.Value != 30 {
 		t.Errorf("employee filter total = %v", s.Kpis.Total.Value)
-	}
-	if _, err := svc.CostDuplicates(ctx, tsa, cq, 25, 0); err != nil {
-		t.Errorf("tsa duplicates: %v", err)
 	}
 	if c, err := svc.TravelCostsCSV(ctx, tsa, cq, ""); err != nil || len(c.Rows) < 10 {
 		t.Errorf("tsa summary csv: %v", err)
@@ -264,7 +261,7 @@ func TestTravelCosts_Authorisation(t *testing.T) {
 		t.Errorf("tsa transactions: %+v %v", page, err)
 	}
 
-	// Neither finance nor Travel Super Admin: 403 on all three routes (and the CSVs).
+	// Neither finance nor Travel Super Admin: 403 on all routes (and the CSVs).
 	for name, p := range map[string]domain.Perms{
 		"employee":      dashboardPerms("e@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel),
 		"travel team":   dashboardPerms("t@wso2.com", nil, nil, []int{1, 39, 41}, []int{1, 39, 41}),
@@ -276,9 +273,6 @@ func TestTravelCosts_Authorisation(t *testing.T) {
 		}
 		if _, err := svc.CostTransactions(ctx, p, cq, CostTransactionsQuery{}); !isForbidden(err) {
 			t.Errorf("%s: transactions err = %v", name, err)
-		}
-		if _, err := svc.CostDuplicates(ctx, p, cq, 25, 0); !isForbidden(err) {
-			t.Errorf("%s: duplicates err = %v", name, err)
 		}
 		if _, err := svc.TravelCostsCSV(ctx, p, cq, ""); !isForbidden(err) {
 			t.Errorf("%s: csv err = %v", name, err)
@@ -366,40 +360,6 @@ func TestCostApply_Filters(t *testing.T) {
 		if got := ids(c.f); got != c.want {
 			t.Errorf("%s: %s, want %s", name, got, c.want)
 		}
-	}
-}
-
-func TestCostDuplicates_Rule(t *testing.T) {
-	mk := func(id, src, job, date string, usd float64, converted bool) costLine {
-		e := entry(id, src, job, date, "USD", usd)
-		return costLine{e: e, converted: converted, usd: dashboardUSD{USD: usd, Rate: 1}, job: strings.ToUpper(strings.TrimSpace(job)), month: date[:7]}
-	}
-	lines := []costLine{
-		mk("A", "invoice", "T1", "2026-10-01", 100, true),
-		mk("B", "card", " t1", "2026-10-15", 101, true),     // 14 days apart, within 1%: a duplicate
-		mk("C", "claim", "T1", "2026-10-16", 100, true),     // 15 days from A, 1 day from B (1.0%): pairs with B only
-		mk("D", "perDiem", "T1", "2026-10-02", 102.5, true), // 2.4% off A: no
-		mk("E", "invoice", "T1", "2026-10-03", 100, true),   // same source as A: ignored with A, pairs with B? B is 12 days later
-		mk("F", "card", "", "2026-10-01", 100, true),        // no job number
-		mk("G", "claim", "T9", "2026-10-01", 100, false),    // not converted
-		mk("H", "card", "T9", "2026-10-01", 100, true),
-	}
-	got := costDuplicates(lines)
-	pairs := map[string]string{}
-	for _, d := range got {
-		pairs[d.A.ID+d.B.ID] = fmt.Sprint(d.DaysApart)
-	}
-	want := map[string]string{"AB": "14", "BC": "1", "EB": "12", "EC": "13"}
-	if len(pairs) != len(want) {
-		t.Fatalf("pairs = %v, want %v", pairs, want)
-	}
-	for k, v := range want {
-		if pairs[k] != v {
-			t.Errorf("pair %s days = %q, want %s (all: %v)", k, pairs[k], v, pairs)
-		}
-	}
-	if got[0].USDAmount < got[len(got)-1].USDAmount {
-		t.Error("not sorted by usdAmount descending")
 	}
 }
 

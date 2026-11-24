@@ -147,30 +147,6 @@ func (h *DashboardHandler) CostTransactions(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, resp)
 }
 
-// CostDuplicates handles GET /dashboard/travel-costs/duplicates.
-func (h *DashboardHandler) CostDuplicates(w http.ResponseWriter, r *http.Request) {
-	p, ok := permsFrom(w, r)
-	if !ok {
-		return
-	}
-	q, err := costQuery(r)
-	if err != nil {
-		writeServiceError(w, r, err)
-		return
-	}
-	limit, offset, err := costPaging(r)
-	if err != nil {
-		writeServiceError(w, r, err)
-		return
-	}
-	resp, err := h.svc.CostDuplicates(r.Context(), p, q, limit, offset)
-	if err != nil {
-		writeServiceError(w, r, err)
-		return
-	}
-	writeJSON(w, resp)
-}
-
 // costPaging reads limit (1 to 100, default 25) and offset.
 func costPaging(r *http.Request) (limit, offset int, err error) {
 	limit = 25

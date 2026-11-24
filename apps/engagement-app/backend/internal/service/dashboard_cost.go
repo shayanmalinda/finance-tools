@@ -741,7 +741,7 @@ func costFacets(lines []costLine) domain.CostFacets {
 	return f
 }
 
-// ── Lines, groups, duplicates ───────────────────────────────────────────────
+// ── Lines and groups ───────────────────────────────────────────────
 
 func costLineView(l costLine) domain.CostLine {
 	e := l.e
@@ -908,65 +908,6 @@ func costGroups(cur, prev []costLine, compare bool, groupBy, sortBy string) ([]d
 	return out, nil
 }
 
-// costDuplicates finds lines that may be the same cost: same job number,
-// different sources, both converted, USD within 1% and dates within 14 days.
-func costDuplicates(lines []costLine) []domain.CostDuplicate {
-	byJob := map[string][]costLine{}
-	for _, l := range lines {
-		if l.job != "" && l.converted {
-			byJob[l.job] = append(byJob[l.job], l)
-		}
-	}
-	out := []domain.CostDuplicate{}
-	for job, ls := range byJob {
-		for i := 0; i < len(ls); i++ {
-			for j := i + 1; j < len(ls); j++ {
-				a, b := ls[i], ls[j]
-				if a.e.Source == b.e.Source {
-					continue
-				}
-				hi := math.Max(a.usd.USD, b.usd.USD)
-				if math.Abs(a.usd.USD-b.usd.USD) > 0.01*hi {
-					continue
-				}
-				da, ea := time.Parse(dashboardDateLayout, a.e.Date)
-				db, eb := time.Parse(dashboardDateLayout, b.e.Date)
-				if ea != nil || eb != nil {
-					continue
-				}
-				days := int(math.Abs(da.Sub(db).Hours() / 24))
-				if days > 14 {
-					continue
-				}
-				if b.e.Date < a.e.Date || (b.e.Date == a.e.Date && b.e.ID < a.e.ID) {
-					a, b = b, a
-				}
-				p := domain.Person{}
-				switch {
-				case a.traveller != nil:
-					p = *a.traveller
-				case b.traveller != nil:
-					p = *b.traveller
-				}
-				out = append(out, domain.CostDuplicate{
-					JobNumber: job, Traveller: p, USDAmount: dashboardRound(hi), DaysApart: days,
-					A: costLineView(a), B: costLineView(b),
-				})
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].USDAmount != out[j].USDAmount {
-			return out[i].USDAmount > out[j].USDAmount
-		}
-		if out[i].JobNumber != out[j].JobNumber {
-			return out[i].JobNumber < out[j].JobNumber
-		}
-		return out[i].A.ID < out[j].A.ID
-	})
-	return out
-}
-
 // ── Service methods ─────────────────────────────────────────────────────────
 
 // costPrepared is a query resolved for a caller: the trimmed, filtered lines
@@ -1058,7 +999,6 @@ func (s *dashboardService) TravelCosts(ctx context.Context, p domain.Perms, q Co
 		sum.Compare = &domain.CostPeriod{From: f, To: t}
 	}
 	sum.DataAsOf = pr.set.asOf.Format(time.RFC3339)
-	sum.PossibleDuplicates = len(costDuplicates(pr.cur))
 	sum.Truncated = pr.set.truncated
 	for _, f := range pr.set.failed {
 		if contains(pr.allowed, f) {
@@ -1120,21 +1060,6 @@ func costPage[T any](list []T, limit, offset int) []T {
 	}
 	end := min(offset+limit, len(list))
 	return list[offset:end]
-}
-
-func (s *dashboardService) CostDuplicates(ctx context.Context, p domain.Perms, q CostQuery, limit, offset int) (*domain.CostDuplicatePage, error) {
-	if limit <= 0 {
-		limit = 25
-	}
-	if limit > 100 || offset < 0 {
-		return nil, &apierror.ValidationError{Msg: "limit is 1 to 100 and offset is not negative."}
-	}
-	pr, err := s.prepare(ctx, p, q)
-	if err != nil {
-		return nil, err
-	}
-	all := costDuplicates(pr.cur)
-	return &domain.CostDuplicatePage{Items: costPage(all, limit, offset), Total: len(all), DataAsOf: pr.set.asOf.Format(time.RFC3339)}, nil
 }
 
 // ── CSV ─────────────────────────────────────────────────────────────────────

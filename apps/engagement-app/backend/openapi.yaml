@@ -375,7 +375,7 @@ paths:
       description: >-
         One summary for the Travel Costs widgets: KPIs, breakdowns by source,
         month, destination country, paid customer, travel agent, cost type and
-        paid / non-paid, filters and a possible-duplicates count. Every line
+        paid / non-paid, and filters. Every line
         is in USD: amounts recorded in USD, and card charges billed in USD,
         are used as they are; other currencies are converted at NetSuite's
         rate on the last day of the line's month (today's rate for the
@@ -462,44 +462,6 @@ paths:
                   - $ref: '#/components/schemas/CostGroupPage'
             text/csv:
               schema: { type: string }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '503': { $ref: '#/components/responses/ServiceUnavailable' }
-
-  /dashboard/travel-costs/duplicates:
-    get:
-      tags: [Dashboard]
-      summary: Possible duplicate cost lines
-      description: >-
-        Same gate and filters as `GET /dashboard/travel-costs`. Two lines are a
-        possible duplicate when they have the same job number (trimmed,
-        upper-cased, non-blank), different sources, both converted, USD
-        amounts within 1% of each other and dates at most 14 days apart.
-        Nothing is removed from any total. `a` is the earlier line. Sorted by
-        `usdAmount` descending.
-      operationId: listTravelCostDuplicates
-      x-privileges: { travel: [39, 41] }
-      parameters:
-        - { name: from, in: query, description: 'Inclusive. Both or neither. Default 1 Jan of this UTC year.', schema: { type: string, format: date } }
-        - { name: to, in: query, description: 'Inclusive, at most 731 days after from. Default today (UTC).', schema: { type: string, format: date } }
-        - { name: compare, in: query, description: 'Same period one year earlier (29 Feb becomes 28 Feb).', schema: { type: boolean, default: true } }
-        - { name: source, in: query, description: 'A source the caller may not see is ignored.', schema: { type: array, maxItems: 4, items: { $ref: '#/components/schemas/CostSource' } } }
-        - { name: employee, in: query, description: 'Traveller or cardholder emails.', schema: { type: array, maxItems: 50, items: { type: string } } }
-        - { name: jobNumber, in: query, description: 'Exact match after trim, case-insensitive.', schema: { type: array, maxItems: 50, items: { type: string } } }
-        - { name: country, in: query, description: 'Exact, case-insensitive. `Unknown` matches blank.', schema: { type: array, maxItems: 50, items: { type: string } } }
-        - { name: travelAgent, in: query, description: '`0` matches no travel agent.', schema: { type: array, maxItems: 50, items: { type: integer } } }
-        - { name: paid, in: query, schema: { type: array, items: { type: string, enum: [paid, nonPaid, unknown] } } }
-        - { name: customer, in: query, schema: { type: array, maxItems: 50, items: { type: string } } }
-        - { name: costType, in: query, description: 'Used by drill-down only.', schema: { type: array, maxItems: 50, items: { type: string } } }
-        - { name: unlinked, in: query, description: 'Only lines with no job number.', schema: { type: boolean } }
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
-      responses:
-        '200':
-          description: Possible duplicates
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CostDuplicatePage' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -3129,7 +3091,7 @@ components:
       properties:
         id:
           type: string
-          description: Widget id (my-work, waiting-on-you, tc-kpis, tc-source, tc-month, tc-cost-type, tc-country, tc-paid, tc-customers, tc-agents, tc-lines, tc-duplicates, travel, tt-glance, tt-po-age, tt-frequent, tt-agent-workload, em-no-consultants, em-starting-14, em-most-allocated, em-top-customers, am-started-no-consultants, am-by-status, am-by-month, ev-by-month, ev-by-region, ev-funding-bu, ev-campaign, engagements, available-consultants, allocations-today, allocations-over-time).
+          description: Widget id (my-work, waiting-on-you, tc-kpis, tc-source, tc-month, tc-cost-type, tc-country, tc-paid, tc-customers, tc-agents, tc-lines, travel, tt-glance, tt-po-age, tt-frequent, tt-agent-workload, em-no-consultants, em-starting-14, em-most-allocated, em-top-customers, am-started-no-consultants, am-by-status, am-by-month, ev-by-month, ev-by-region, ev-funding-bu, ev-campaign, engagements, available-consultants, allocations-today, allocations-over-time).
         defaultOn: { type: boolean, description: 'Shown by default (working roles); the person may still turn it on or off.' }
     DashboardCountItem:
       type: object
@@ -3318,7 +3280,6 @@ components:
         byPaid: { type: array, description: 'Keys paid, nonPaid, unknown.', items: { $ref: '#/components/schemas/CostBucket' } }
         paidSharePercent: { type: number, nullable: true, description: 'paid / (paid + nonPaid); null when both are 0.' }
         notConverted: { type: array, description: 'Left out of every USD figure; counted in trips and travellers.', items: { $ref: '#/components/schemas/CostNotConverted' } }
-        possibleDuplicates: { type: integer }
         failedSources: { type: array, description: 'Sources that could not be read (for example card and claim when expense_app is down); totals leave them out.', items: { $ref: '#/components/schemas/CostSource' } }
         truncated: { type: boolean, description: A source hit the 20,000-line cap. }
         comparisonFailedSources: { type: array, description: 'Sources that could not be read for the comparison period. When any is listed, or comparisonTruncated is true, last year is incomplete and no change against it is given (previous and changePercent are null).', items: { $ref: '#/components/schemas/CostSource' } }
@@ -3396,22 +3357,6 @@ components:
       required: [groups, total]
       properties:
         groups: { type: array, items: { $ref: '#/components/schemas/CostGroup' } }
-        total: { type: integer }
-        dataAsOf: { type: string, format: date-time }
-    CostDuplicate:
-      type: object
-      properties:
-        jobNumber: { type: string }
-        traveller: { $ref: '#/components/schemas/Person' }
-        usdAmount: { type: number }
-        daysApart: { type: integer }
-        a: { $ref: '#/components/schemas/CostLine' }
-        b: { $ref: '#/components/schemas/CostLine' }
-    CostDuplicatePage:
-      type: object
-      required: [items, total]
-      properties:
-        items: { type: array, items: { $ref: '#/components/schemas/CostDuplicate' } }
         total: { type: integer }
         dataAsOf: { type: string, format: date-time }
 

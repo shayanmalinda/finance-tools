@@ -85,7 +85,7 @@ func defaultsOn(ws []domain.DashboardWidget) string {
 	return strings.Join(ids, ",")
 }
 
-var allTCWidgets = []string{"tc-kpis", "tc-source", "tc-month", "tc-cost-type", "tc-country", "tc-paid", "tc-customers", "tc-agents", "tc-lines", "tc-duplicates"}
+var allTCWidgets = []string{"tc-kpis", "tc-source", "tc-month", "tc-cost-type", "tc-country", "tc-paid", "tc-customers", "tc-agents", "tc-lines"}
 
 func TestDashboardWidgets_Finance(t *testing.T) {
 	own := []int{39, 40, 41, 30, 42}
@@ -93,7 +93,7 @@ func TestDashboardWidgets_Finance(t *testing.T) {
 	ws := dashboardWidgets(p)
 	hasAll(t, ws, allTCWidgets...)
 	// Default on: every tc-* except tc-agents, plus the Allocations ones its own privileges allow (22).
-	want := "my-work,tc-kpis,tc-source,tc-month,tc-cost-type,tc-country,tc-paid,tc-customers,tc-lines,tc-duplicates,allocations-today"
+	want := "my-work,tc-kpis,tc-source,tc-month,tc-cost-type,tc-country,tc-paid,tc-customers,tc-lines,allocations-today"
 	// waiting-on-you appears when there is a queue: finance has own 40 (pay).
 	want = strings.Replace(want, "my-work,", "my-work,waiting-on-you,", 1)
 	if got := defaultsOn(ws); got != want+",allocations-over-time" {
@@ -110,7 +110,7 @@ func TestDashboardWidgets_TravelSuperAdminOnly(t *testing.T) {
 	hasNone(t, ws, "em-no-consultants", "am-by-month", "ev-by-month", "engagements", "available-consultants")
 	d := widgetDefaults(ws)
 	// Default-on follows working roles: tc-lines is off, tc-agents on (a TSA who is not finance).
-	if d["tc-lines"] || d["tc-duplicates"] || d["tc-source"] || !d["tc-kpis"] || !d["tc-cost-type"] || !d["tc-agents"] || !d["tt-po-age"] || !d["travel"] {
+	if d["tc-lines"] || d["tc-source"] || !d["tc-kpis"] || !d["tc-cost-type"] || !d["tc-agents"] || !d["tt-po-age"] || !d["travel"] {
 		t.Errorf("defaults = %v", d)
 	}
 }

@@ -81,7 +81,7 @@ var dashboardEmployeeRoles = map[domain.App]map[string][]int{
 }
 
 func TestDashboardRoutes_Gates(t *testing.T) {
-	// A signed-in person outside every role: 403 on all three.
+	// A signed-in person outside every role: 403 on both.
 	h, _ := newDashboardRouter([]string{"someone-else"}, dashboardEmployeeRoles)
 	for _, path := range []string{"/dashboard", "/dashboard/allocations-today", "/me/overview"} {
 		if rec := get(h, path, "valid"); rec.Code != http.StatusForbidden {
@@ -150,8 +150,8 @@ var dashboardFinanceRoles = map[domain.App]map[string][]int{
 }
 
 func TestDashboardRoutes_TravelCosts(t *testing.T) {
-	costPaths := []string{"/dashboard/travel-costs", "/dashboard/travel-costs/transactions", "/dashboard/travel-costs/duplicates"}
-	// An employee is not allowed: 403 on all three.
+	costPaths := []string{"/dashboard/travel-costs", "/dashboard/travel-costs/transactions"}
+	// An employee is not allowed: 403 on both.
 	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardFinanceRoles)
 	for _, path := range costPaths {
 		if rec := get(h, path, "valid"); rec.Code != http.StatusForbidden {

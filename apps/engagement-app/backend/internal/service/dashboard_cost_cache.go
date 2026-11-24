@@ -23,7 +23,7 @@ import (
 )
 
 // Cost line sets are shared by every caller and request for one minute: the
-// summary, the transactions, the duplicates and both CSVs of the same range
+// summary, the transactions and both CSVs of the same range
 // read the same set, so their totals agree.
 const (
 	costSetCacheSize = 8

@@ -121,7 +121,6 @@ var dashboardWidgetCatalogue = []dashboardWidgetDef{
 	{"tc-customers", "", visCost, defFinance},
 	{"tc-agents", "", visCost, func(w widgetWho) bool { return w.tsa && !w.finance }},
 	{"tc-lines", "", visCost, defFinance},
-	{"tc-duplicates", "", visCost, defFinance},
 	{"travel", sectionTravel, visTravel, defTravel},
 	{"tt-glance", sectionTravelTeam, visTravel, defTravel},
 	{"tt-po-age", sectionTravelTeam,
