@@ -37,6 +37,12 @@ func jobCostFixture(lines []engagemententity.DashboardCostEntry) (DashboardServi
 	return svc, f
 }
 
+// jobCostFullPerms see every request and all sections: View Per Diems (28),
+// View Invoices (30) and View Cards (45).
+func jobCostFullPerms() domain.Perms {
+	return dashboardPerms("ops@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{2, 28, 30, 45}, []int{2, 28, 30, 45})
+}
+
 func jobCostLines() []engagemententity.DashboardCostEntry {
 	return []engagemententity.DashboardCostEntry{
 		// 100 LKR at 300 is 0.33 USD a line: three lines are 0.99, not 1.00.
@@ -51,7 +57,7 @@ func jobCostLines() []engagemententity.DashboardCostEntry {
 
 func TestJobCostSummary_TotalIsTheSumOfRoundedLines(t *testing.T) {
 	svc, _ := jobCostFixture(jobCostLines())
-	p := dashboardPerms("ops@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{2}, []int{2})
+	p := jobCostFullPerms()
 	got, err := svc.JobCostSummary(context.Background(), p, jobCostTrip)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +102,7 @@ func TestJobCostSummary_EqualsTravelCostsFilteredToTheJob(t *testing.T) {
 
 func TestJobCostSummary_AsksForTheJobAndWindowsOfAtMost731Days(t *testing.T) {
 	svc, f := jobCostFixture(jobCostLines())
-	p := dashboardPerms("ops@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{2}, []int{2})
+	p := jobCostFullPerms()
 	if _, err := svc.JobCostSummary(context.Background(), p, jobCostTrip); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +128,7 @@ func TestJobCostSummary_AgentGetsNoSourceSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.TotalUSD != 200.99 || got.BySource != nil || len(got.NotConverted) != 1 {
+	if got.TotalUSD != 200.99 || got.BySource != nil || len(got.NotConverted) != 0 {
 		t.Errorf("agent summary = %+v", got)
 	}
 }
@@ -159,9 +165,73 @@ func TestJobCostSummary_AccessFollowsTheTravelRequest(t *testing.T) {
 func TestJobCostSummary_FailedSourceIsIncomplete(t *testing.T) {
 	svc, f := jobCostFixture(jobCostLines())
 	f.costResp.Unavailable = []string{"card"}
-	p := dashboardPerms("ops@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{2}, []int{2})
+	p := jobCostFullPerms()
 	got, err := svc.JobCostSummary(context.Background(), p, jobCostTrip)
 	if err != nil || !got.Incomplete || len(got.FailedSources) != 1 || got.FailedSources[0] != "card" {
 		t.Errorf("got %+v, %v", got, err)
+	}
+}
+
+func TestJobCostSummary_SplitFollowsTheCallersSectionRights(t *testing.T) {
+	svc, _ := jobCostFixture(append(jobCostLines(), entry("INV-9", "invoice", jobCostTrip, "2026-10-19", "GBP", 10)))
+	// View Invoices only: the invoice split, and nothing about the card line
+	// that could not be converted.
+	p := dashboardPerms("inv@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{2, 30}, []int{2, 30})
+	got, err := svc.JobCostSummary(context.Background(), p, jobCostTrip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalUSD != 200.99 {
+		t.Errorf("the total is for everyone: %v", got.TotalUSD)
+	}
+	if len(got.BySource) != 1 || got.BySource[0].Key != "invoice" || got.BySource[0].Lines != 4 {
+		t.Errorf("bySource = %+v, want the invoice split only", got.BySource)
+	}
+	if len(got.NotConverted) != 1 || got.NotConverted[0].Source != "invoice" || got.NotConverted[0].Currency != "GBP" {
+		t.Errorf("notConverted = %+v, want the invoice GBP line only", got.NotConverted)
+	}
+	if !got.HasUnconvertedHidden {
+		t.Error("hasUnconvertedHidden = false, the card line is hidden and unconverted")
+	}
+}
+
+func TestJobCostSummary_AgentSeesNoHiddenSourceDetail(t *testing.T) {
+	svc, f := jobCostFixture(jobCostLines())
+	f.costResp.Unavailable = []string{"card", "claim"}
+	p := dashboardPerms("agent@x.com", nil, nil, []int{18}, []int{18})
+	p.Agency = &domain.TravelAgency{ID: 7, Name: "Classic"}
+	got, err := svc.JobCostSummary(context.Background(), p, jobCostTrip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalUSD != 200.99 || got.BySource != nil {
+		t.Errorf("agent summary = %+v", got)
+	}
+	if len(got.NotConverted) != 0 || !got.HasUnconvertedHidden {
+		t.Errorf("notConverted = %+v, hidden = %v", got.NotConverted, got.HasUnconvertedHidden)
+	}
+	if len(got.FailedSources) != 0 || !got.Incomplete {
+		t.Errorf("failed = %v, incomplete = %v, want no names and incomplete", got.FailedSources, got.Incomplete)
+	}
+}
+
+// The traveller on their own trip (View Own Per Diems 37 and Invoices 38)
+// gets those sections, not the Expenses ones.
+func TestJobCostSummary_TravellerGetsWhatTheirRightsAllow(t *testing.T) {
+	svc, _ := jobCostFixture(jobCostLines())
+	p := dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel)
+	got, err := svc.JobCostSummary(context.Background(), p, jobCostTrip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{}
+	for _, b := range got.BySource {
+		keys = append(keys, b.Key)
+	}
+	if len(keys) != 2 || keys[0] != "invoice" || keys[1] != "perDiem" {
+		t.Errorf("sources = %v, want invoice and perDiem", keys)
+	}
+	if len(got.NotConverted) != 0 || !got.HasUnconvertedHidden {
+		t.Errorf("the unconverted card line must be hidden: %+v, %v", got.NotConverted, got.HasUnconvertedHidden)
 	}
 }

@@ -1473,7 +1473,9 @@ paths:
         per-line cent rounding as Travel Costs, so the figures equal Travel
         Costs filtered to this job over all its dates. Anyone who may open the
         request may ask (scope full, the assigned agency's agents, or the
-        traveller); the answer for another agency's trip is 403, as on the
+        traveller) and everyone gets the total. Below the total, each source
+        (split, unconverted amounts, failed source names) follows the caller's
+        right to view that section of the trip. The answer for another agency's trip is 403, as on the
         request itself. A travel agent gets `totalUsd` (with `notConverted`
         and `incomplete`) and never `bySource`. Audited as a View of
         `travel_cost` with the job number.
@@ -3283,12 +3285,12 @@ components:
         lines: { type: integer }
     JobCostSummary:
       type: object
-      required: [totalUsd, notConverted, incomplete, failedSources, dataAsOf]
+      required: [totalUsd, notConverted, hasUnconvertedHidden, incomplete, failedSources, dataAsOf]
       properties:
         totalUsd: { type: number, description: 'Sum of the per-line cent amounts of every converted line of the job.' }
         bySource:
           type: array
-          description: Never sent to a travel agent. All four sources, in screen order, even at zero.
+          description: Never sent to a travel agent. Only the sources whose section of the trip the caller may view (Per Diems, Travel Invoices, and Expenses for card spend and claims), in screen order, even at zero.
           items:
             type: object
             required: [key, label, usd, lines]
@@ -3297,9 +3299,10 @@ components:
               label: { type: string, description: 'Travel Invoices, Per Diems, Credit Card Expenses or Expense Claims.' }
               usd: { type: number }
               lines: { type: integer }
-        notConverted: { type: array, description: 'Left out of totalUsd.', items: { $ref: '#/components/schemas/CostNotConverted' } }
-        incomplete: { type: boolean, description: 'A source could not be read or the line cap was reached, so the total may be too low.' }
-        failedSources: { type: array, items: { type: string, enum: [invoice, perDiem, card, claim] } }
+        notConverted: { type: array, description: 'Left out of totalUsd. Only sources the caller may view are listed.', items: { $ref: '#/components/schemas/CostNotConverted' } }
+        hasUnconvertedHidden: { type: boolean, description: 'An amount in a source the caller may not view could not be converted. No detail is given.' }
+        incomplete: { type: boolean, description: 'Any source could not be read or the line cap was reached, so the total may be too low.' }
+        failedSources: { type: array, description: 'Only sources the caller may view are named.', items: { type: string, enum: [invoice, perDiem, card, claim] } }
         dataAsOf: { type: string, format: date-time }
     TravelCostSummary:
       type: object

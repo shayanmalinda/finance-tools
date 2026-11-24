@@ -329,10 +329,14 @@ type JobCostSource struct {
 // trip has cost so far, from the same lines and rates as Travel Costs.
 // BySource is left out for a travel agent.
 type JobCostSummary struct {
-	TotalUSD     float64            `json:"totalUsd"`
-	BySource     []JobCostSource    `json:"bySource,omitempty"`
-	NotConverted []CostNotConverted `json:"notConverted"`
-	// Incomplete is true when a source could not be read or the line cap was
+	TotalUSD float64         `json:"totalUsd"`
+	BySource []JobCostSource `json:"bySource,omitempty"`
+	// NotConverted and FailedSources name only the sources the caller may
+	// view. HasUnconvertedHidden says an amount in a source they may not view
+	// could not be converted, with no detail.
+	NotConverted         []CostNotConverted `json:"notConverted"`
+	HasUnconvertedHidden bool               `json:"hasUnconvertedHidden"`
+	// Incomplete is true when any source could not be read or the line cap was
 	// reached, so the total may be too low.
 	Incomplete    bool     `json:"incomplete"`
 	FailedSources []string `json:"failedSources"`

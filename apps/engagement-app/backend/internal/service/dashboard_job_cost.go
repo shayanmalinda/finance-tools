@@ -58,6 +58,7 @@ func (s *dashboardService) JobCostSummary(ctx context.Context, p domain.Perms, j
 
 	today := s.today()
 	from, to := jobCostRange(trip.StartDate, trip.EndDate, today)
+	visible := jobCostVisibleSources(p, scope)
 	out := &domain.JobCostSummary{NotConverted: []domain.CostNotConverted{}, FailedSources: []string{}}
 	var lines []costLine
 	var asOf time.Time
@@ -79,7 +80,7 @@ func (s *dashboardService) JobCostSummary(ctx context.Context, p domain.Perms, j
 		asOf = set.asOf
 		out.Incomplete = out.Incomplete || set.truncated || len(set.failed) > 0
 		for _, f := range set.failed {
-			if !contains(out.FailedSources, f) {
+			if visible[f] && !contains(out.FailedSources, f) {
 				out.FailedSources = append(out.FailedSources, f)
 			}
 		}
@@ -88,7 +89,19 @@ func (s *dashboardService) JobCostSummary(ctx context.Context, p domain.Perms, j
 
 	out.TotalUSD = dashboardRound(costStatsOf(lines).total)
 	out.DataAsOf = asOf.Format(time.RFC3339)
-	out.NotConverted = costNotConverted(lines)
+	// Only the total is for everyone who may open the request. Below it, a
+	// source's lines, amounts and name follow the caller's right to view that
+	// section of the trip.
+	var seen, hidden []costLine
+	for _, l := range lines {
+		if visible[l.e.Source] {
+			seen = append(seen, l)
+		} else {
+			hidden = append(hidden, l)
+		}
+	}
+	out.NotConverted = costNotConverted(seen)
+	out.HasUnconvertedHidden = len(costNotConverted(hidden)) > 0
 	if scope != domain.TravelScopeAgency && !p.IsAgent() {
 		sums, _, _ := costGroupSums(lines, sourceKey)
 		counts := map[string]int{}
@@ -97,12 +110,28 @@ func (s *dashboardService) JobCostSummary(ctx context.Context, p domain.Perms, j
 		}
 		out.BySource = []domain.JobCostSource{}
 		for _, src := range costSourceOrder {
+			if !visible[src] {
+				continue
+			}
 			out.BySource = append(out.BySource, domain.JobCostSource{
 				Key: src, Label: costSourceLabel[src], USD: dashboardRound(sums[src]), Lines: counts[src],
 			})
 		}
 	}
 	return out, nil
+}
+
+// jobCostVisibleSources are the sources whose section of this trip the caller
+// may open, by the trip page's own tab rules (travelTabs): Per Diems, Travel
+// Invoices, and the Expenses tab that lists card spend and expense claims.
+func jobCostVisibleSources(p domain.Perms, scope string) map[string]bool {
+	tabs := travelTabs(p, scope)
+	return map[string]bool{
+		domain.CostSourceInvoice: tabs.Invoices,
+		domain.CostSourcePerDiem: tabs.PerDiems,
+		domain.CostSourceCard:    tabs.Expenses,
+		domain.CostSourceClaim:   tabs.Expenses,
+	}
 }
 
 // jobCostRange is the dates to read: from a little before the trip starts to
