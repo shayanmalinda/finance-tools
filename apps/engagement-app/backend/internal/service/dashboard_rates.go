@@ -198,6 +198,11 @@ func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) 
 
 	rates, err := r.conv.Rates(ctx, p.Currency, p.Date)
 	if err != nil {
+		// A cancelled request or a spent budget says nothing about the rate
+		// service, so only an answer from the service itself is remembered.
+		if ctx.Err() != nil {
+			return 0, false
+		}
 		slog.WarnContext(ctx, "dashboard rate lookup failed", "currency", p.Currency, "date", p.Date, "err", err)
 		r.failed.Set(k, struct{}{})
 		return 0, false
