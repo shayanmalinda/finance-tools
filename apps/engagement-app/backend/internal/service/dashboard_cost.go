@@ -107,13 +107,15 @@ type costSet struct {
 
 func (s *dashboardService) costSetFor(ctx context.Context, from, to string) (*costSet, error) {
 	return s.costCache.get(ctx, from+"|"+to, func() (*costSet, error) {
-		ectx, cancel := context.WithTimeout(ctx, costEntityBudget)
+		// The load is shared with every caller that joined this key, so one caller leaving must not cancel it.
+		lctx := context.WithoutCancel(ctx)
+		ectx, cancel := context.WithTimeout(lctx, costEntityBudget)
 		defer cancel()
 		res, err := s.entity.DashboardCostLines(ectx, engagemententity.DashboardCostLinesFilter{From: from, To: to})
 		if err != nil {
 			return nil, err
 		}
-		return s.buildCostSet(ctx, res), nil
+		return s.buildCostSet(lctx, res), nil
 	})
 }
 
@@ -928,20 +930,21 @@ type costPrepared struct {
 	period     costPeriod
 	prevPeriod *costPeriod
 	allowed    []string
+	selected   []string // allowed narrowed by the source filter: the sources the figures really use
 	cur, prev  []costLine
 	facetLines []costLine
 	set        *costSet
 	prevSet    *costSet
 }
 
-// prevFailed is the sources the caller may see that could not be read for the comparison period.
+// prevFailed is the selected sources that could not be read for the comparison period.
 func (c *costPrepared) prevFailed() []string {
 	if c.prevSet == nil {
 		return nil
 	}
 	var out []string
 	for _, f := range c.prevSet.failed {
-		if contains(c.allowed, f) {
+		if contains(c.selected, f) {
 			out = append(out, f)
 		}
 	}
@@ -970,6 +973,23 @@ func (c *costPrepared) incompleteText() string {
 	return strings.Join(parts, ", ")
 }
 
+// costSelected narrows the allowed sources to the ones the filter asks for, or keeps them all when it asks for none.
+func costSelected(allowed, want []string) []string {
+	if len(want) == 0 {
+		return allowed
+	}
+	var out []string
+	for _, a := range allowed {
+		for _, w := range want {
+			if strings.EqualFold(a, w) {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	return out
+}
+
 func (s *dashboardService) prepare(ctx context.Context, p domain.Perms, q CostQuery) (*costPrepared, error) {
 	allowed, ok := costSources(p)
 	if !ok {
@@ -984,7 +1004,8 @@ func (s *dashboardService) prepare(ctx context.Context, p domain.Perms, q CostQu
 		return nil, err
 	}
 	trimmed := costTrim(curSet.lines, allowed)
-	out := &costPrepared{period: cur, prevPeriod: prevP, allowed: allowed, set: curSet, prevSet: prevSet, facetLines: trimmed,
+	out := &costPrepared{period: cur, prevPeriod: prevP, allowed: allowed, selected: costSelected(allowed, q.Filter.Sources),
+		set: curSet, prevSet: prevSet, facetLines: trimmed,
 		cur: costApply(trimmed, q.Filter)}
 	if prevSet != nil {
 		out.prev = costApply(costTrim(prevSet.lines, allowed), q.Filter)

@@ -3344,9 +3344,9 @@ components:
         paidSharePercent: { type: number, nullable: true, description: 'paid / (paid + nonPaid); null when both are 0.' }
         notConverted: { type: array, description: 'Left out of every USD figure; counted in trips and travellers.', items: { $ref: '#/components/schemas/CostNotConverted' } }
         failedSources: { type: array, description: 'Sources that could not be read (for example card and claim when expense_app is down); totals leave them out.', items: { $ref: '#/components/schemas/CostSource' } }
-        truncated: { type: boolean, description: A source hit the 20,000-line cap. }
+        truncated: { type: boolean, description: 'A source hit the 20,000-line cap.' }
         comparisonFailedSources: { type: array, description: 'Sources that could not be read for the comparison period. When any is listed, or comparisonTruncated is true, last year is incomplete and no change against it is given (previous and changePercent are null).', items: { $ref: '#/components/schemas/CostSource' } }
-        comparisonTruncated: { type: boolean, description: The comparison period hit the 20,000-line cap. }
+        comparisonTruncated: { type: boolean, description: 'The comparison period hit the 20,000-line cap.' }
         facets:
           type: object
           description: Built from the range's lines before the filters, so a filter list never empties itself.

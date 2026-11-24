@@ -855,3 +855,20 @@ func TestCostCSV_WriteSamples(t *testing.T) {
 	c, err = svc.CostTransactionsCSV(ctx, p, cq)
 	write(c, err, c.Filename)
 }
+
+func TestCostPrepared_ComparisonIgnoresSourcesOutsideTheFilter(t *testing.T) {
+	allowed := []string{"invoice", "card"}
+	prev := &costSet{failed: []string{"card"}}
+	cards := &costPrepared{allowed: allowed, selected: costSelected(allowed, []string{"invoice"}), prevSet: prev}
+	if !cards.comparable() {
+		t.Fatal("a card failure must not block an invoice-only comparison")
+	}
+	inv := &costPrepared{allowed: allowed, selected: costSelected(allowed, []string{"Invoice"}), prevSet: &costSet{failed: []string{"invoice"}}}
+	if inv.comparable() {
+		t.Fatal("an invoice failure must block an invoice comparison")
+	}
+	all := &costPrepared{allowed: allowed, selected: costSelected(allowed, nil), prevSet: prev}
+	if all.comparable() {
+		t.Fatal("with no source filter a card failure must block the comparison")
+	}
+}
