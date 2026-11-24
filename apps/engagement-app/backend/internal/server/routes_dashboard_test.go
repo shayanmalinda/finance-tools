@@ -195,7 +195,9 @@ func TestDashboardRoutes_TravelCostsCSV(t *testing.T) {
 		t.Fatalf("csv: %d %v", rec.Code, rec.Header())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Total USD,12.50") || !strings.Contains(body, "'=SUM(A1)") || strings.Contains(body, ",=SUM(A1)") {
+	// UTF-8 byte order mark first, then the header row of a plain table.
+	if !strings.HasPrefix(body, "\xEF\xBB\xBFDate,Source,Reference,") || !strings.Contains(body, ",12.50,USD,12.50,1,,Recorded in USD") ||
+		!strings.Contains(body, "'=SUM(A1)") || strings.Contains(body, ",=SUM(A1)") {
 		t.Errorf("csv body:\n%s", body)
 	}
 	rec = get(h, "/dashboard/travel-costs/transactions?from=2026-01-01&to=2026-11-05", "valid")
@@ -206,7 +208,7 @@ func TestDashboardRoutes_TravelCostsCSV(t *testing.T) {
 		t.Errorf("json total = %v %v", page.TotalUSD, err)
 	}
 	rec = get(h, "/dashboard/travel-costs?from=2026-01-01&to=2026-11-05&format=csv&section=kpis", "valid")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Total Spend (USD),12.50") {
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "\xEF\xBB\xBFReport,") || !strings.Contains(rec.Body.String(), "Total Spend (USD),12.50") {
 		t.Errorf("summary csv: %d %s", rec.Code, rec.Body)
 	}
 }

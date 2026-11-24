@@ -941,24 +941,21 @@ func (c *costPrepared) comparable() bool {
 	return c.prevSet == nil || (len(c.prevFailed()) == 0 && !c.prevSet.truncated)
 }
 
-// incompleteText names what is missing from the data, or is empty when nothing is.
+// incompleteText names what is missing from the data in one short phrase, or is empty when nothing is.
 func (c *costPrepared) incompleteText() string {
 	var parts []string
 	for _, f := range c.set.failed {
 		if contains(c.allowed, f) {
-			parts = append(parts, costSourceLabel[f]+" could not be read, so it is left out")
+			parts = append(parts, costSourceLabel[f]+" missing")
 		}
 	}
 	if c.set.truncated {
-		parts = append(parts, "a source hit the 20,000 line cap, so some lines are left out")
+		parts = append(parts, "20,000 line cap reached")
 	}
-	for _, f := range c.prevFailed() {
-		parts = append(parts, costSourceLabel[f]+" could not be read for the comparison period, so no change is shown")
+	if len(c.prevFailed()) > 0 || (c.prevSet != nil && c.prevSet.truncated) {
+		parts = append(parts, "Last year incomplete")
 	}
-	if c.prevSet != nil && c.prevSet.truncated {
-		parts = append(parts, "the comparison period hit the 20,000 line cap, so no change is shown")
-	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, ", ")
 }
 
 func (s *dashboardService) prepare(ctx context.Context, p domain.Perms, q CostQuery) (*costPrepared, error) {
@@ -1063,9 +1060,17 @@ func costPage[T any](list []T, limit, offset int) []T {
 }
 
 // ── CSV ─────────────────────────────────────────────────────────────────────
+//
+// Built for a spreadsheet user. Summary-type files start with a two-column
+// header block (a short label in column A, its value in column B), a blank
+// row, then titled sections, each with a real header row. The transactions
+// file is a plain table: header row first, nothing above it. Numbers are
+// plain (no thousands separators or symbols): money has 2 decimals, counts
+// are whole numbers, percentages have 1 decimal; the unit is in the header.
+// Dates are YYYY-MM-DD and months YYYY-MM. No cell holds a paragraph.
 
-// costRateRuleText is the one-line rule at the top of every cost CSV.
-const costRateRuleText = "Amounts recorded in USD, and card charges billed in USD, are used as they are. Other currencies are converted at NetSuite's month-end rate (today's rate for the current month)."
+// costRateRuleText is the value of the "How USD is calculated" row.
+const costRateRuleText = "USD amounts as recorded. Others at NetSuite month-end rate (today's rate for this month)"
 
 func money(v float64) string { return strconv.FormatFloat(dashboardRound(v), 'f', 2, 64) }
 
@@ -1112,33 +1117,34 @@ func costFilterText(f CostFilter) string {
 		parts = append(parts, "Unlinked=Yes")
 	}
 	if len(parts) == 0 {
-		return "none"
+		return "None"
 	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, ", ")
 }
 
+// costHeaderBlock is the two-column block at the top of a summary-type file.
 func costHeaderBlock(title string, pr *costPrepared, q CostQuery) [][]string {
 	f, t := pr.period.strings()
-	cmp := "none"
-	if pr.prevPeriod != nil {
-		pf, pt := pr.prevPeriod.strings()
-		cmp = pf + " to " + pt
-	}
 	rows := [][]string{
-		{costRateRuleText},
-		{title},
+		{"Report", title},
 		{"Date range", f + " to " + t},
-		{"Compared with", cmp},
-		{"Filters", costFilterText(q.Filter)},
-		{"Currency", "USD"},
-		{"Rate rule", "NetSuite month-end rate (today's rate for the current month)"},
-		{"Data as of", pr.set.asOf.Format("2006-01-02 15:04") + " UTC"},
 	}
+	if pr.prevPeriod != nil && q.Compare {
+		pf, pt := pr.prevPeriod.strings()
+		rows = append(rows, []string{"Compared with", pf + " to " + pt})
+	} else {
+		rows = append(rows, []string{"Compared with", "Not compared"})
+	}
+	rows = append(rows,
+		[]string{"Filters", costFilterText(q.Filter)},
+		[]string{"Amounts in", "USD"},
+		[]string{"How USD is calculated", costRateRuleText},
+	)
 	// A total with a source missing must not look complete to whoever reads the file.
 	if text := pr.incompleteText(); text != "" {
 		rows = append(rows, []string{"Incomplete data", text})
 	}
-	return rows
+	return append(rows, []string{"Data as of", pr.set.asOf.Format("2006-01-02 15:04") + " UTC"})
 }
 
 var costSectionTitle = map[string]string{
@@ -1147,14 +1153,38 @@ var costSectionTitle = map[string]string{
 	"byPaid": "Paid vs Non-Paid Engagements",
 }
 
+// costSectionLabel names the first column of a section.
+var costSectionLabel = map[string]string{
+	"bySource": "Source", "byCountry": "Country", "byCustomer": "Customer", "byTravelAgent": "Travel Agent",
+	"byCostType": "Cost Type", "byPaid": "Engagement Type",
+}
+
+// costSectionFile is the part of the file name of each export.
+var costSectionFile = map[string]string{
+	"summary": "Summary", "kpis": "Key_Figures", "bySource": "By_Source", "byMonth": "By_Month", "byCountry": "By_Country",
+	"byCustomer": "By_Customer", "byTravelAgent": "By_Travel_Agent", "byCostType": "By_Cost_Type", "byPaid": "Paid_vs_Non_Paid",
+	"transactions": "Transactions",
+}
+
 var costSectionOrder = []string{"kpis", "bySource", "byMonth", "byCountry", "byCustomer", "byTravelAgent", "byCostType", "byPaid"}
 
-func costBucketRows(bs []domain.CostBucket, extra ...string) [][]string {
-	head := []string{"Item", "This Period", "Last Year", "Change %"}
+// costCompareHead is the comparison columns, left out when there is no comparison.
+func costCompareHead(compare bool, unit string) []string {
+	if !compare {
+		return nil
+	}
+	return []string{"Last Year" + unit, "Change (%)"}
+}
+
+func costBucketRows(label string, bs []domain.CostBucket, compare bool, extra ...string) [][]string {
+	head := append([]string{label, "This Period (USD)"}, costCompareHead(compare, " (USD)")...)
 	head = append(head, extra...)
 	rows := [][]string{head}
 	for _, b := range bs {
-		r := []string{b.Label, money(b.Value), optMoney(b.Previous), optPct(b.ChangePercent)}
+		r := []string{b.Label, money(b.Value)}
+		if compare {
+			r = append(r, optMoney(b.Previous), optPct(b.ChangePercent))
+		}
 		for _, e := range extra {
 			switch e {
 			case "Trips":
@@ -1163,7 +1193,7 @@ func costBucketRows(bs []domain.CostBucket, extra ...string) [][]string {
 				} else {
 					r = append(r, "")
 				}
-			case "Average per Trip":
+			case "Average per Trip (USD)":
 				r = append(r, optMoney(b.AveragePerTrip))
 			}
 		}
@@ -1172,7 +1202,7 @@ func costBucketRows(bs []domain.CostBucket, extra ...string) [][]string {
 	return rows
 }
 
-func costSectionRows(section string, sum domain.TravelCostSummary, allowed []string) [][]string {
+func costSectionRows(section string, sum domain.TravelCostSummary, allowed []string, compare bool) [][]string {
 	switch section {
 	case "kpis":
 		k := sum.Kpis
@@ -1181,45 +1211,44 @@ func costSectionRows(section string, sum domain.TravelCostSummary, allowed []str
 			if isMoney {
 				fm = money
 			}
-			prev := ""
-			if v.Previous != nil {
-				prev = fm(*v.Previous)
+			r := []string{name, fm(v.Value)}
+			if compare {
+				prev := ""
+				if v.Previous != nil {
+					prev = fm(*v.Previous)
+				}
+				r = append(r, prev, optPct(v.ChangePercent))
 			}
-			return []string{name, fm(v.Value), prev, optPct(v.ChangePercent)}
+			return r
 		}
-		return [][]string{{"Item", "This Period", "Last Year", "Change %"},
+		return [][]string{append([]string{"Figure", "This Period"}, costCompareHead(compare, "")...),
 			row("Total Spend (USD)", k.Total, true), row("Trips", k.Trips, false), row("Average per Trip (USD)", k.AveragePerTrip, true),
 			row("Travellers", k.Travellers, false), row("Unlinked Spend (USD)", k.UnlinkedSpend, true)}
-	case "bySource":
-		return costBucketRows(sum.BySource)
+	case "bySource", "byCountry", "byCostType", "byPaid":
+		return costBucketRows(costSectionLabel[section], map[string][]domain.CostBucket{
+			"bySource": sum.BySource, "byCountry": sum.ByCountry, "byCostType": sum.ByCostType, "byPaid": sum.ByPaid}[section], compare)
 	case "byMonth":
 		head := []string{"Month"}
 		for _, s := range allowed {
-			head = append(head, costSourceLabel[s])
+			head = append(head, costSourceLabel[s]+" (USD)")
 		}
-		head = append(head, "Total")
+		head = append(head, "Total (USD)")
 		rows := [][]string{head}
 		for _, m := range sum.ByMonth {
 			r := []string{m.Month}
-			tot := 0.0
+			var cents int64
 			for _, s := range allowed {
-				v := m.Values[costSourceLabel[s]]
-				tot += v
+				v := dashboardRound(m.Values[costSourceLabel[s]])
+				cents += int64(math.Round(v * 100))
 				r = append(r, money(v))
 			}
-			rows = append(rows, append(r, money(tot)))
+			rows = append(rows, append(r, strconv.FormatFloat(float64(cents)/100, 'f', 2, 64)))
 		}
 		return rows
-	case "byCountry":
-		return costBucketRows(sum.ByCountry)
 	case "byCustomer":
-		return costBucketRows(sum.ByCustomer, "Trips")
+		return costBucketRows(costSectionLabel[section], sum.ByCustomer, compare, "Trips")
 	case "byTravelAgent":
-		return costBucketRows(sum.ByTravelAgent, "Trips", "Average per Trip")
-	case "byCostType":
-		return costBucketRows(sum.ByCostType)
-	case "byPaid":
-		return costBucketRows(sum.ByPaid)
+		return costBucketRows(costSectionLabel[section], sum.ByTravelAgent, compare, "Trips", "Average per Trip (USD)")
 	}
 	return nil
 }
@@ -1239,26 +1268,49 @@ func (s *dashboardService) TravelCostsCSV(ctx context.Context, p domain.Perms, q
 	if err != nil {
 		return nil, err
 	}
-	sum := costSummary(pr.cur, pr.prev, pr.facetLines, pr.allowed, pr.period, q.Compare && pr.comparable())
+	compare := q.Compare && pr.comparable()
+	sum := costSummary(pr.cur, pr.prev, pr.facetLines, pr.allowed, pr.period, compare)
 	f, t := pr.period.strings()
-	names := map[string]string{"summary": "Summary"}
-	for k := range costSectionTitle {
-		names[k] = strings.ToUpper(k[:1]) + k[1:]
-	}
 	secs := costSectionOrder
 	title := "Travel Costs Summary"
 	if section != "summary" {
 		secs = []string{section}
 		title = "Travel Costs: " + costSectionTitle[section]
 	}
-	rows := costHeaderBlock(title, pr, q)
+	// The header block must not claim a comparison that is not in the file.
+	hq := q
+	hq.Compare = compare
+	rows := costHeaderBlock(title, pr, hq)
 	for _, sec := range secs {
 		rows = append(rows, []string{}, []string{costSectionTitle[sec]})
-		rows = append(rows, costSectionRows(sec, sum, pr.allowed)...)
+		rows = append(rows, costSectionRows(sec, sum, pr.allowed, compare)...)
 	}
-	return &CostCSV{Filename: costFileName(names[section], f, t), Rows: rows}, nil
+	return &CostCSV{Filename: costFileName(costSectionFile[section], f, t), Rows: rows}, nil
 }
 
+// costHowConverted says in words how a line's USD amount came about.
+func costHowConverted(src *string) string {
+	if src == nil {
+		return "Not converted (no rate)"
+	}
+	switch *src {
+	case rateSourceRecorded:
+		return "Recorded in USD"
+	case rateSourceCard:
+		return "Billed in USD"
+	case rateSourceMonthEnd:
+		return "NetSuite month-end rate"
+	case rateSourceToday:
+		return "NetSuite rate of the day (current month)"
+	}
+	return *src
+}
+
+// costTransactionsHead is the one header row of the transactions file.
+var costTransactionsHead = []string{"Date", "Source", "Reference", "Travel Job Number", "Employee", "Email", "Destination Country", "Customer",
+	"Paid / Non-Paid", "Cost Type", "Amount", "Currency", "Amount (USD)", "Rate Used", "Rate Date", "How Converted"}
+
+// CostTransactionsCSV is a plain table, header row first, one row per line, newest first.
 func (s *dashboardService) CostTransactionsCSV(ctx context.Context, p domain.Perms, q CostQuery) (*CostCSV, error) {
 	pr, err := s.prepare(ctx, p, q)
 	if err != nil {
@@ -1266,17 +1318,7 @@ func (s *dashboardService) CostTransactionsCSV(ctx context.Context, p domain.Per
 	}
 	lines := append([]costLine(nil), pr.cur...)
 	costSortLines(lines, "-date")
-	total := 0.0
-	for _, l := range lines {
-		if l.converted {
-			total += l.usd.USD
-		}
-	}
-	rows := costHeaderBlock("Travel Costs Transactions", pr, q)
-	rows = append(rows, []string{"Total USD", money(total)}, []string{})
-	rows = append(rows, []string{"Line", "Source", "Reference", "Travel Job Number", "Traveller", "Traveller Email", "Date", "Cost Type", "Source Type",
-		"Destination Country", "Travel Agent", "Customer", "Engagement (Paid/Non-Paid/Unknown)", "Engagement ID", "Allocation Type",
-		"Original Currency", "Original Amount", "USD Amount", "Rate", "Rate Date", "Rate Source"})
+	rows := [][]string{costTransactionsHead}
 	str := func(s *string) string {
 		if s == nil {
 			return ""
@@ -1287,20 +1329,20 @@ func (s *dashboardService) CostTransactionsCSV(ctx context.Context, p domain.Per
 		v := costLineView(l)
 		name, email := "", ""
 		if v.Traveller != nil {
-			name, email = str(v.Traveller.Name), v.Traveller.Email
-		}
-		agent := ""
-		if v.TravelAgent != nil {
-			agent = v.TravelAgent.Name
+			name, email = strings.TrimSpace(str(v.Traveller.Name)), v.Traveller.Email
 		}
 		rate := ""
 		if v.Rate != nil {
 			rate = strconv.FormatFloat(*v.Rate, 'f', -1, 64)
 		}
-		rows = append(rows, []string{v.ID, costSourceLabel[v.Source], str(v.Reference), str(v.JobNumber), name, email, v.Date, v.CostType,
-			str(v.SourceType), str(v.Country), agent, str(v.Customer), costPaidLabel[v.Paid], str(v.EngagementID), str(v.AllocationType),
-			v.OriginalCurrency, money(v.OriginalAmount), optMoney(v.USDAmount), rate, str(v.RateDate), str(v.RateSource)})
+		ref := str(v.Reference)
+		if ref == "" {
+			ref = v.ID
+		}
+		rows = append(rows, []string{v.Date, costSourceLabel[v.Source], ref, str(v.JobNumber), name, email, strings.TrimSpace(str(v.Country)),
+			str(v.Customer), costPaidLabel[v.Paid], v.CostType, money(v.OriginalAmount), strings.ToUpper(v.OriginalCurrency),
+			optMoney(v.USDAmount), rate, str(v.RateDate), costHowConverted(v.RateSource)})
 	}
 	f, t := pr.period.strings()
-	return &CostCSV{Filename: costFileName("Transactions", f, t), Rows: rows}, nil
+	return &CostCSV{Filename: costFileName(costSectionFile["transactions"], f, t), Rows: rows}, nil
 }

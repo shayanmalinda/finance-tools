@@ -18,8 +18,11 @@ package service
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -255,7 +258,7 @@ func TestTravelCosts_Authorisation(t *testing.T) {
 	if c, err := svc.TravelCostsCSV(ctx, tsa, cq, ""); err != nil || len(c.Rows) < 10 {
 		t.Errorf("tsa summary csv: %v", err)
 	}
-	if c, err := svc.CostTransactionsCSV(ctx, tsa, cq); err != nil || len(c.Rows) < 10 {
+	if c, err := svc.CostTransactionsCSV(ctx, tsa, cq); err != nil || len(c.Rows) < 2 {
 		t.Errorf("tsa transactions csv: %v", err)
 	}
 	if page, err := svc.CostTransactions(ctx, tsa, cq, CostTransactionsQuery{}); err != nil || page.(domain.CostLinePage).Total != 4 {
@@ -430,14 +433,16 @@ func TestCostTotalsAgreeAndCacheIsNotMutated(t *testing.T) {
 		t.Error("bySource does not add up")
 	}
 	csvT, _ := svc.CostTransactionsCSV(ctx, tsaPerms(), q)
-	var totalRow []string
-	for _, r := range csvT.Rows {
-		if len(r) == 2 && r[0] == "Total USD" {
-			totalRow = r
-		}
+	// The file is a plain table: the header first, then one row per line, no total row.
+	if csvT.Rows[0][0] != "Date" || len(csvT.Rows) != 5 {
+		t.Errorf("transactions csv = %v", csvT.Rows)
 	}
-	if totalRow == nil || totalRow[1] != "390.00" {
-		t.Errorf("transactions csv total row = %v", totalRow)
+	var cents int64
+	for _, r := range csvT.Rows[1:] {
+		cents += csvCents(t, r[12])
+	}
+	if cents != 39000 {
+		t.Errorf("transactions rows sum %d cents, want 39000", cents)
 	}
 	if f.costCalls != 1 {
 		t.Errorf("entity calls = %d, want one for the whole sequence (60 s cached set)", f.costCalls)
@@ -447,6 +452,14 @@ func TestCostTotalsAgreeAndCacheIsNotMutated(t *testing.T) {
 	if len(set.lines) != 4 {
 		t.Errorf("cached set has %d lines", len(set.lines))
 	}
+}
+
+func csvText(c *CostCSV) string {
+	text := ""
+	for _, r := range c.Rows {
+		text += strings.Join(r, ",") + "\n"
+	}
+	return text
 }
 
 func TestCostCSV_HeaderAndSections(t *testing.T) {
@@ -460,31 +473,148 @@ func TestCostCSV_HeaderAndSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Filename != "Travel_Costs_Summary_2026-01-01_2026-11-05.csv" || !strings.HasPrefix(c.Rows[0][0], "Amounts recorded in USD") {
+	if c.Filename != "Travel_Costs_Summary_2026-01-01_2026-11-05.csv" || c.Rows[0][0] != "Report" || c.Rows[0][1] != "Travel Costs Summary" {
 		t.Errorf("file %s first row %v", c.Filename, c.Rows[0])
 	}
-	text := ""
-	for _, r := range c.Rows {
-		text += strings.Join(r, ",") + "\n"
-	}
-	for _, want := range []string{"Travel Costs Summary", "Date range,2026-01-01 to 2026-11-05", "Compared with,2025-01-01 to 2025-11-05",
-		"Filters,Source=Travel Invoices", "Currency,USD", "Rate rule,NetSuite month-end rate", "Data as of,2026-11-05 09:00 UTC",
-		"Item,This Period,Last Year,Change %", "Spend by Destination Country", "Month,Travel Invoices,Per Diems,Credit Card Expenses,Expense Claims,Total"} {
+	text := csvText(c)
+	for _, want := range []string{"Report,Travel Costs Summary", "Date range,2026-01-01 to 2026-11-05", "Compared with,2025-01-01 to 2025-11-05",
+		"Filters,Source=Travel Invoices", "Amounts in,USD", "How USD is calculated,USD amounts as recorded. Others at NetSuite month-end rate (today's rate for this month)",
+		"Data as of,2026-11-05 09:00 UTC",
+		"Key Figures\nFigure,This Period,Last Year,Change (%)", "Spend by Source\nSource,This Period (USD),Last Year (USD),Change (%)",
+		"Spend by Destination Country\nCountry,This Period (USD),Last Year (USD),Change (%)",
+		"Spend by Paid Customer\nCustomer,This Period (USD),Last Year (USD),Change (%),Trips",
+		"Travel Agent Comparison\nTravel Agent,This Period (USD),Last Year (USD),Change (%),Trips,Average per Trip (USD)",
+		"Spend by Month\nMonth,Travel Invoices (USD),Per Diems (USD),Credit Card Expenses (USD),Expense Claims (USD),Total (USD)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("summary csv lacks %q:\n%s", want, text)
 		}
 	}
+	// A blank row separates the header block from the sections; no "Item" header, no rate rule row, no hint row.
+	if c.Rows[6][0] != "Data as of" || len(c.Rows[7]) != 0 || strings.Contains(text, "Item,") || strings.Contains(text, "Rate rule") || strings.Contains(text, "Currency,") {
+		t.Errorf("header block shape:\n%s", text)
+	}
+	// Column A and every cell are short and there is no semicolon anywhere.
+	for _, r := range c.Rows {
+		for _, cell := range r {
+			if len(cell) > 100 || strings.Contains(cell, ";") {
+				t.Errorf("long or semicolon cell %q", cell)
+			}
+		}
+	}
 	one, err := svc.TravelCostsCSV(ctx, finPerms(39, 41), cq, "byCountry")
-	if err != nil || one.Filename != "Travel_Costs_ByCountry_2026-01-01_2026-11-05.csv" || strings.Contains(fmt.Sprint(one.Rows), "Spend by Source") {
+	if err != nil || one.Filename != "Travel_Costs_By_Country_2026-01-01_2026-11-05.csv" || strings.Contains(fmt.Sprint(one.Rows), "Spend by Source") || one.Rows[0][1] != "Travel Costs: Spend by Destination Country" {
 		t.Errorf("section csv: %v %v", one, err)
 	}
 	if _, err := svc.TravelCostsCSV(ctx, finPerms(39, 41), cq, "nope"); !dashboardIsValidation(err) {
 		t.Errorf("bad section: %v", err)
 	}
-	tx, _ := svc.CostTransactionsCSV(ctx, finPerms(39, 41), cq)
-	last := tx.Rows[len(tx.Rows)-1]
-	if len(last) != 21 || last[0] != "INV-1" || last[11] != "=cmd|' /C calc'!A0" || last[20] != "recorded" {
-		t.Errorf("transactions row = %v", last)
+}
+
+// With the comparison off the Last Year and Change columns are not printed at all.
+func TestCostCSV_NoComparisonLeavesOutTheColumns(t *testing.T) {
+	a := entry("INV-1", "invoice", "T1", "2026-10-01", "USD", 10)
+	svc, _ := costService([]engagemententity.DashboardCostEntry{a}, nil)
+	q := cq
+	q.Compare = false
+	c, err := svc.TravelCostsCSV(context.Background(), finPerms(39, 41), q, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := csvText(c)
+	if strings.Contains(text, "Last Year") || strings.Contains(text, "Change (%)") || !strings.Contains(text, "Compared with,Not compared") ||
+		!strings.Contains(text, "Figure,This Period\n") || !strings.Contains(text, "Source,This Period (USD)\n") ||
+		!strings.Contains(text, "Customer,This Period (USD),Trips\n") {
+		t.Errorf("compare off:\n%s", text)
+	}
+	for _, r := range c.Rows {
+		if len(r) > 1 && r[len(r)-1] == "" && r[0] != "Filters" {
+			t.Errorf("empty trailing cell in %v", r)
+		}
+	}
+}
+
+// Every total in the summary file equals the sum of its rows to the cent.
+func TestCostCSV_SummaryTotalsEqualTheRows(t *testing.T) {
+	var lines []engagemententity.DashboardCostEntry
+	for i := 0; i < 120; i++ {
+		src := []string{"invoice", "perDiem", "card", "claim"}[i%4]
+		lines = append(lines, entry(fmt.Sprintf("L-%d", i), src, "", fmt.Sprintf("2026-0%d-%02d", 1+i%9, 1+i%28), "LKR", float64(173+i*37)+0.19))
+	}
+	svc, _ := costService(lines, &fakeRates{rates: map[string]float64{"LKR": 311.377}})
+	q := cq
+	q.Compare = false
+	c, err := svc.TravelCostsCSV(context.Background(), tsaPerms(), q, "byMonth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var head []string
+	var grand, rowTotals int64
+	for _, r := range c.Rows {
+		if len(r) == 6 && r[0] == "Month" {
+			head = r
+			continue
+		}
+		if head == nil || len(r) != 6 {
+			continue
+		}
+		var sum int64
+		for _, v := range r[1:5] {
+			sum += csvCents(t, v)
+		}
+		if sum != csvCents(t, r[5]) {
+			t.Errorf("%s: sources sum %d, total %s", r[0], sum, r[5])
+		}
+		rowTotals += csvCents(t, r[5])
+	}
+	k, _ := svc.TravelCostsCSV(context.Background(), tsaPerms(), q, "kpis")
+	for _, r := range k.Rows {
+		if len(r) > 1 && r[0] == "Total Spend (USD)" {
+			grand = csvCents(t, r[1])
+		}
+	}
+	if grand == 0 || grand != rowTotals {
+		t.Errorf("key figure total %d cents, month rows %d", grand, rowTotals)
+	}
+}
+
+// The transactions file is a pure table with the agreed columns, in order.
+func TestCostTransactionsCSV_IsAPureTable(t *testing.T) {
+	a := entry("INV-1", "invoice", "TRV-1", "2026-10-01", "LKR", 90000)
+	a.Country, a.Customer, a.Paid, a.TravellerEmail = sptr(" India"), sptr("Acme, Inc"), "paid", sptr("jane@x.com")
+	b := entry("CC-1", "card", "", "2026-10-02", "LKR", 15000)
+	b.CCCurrency, b.CCAmount = "USD", 48.2
+	c := entry("PD-1", "perDiem", "TRV-1", "2026-10-03", "USD", 20)
+	d := entry("EC-1", "claim", "", "2026-10-04", "EUR", 5) // no rate
+	svc, _ := costService([]engagemententity.DashboardCostEntry{a, b, c, d}, &fakeRates{rates: map[string]float64{"LKR": 300}})
+	tx, err := svc.CostTransactionsCSV(context.Background(), finPerms(39, 41), cq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Date", "Source", "Reference", "Travel Job Number", "Employee", "Email", "Destination Country", "Customer", "Paid / Non-Paid",
+		"Cost Type", "Amount", "Currency", "Amount (USD)", "Rate Used", "Rate Date", "How Converted"}
+	if fmt.Sprint(tx.Rows[0]) != fmt.Sprint(want) || len(tx.Rows) != 5 {
+		t.Fatalf("rows = %v", tx.Rows)
+	}
+	for _, r := range tx.Rows {
+		if len(r) != len(want) {
+			t.Errorf("ragged row %v", r)
+		}
+	}
+	by := map[string][]string{}
+	for _, r := range tx.Rows[1:] {
+		by[r[2]] = r
+	}
+	if r := by["INV-1"]; r[0] != "2026-10-01" || r[6] != "India" || r[10] != "90000.00" || r[11] != "LKR" || r[12] != "300.00" || r[13] != "300" || r[14] == "" || r[15] != "NetSuite month-end rate" {
+		t.Errorf("converted row %v", r)
+	}
+	if r := by["CC-1"]; r[12] != "48.20" || r[15] != "Billed in USD" {
+		t.Errorf("card row %v", r)
+	}
+	if r := by["PD-1"]; r[12] != "20.00" || r[15] != "Recorded in USD" || r[13] != "1" || r[14] != "" {
+		t.Errorf("usd row %v", r)
+	}
+	if r := by["EC-1"]; r[12] != "" || r[15] != "Not converted (no rate)" {
+		t.Errorf("unconverted row %v", r)
 	}
 }
 
@@ -552,11 +682,12 @@ func TestTravelCosts_IncompleteLastYearGivesNoComparisonAndTheCsvSaysSo(t *testi
 	for _, r := range c.Rows {
 		text += strings.Join(r, ",") + "\n"
 	}
-	if !strings.Contains(text, "Incomplete data,") || !strings.Contains(text, "Expense Claims could not be read") || !strings.Contains(text, "Credit Card Expenses could not be read for the comparison period") {
+	if !strings.Contains(text, "Incomplete data,Expense Claims missing, Last year incomplete") && !strings.Contains(text, "Incomplete data,\"Expense Claims missing, Last year incomplete\"") {
 		t.Errorf("csv header lacks the incomplete data row:\n%s", text)
 	}
+	// The transactions file has no preamble to carry a note: it is only the table.
 	tx, err := svc.CostTransactionsCSV(context.Background(), finPerms(39, 41), cq)
-	if err != nil || !strings.Contains(fmt.Sprint(tx.Rows), "Incomplete data") {
+	if err != nil || tx.Rows[0][0] != "Date" {
 		t.Errorf("transactions csv: %v %v", tx.Rows, err)
 	}
 }
@@ -598,30 +729,15 @@ func TestCostTotalsEqualTheSumOfTheRoundedLines(t *testing.T) {
 	}
 	var csvCents int64
 	var rowsSeen int
-	var csvTotal int64
-	usdCol := -1
-	for _, r := range csvT.Rows {
-		if len(r) == 2 && r[0] == "Total USD" {
-			csvTotal = toCents(r[1])
-		}
-		if usdCol < 0 {
-			for i, c := range r {
-				if c == "USD Amount" {
-					usdCol = i
-				}
-			}
-			continue
-		}
-		if len(r) > usdCol && len(r) > 5 {
-			csvCents += toCents(r[usdCol])
-			rowsSeen++
-		}
+	if csvT.Rows[0][12] != "Amount (USD)" {
+		t.Fatalf("header = %v", csvT.Rows[0])
+	}
+	for _, r := range csvT.Rows[1:] {
+		csvCents += toCents(r[12])
+		rowsSeen++
 	}
 	if rowsSeen != len(lines) {
 		t.Fatalf("csv rows = %d, want %d", rowsSeen, len(lines))
-	}
-	if csvCents != csvTotal {
-		t.Errorf("csv rows sum %d cents, csv total %d", csvCents, csvTotal)
 	}
 	if got := toCents(strconv.FormatFloat(page.(domain.CostLinePage).TotalUSD, 'f', 2, 64)); got != csvCents {
 		t.Errorf("transactions header %d cents, rows %d", got, csvCents)
@@ -661,4 +777,81 @@ func TestCostTotalsEqualTheSumOfTheRoundedLines(t *testing.T) {
 			t.Errorf("groupBy %s sums to %d cents, rows %d", g, sum, csvCents)
 		}
 	}
+}
+
+func csvCents(t *testing.T, v string) int64 {
+	t.Helper()
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		t.Fatalf("not a number: %q", v)
+	}
+	return int64(math.Round(f * 100))
+}
+
+// TestCostCSV_WriteSamples writes one sample of every cost CSV when
+// CSV_SAMPLE_DIR is set (for review in Numbers or Excel); otherwise it skips.
+func TestCostCSV_WriteSamples(t *testing.T) {
+	dir := os.Getenv("CSV_SAMPLE_DIR")
+	if dir == "" {
+		t.Skip("CSV_SAMPLE_DIR not set")
+	}
+	var lines []engagemententity.DashboardCostEntry
+	countries := []string{"India", "Japan", "United Kingdom", "Sri Lanka"}
+	customers := []string{"Acme, Inc", "Zürich Bank", "Globex"}
+	for i := 0; i < 60; i++ {
+		src := []string{"invoice", "perDiem", "card", "claim"}[i%4]
+		year := 2026
+		if i%3 == 0 {
+			year = 2025
+		}
+		cur := []string{"LKR", "USD", "LKR", "USD"}[i%4]
+		e := entry(fmt.Sprintf("%s-%d", map[string]string{"invoice": "INV", "perDiem": "PD", "card": "CC", "claim": "EC"}[src], i), src, fmt.Sprintf("TRV-%d", i%7), fmt.Sprintf("%d-%02d-%02d", year, 1+i%10, 1+i%27), cur, float64(1500+i*173)+0.37)
+		e.Country, e.Customer, e.Paid = sptr(countries[i%4]), sptr(customers[i%3]), []string{"paid", "nonPaid", "unknown"}[i%3]
+		e.TravelAgentID, e.TravelAgentName, e.TravellerEmail = iptr(1+i%2), sptr([]string{"Classic Travels", "Skyline"}[i%2]), sptr(fmt.Sprintf("user%d@example.com", i%5))
+		if src == "card" && i%8 == 2 {
+			e.CCCurrency, e.CCAmount = "USD", 48.2
+		}
+		lines = append(lines, e)
+	}
+	// Each period gets only its own year's lines, so the comparison columns differ.
+	f := &fakeDashboardEntity{costFn: func(fl engagemententity.DashboardCostLinesFilter) *engagemententity.DashboardCostLines {
+		var in []engagemententity.DashboardCostEntry
+		for _, e := range lines {
+			if e.Date >= fl.From && e.Date <= fl.To {
+				in = append(in, e)
+			}
+		}
+		return &engagemententity.DashboardCostLines{Items: in}
+	}}
+	svc := NewDashboardService(f, nil, &fakeRates{rates: map[string]float64{"LKR": 311.377}}, dashboardNow)
+	ctx := context.Background()
+	write := func(c *CostCSV, err error, name string) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b strings.Builder
+		b.WriteString("\xEF\xBB\xBF")
+		w := csv.NewWriter(&b)
+		for _, r := range c.Rows {
+			_ = w.Write(r)
+		}
+		w.Flush()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := tsaPerms()
+	c, err := svc.TravelCostsCSV(ctx, p, cq, "")
+	write(c, err, c.Filename)
+	for _, sec := range costSectionOrder {
+		c, err := svc.TravelCostsCSV(ctx, p, cq, sec)
+		write(c, err, c.Filename)
+	}
+	nq := cq
+	nq.Compare = false
+	c, err = svc.TravelCostsCSV(ctx, p, nq, "")
+	write(c, err, "NoComparison_"+c.Filename)
+	c, err = svc.CostTransactionsCSV(ctx, p, cq)
+	write(c, err, c.Filename)
 }

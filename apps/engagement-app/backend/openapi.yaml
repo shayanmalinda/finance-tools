@@ -381,8 +381,14 @@ paths:
         A finance caller who is not a Travel Super Admin sees invoices with
         own Travel 39 or 30, per diems with 41 or 42, and always cards and
         claims. A Travel Super Admin sees all four sources, employee-level
-        data included. `format=csv` returns the same figures as a CSV with a
-        header block (its first line is the USD rule, then the title, range, comparison, filters, currency, rate rule and data time, then an `Incomplete data` row when a source could not be read or hit the cap) and is audited.
+        data included. `format=csv` returns the same figures as a UTF-8 CSV (with a byte order mark)
+        for a spreadsheet: a two-column header block (Report, Date range, Compared with, Filters, Amounts in,
+        How USD is calculated, an `Incomplete data` row only when a source could not be read or hit the cap, Data as of),
+        a blank row, then titled sections, each with a header row that names every column (for example
+        `Source, This Period (USD), Last Year (USD), Change (%)`). There is no long text in column A. The Last Year and
+        Change columns are left out when the comparison is off or not available. Numbers are plain (money 2 decimals,
+        percentages 1 decimal, no separators or symbols), dates YYYY-MM-DD, months YYYY-MM. It is audited. File name
+        `Travel_Costs_<Summary|Key_Figures|By_Source|By_Month|By_Country|By_Customer|By_Travel_Agent|By_Cost_Type|Paid_vs_Non_Paid>_{from}_{to}.csv`.
       operationId: getTravelCosts
       x-privileges: { travel: [39, 41] }
       parameters:
@@ -424,8 +430,11 @@ paths:
         `groupBy`, one row per cost line (invoice, per diem payment, card
         transaction, expense claim) with its original amount, USD amount, rate
         and rate source. With `groupBy`, one row per group. `format=csv`
-        ignores paging and `groupBy` and returns every filtered line, with a
-        `Total USD` row in the header block; it is audited. Computed from the
+        ignores paging and `groupBy` and returns every filtered line as a plain UTF-8 table (byte order mark, then the header row, no
+        preamble, no total row) with the columns Date, Source, Reference, Travel Job Number, Employee, Email,
+        Destination Country, Customer, Paid / Non-Paid, Cost Type, Amount, Currency, Amount (USD), Rate Used, Rate Date,
+        How Converted (Recorded in USD, Billed in USD or NetSuite month-end rate); newest first. The file name
+        `Travel_Costs_Transactions_{from}_{to}.csv` carries the range. It is audited. Computed from the
         same cached line set as the summary, so totals agree.
       operationId: listTravelCostTransactions
       x-privileges: { travel: [39, 41] }

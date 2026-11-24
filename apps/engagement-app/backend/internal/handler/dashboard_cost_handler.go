@@ -68,10 +68,10 @@ func costQuery(r *http.Request) (service.CostQuery, error) {
 
 func writeCostCSV(w http.ResponseWriter, c *service.CostCSV) {
 	if len(c.Rows) == 0 {
-		writeCSV(w, c.Filename, nil, nil)
+		writeCSVFile(w, c.Filename, nil, nil, true)
 		return
 	}
-	writeCSV(w, c.Filename, c.Rows[0], c.Rows[1:])
+	writeCSVFile(w, c.Filename, c.Rows[0], c.Rows[1:], true)
 }
 
 // TravelCosts handles GET /dashboard/travel-costs.

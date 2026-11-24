@@ -177,10 +177,23 @@ func reportCSV(r *http.Request) (bool, error) {
 
 // writeCSV writes an RFC 4180 CSV attachment.
 func writeCSV(w http.ResponseWriter, filename string, header []string, rows [][]string) {
+	writeCSVFile(w, filename, header, rows, false)
+}
+
+// utf8BOM makes Excel and Numbers read a CSV as UTF-8 (names with accents).
+const utf8BOM = "\xEF\xBB\xBF"
+
+// writeCSVFile is writeCSV, optionally starting with a UTF-8 byte order mark.
+func writeCSVFile(w http.ResponseWriter, filename string, header []string, rows [][]string, bom bool) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+	if bom {
+		_, _ = w.Write([]byte(utf8BOM))
+	}
 	cw := csv.NewWriter(w)
-	_ = cw.Write(header)
+	if header != nil {
+		_ = cw.Write(header)
+	}
 	for _, row := range rows {
 		_ = cw.Write(neutraliseFormulas(row))
 	}
