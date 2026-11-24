@@ -28,6 +28,10 @@ import (
 const (
 	costSetCacheSize = 8
 	costSetCacheTTL  = 60 * time.Second
+	// costSetMaxLoads bounds how many different cost sets one pod reads at
+	// once, whatever the output format; each holds up to a whole year of
+	// lines. A request over the bound waits for a slot until its ctx ends.
+	costSetMaxLoads = 3
 )
 
 // costSetCache is a small LRU with a TTL. cache.Cache has no size bound, and
@@ -41,6 +45,7 @@ type costSetCache struct {
 	items    map[string]*costSetEntry
 	order    []string // least recently used first
 	inflight map[string]*costSetCall
+	loads    chan struct{}
 }
 
 type costSetEntry struct {
@@ -61,6 +66,7 @@ func newCostSetCache(size int, ttl time.Duration, now func() time.Time) *costSet
 	return &costSetCache{
 		size: size, ttl: ttl, now: now,
 		items: map[string]*costSetEntry{}, inflight: map[string]*costSetCall{},
+		loads: make(chan struct{}, costSetMaxLoads),
 	}
 }
 
@@ -77,7 +83,8 @@ func (c *costSetCache) touch(key string) {
 // get returns the cached set for key, or runs load once for all callers that
 // ask at the same time and caches its result (a failure is not cached). A
 // caller that joins a load in flight stops waiting when its own ctx ends;
-// the load goes on for the others.
+// the load goes on for the others. At most costSetMaxLoads different keys
+// load at once; a new key waits for a slot while its ctx lasts.
 func (c *costSetCache) get(ctx context.Context, key string, load func() (*costSet, error)) (*costSet, error) {
 	c.mu.Lock()
 	if e, ok := c.items[key]; ok && c.now().Before(e.expires) {
@@ -98,7 +105,19 @@ func (c *costSetCache) get(ctx context.Context, key string, load func() (*costSe
 	c.inflight[key] = call
 	c.mu.Unlock()
 
+	select {
+	case c.loads <- struct{}{}:
+	case <-ctx.Done():
+		// No slot in time: let anyone who joined this key retry; nothing is cached.
+		call.err = ctx.Err()
+		c.mu.Lock()
+		delete(c.inflight, key)
+		c.mu.Unlock()
+		close(call.done)
+		return nil, call.err
+	}
 	call.set, call.err = load()
+	<-c.loads
 
 	c.mu.Lock()
 	delete(c.inflight, key)

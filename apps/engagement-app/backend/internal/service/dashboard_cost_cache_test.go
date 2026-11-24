@@ -59,3 +59,39 @@ func TestCostSetCache_WaiterStopsWhenItsContextEnds(t *testing.T) {
 		t.Errorf("leader error = %v", err)
 	}
 }
+
+// Different keys load at most costSetMaxLoads at once; one more waits for a
+// slot, gives up when its request ends, and loads once a slot frees.
+func TestCostSetCache_BoundsConcurrentLoads(t *testing.T) {
+	c := newCostSetCache(8, time.Minute, nil)
+	release := make(chan struct{})
+	started := make(chan struct{}, costSetMaxLoads)
+	done := make(chan struct{}, costSetMaxLoads)
+	for i := 0; i < costSetMaxLoads; i++ {
+		key := string(rune('a' + i))
+		go func() {
+			_, _ = c.get(context.Background(), key, func() (*costSet, error) {
+				started <- struct{}{}
+				<-release
+				return &costSet{}, nil
+			})
+			done <- struct{}{}
+		}()
+	}
+	for i := 0; i < costSetMaxLoads; i++ {
+		<-started
+	}
+	ran := false
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := c.get(ctx, "extra", func() (*costSet, error) { ran = true; return &costSet{}, nil }); err == nil || ran {
+		t.Fatalf("over the bound: err = %v, ran = %v; want a ctx error and no load", err, ran)
+	}
+	close(release)
+	for i := 0; i < costSetMaxLoads; i++ {
+		<-done
+	}
+	if _, err := c.get(context.Background(), "extra", func() (*costSet, error) { ran = true; return &costSet{}, nil }); err != nil || !ran {
+		t.Fatalf("after a slot frees: err = %v, ran = %v", err, ran)
+	}
+}
