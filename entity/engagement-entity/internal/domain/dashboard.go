@@ -271,27 +271,15 @@ type DashboardEngagements struct {
 
 // ── Travel agent dashboard ──────────────────────────────────────────────────
 
-// DashboardAgencyPerDiem is a per diem row on an open trip of the agency.
-type DashboardAgencyPerDiem struct {
-	JobNumber      string   `json:"jobNumber"`
-	TravellerEmail string   `json:"travellerEmail"`
-	StartDate      *string  `json:"startDate"`
-	EndDate        *string  `json:"endDate"`
-	Days           *int     `json:"days"`
-	Currency       *string  `json:"currency"`
-	Total          *float64 `json:"total"`
-}
-
 // DashboardAgency is the travel agent dashboard: only the agency's own trips
 // (travel.travel_agent_id) and the invoices its people added.
 type DashboardAgency struct {
-	InProgress              int                      `json:"inProgress"`
-	StartingIn7Days         int                      `json:"startingIn7Days"`
-	StartingIn30Days        int                      `json:"startingIn30Days"`
-	CompletedWithoutInvoice int                      `json:"completedWithoutInvoice"`
-	UpcomingTotal           int                      `json:"upcomingTotal"`
-	Upcoming                []DashboardTrip          `json:"upcoming"`
-	InvoicesByStatus        []DashboardCount         `json:"invoicesByStatus"`
-	TripsByMonth            []DashboardCount         `json:"tripsByMonth"`
-	PerDiemsOnOpenTrips     []DashboardAgencyPerDiem `json:"perDiemsOnOpenTrips"`
+	InProgress              int              `json:"inProgress"`
+	StartingIn7Days         int              `json:"startingIn7Days"`
+	StartingIn30Days        int              `json:"startingIn30Days"`
+	CompletedWithoutInvoice int              `json:"completedWithoutInvoice"`
+	UpcomingTotal           int              `json:"upcomingTotal"`
+	Upcoming                []DashboardTrip  `json:"upcoming"`
+	InvoicesByStatus        []DashboardCount `json:"invoicesByStatus"`
+	TripsByMonth            []DashboardCount `json:"tripsByMonth"`
 }

@@ -260,9 +260,6 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 		for i := range agent.Upcoming {
 			people = append(people, &agent.Upcoming[i].Traveller)
 		}
-		for i := range agent.PerDiemsOnOpenTrips {
-			people = append(people, &agent.PerDiemsOnOpenTrips[i].Traveller)
-		}
 		s.people.fillNames(ctx, people...)
 		return domain.Dashboard{Date: todayStr, Agent: agent, FailedSections: []string{}, Widgets: []domain.DashboardWidget{}}, nil
 	}
@@ -847,9 +844,8 @@ func (s *dashboardService) agent(ctx context.Context, p domain.Perms, todayStr s
 		Agency: p.Agency.Name, InProgress: a.InProgress, StartingIn7Days: a.StartingIn7Days,
 		CompletedWithoutInvoice: a.CompletedWithoutInvoice,
 		UpcomingTotal:           a.UpcomingTotal, Upcoming: []domain.DashboardAgentTrip{},
-		InvoicesByStatus:    dashboardCountBuckets(a.InvoicesByStatus, 0),
-		TripsByMonth:        dashboardMonthSeries(a.TripsByMonth, dashboardMonths(today), "Trips"),
-		PerDiemsOnOpenTrips: []domain.DashboardAgentPerDiem{},
+		InvoicesByStatus: dashboardCountBuckets(a.InvoicesByStatus, 0),
+		TripsByMonth:     dashboardMonthSeries(a.TripsByMonth, dashboardMonths(today), "Trips"),
 	}
 	for _, c := range a.InvoicesByStatus {
 		if c.Label == "Rejected by travel" || c.Label == "Rejected by finance" {
@@ -860,12 +856,6 @@ func (s *dashboardService) agent(ctx context.Context, p domain.Perms, todayStr s
 		out.Upcoming = append(out.Upcoming, domain.DashboardAgentTrip{
 			JobNumber: t.JobNumber, Status: t.Status, Traveller: domain.Person{Email: t.TravellerEmail},
 			City: t.City, Country: t.Country, StartDate: t.StartDate, EndDate: t.EndDate,
-		})
-	}
-	for _, pd := range a.PerDiemsOnOpenTrips {
-		out.PerDiemsOnOpenTrips = append(out.PerDiemsOnOpenTrips, domain.DashboardAgentPerDiem{
-			JobNumber: pd.JobNumber, Traveller: domain.Person{Email: pd.TravellerEmail},
-			StartDate: pd.StartDate, EndDate: pd.EndDate, Days: pd.Days, Currency: pd.Currency, Total: pd.Total,
 		})
 	}
 	return out, nil

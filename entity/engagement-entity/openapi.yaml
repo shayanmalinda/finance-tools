@@ -5565,32 +5565,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DashboardCount'
-        perDiemsOnOpenTrips:
-          type: array
-          items:
-            type: object
-            properties:
-              jobNumber:
-                type: string
-              travellerEmail:
-                type: string
-              startDate:
-                type: string
-                format: date
-                nullable: true
-              endDate:
-                type: string
-                format: date
-                nullable: true
-              days:
-                type: integer
-                nullable: true
-              currency:
-                type: string
-                nullable: true
-              total:
-                type: number
-                nullable: true
   requestBodies:
     Actor:
       required: true

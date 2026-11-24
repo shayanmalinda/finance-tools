@@ -3064,18 +3064,6 @@ components:
             upcomingTotal: { type: integer }
             invoicesByStatus: { type: array, items: { $ref: '#/components/schemas/Bucket' }, description: 'Legacy invoice status values.' }
             tripsByMonth: { type: array, items: { $ref: '#/components/schemas/SeriesPoint' }, description: 'values.Trips per start month.' }
-            perDiemsOnOpenTrips:
-              type: array
-              items:
-                type: object
-                properties:
-                  jobNumber: { type: string }
-                  traveller: { $ref: '#/components/schemas/Person' }
-                  startDate: { type: string, format: date, nullable: true }
-                  endDate: { type: string, format: date, nullable: true }
-                  days: { type: integer, nullable: true }
-                  currency: { type: string, nullable: true }
-                  total: { type: number, nullable: true }
     AllocationsToday:
       type: object
       required: [date, allocations, consultants, paid, nonPaid, byEngagementType, paidByAllocationType, nonPaidByAllocationType]

@@ -260,28 +260,16 @@ type DashboardEngagements struct {
 	Trend             *DashboardTrend       `json:"trend"`
 }
 
-// DashboardAgencyPerDiem is a per diem row on an open trip of the agency.
-type DashboardAgencyPerDiem struct {
-	JobNumber      string   `json:"jobNumber"`
-	TravellerEmail string   `json:"travellerEmail"`
-	StartDate      *string  `json:"startDate"`
-	EndDate        *string  `json:"endDate"`
-	Days           *int     `json:"days"`
-	Currency       *string  `json:"currency"`
-	Total          *float64 `json:"total"`
-}
-
 // DashboardAgency is GET /dashboard/agency.
 type DashboardAgency struct {
-	InProgress              int                      `json:"inProgress"`
-	StartingIn7Days         int                      `json:"startingIn7Days"`
-	StartingIn30Days        int                      `json:"startingIn30Days"`
-	CompletedWithoutInvoice int                      `json:"completedWithoutInvoice"`
-	UpcomingTotal           int                      `json:"upcomingTotal"`
-	Upcoming                []DashboardTrip          `json:"upcoming"`
-	InvoicesByStatus        []DashboardCount         `json:"invoicesByStatus"`
-	TripsByMonth            []DashboardCount         `json:"tripsByMonth"`
-	PerDiemsOnOpenTrips     []DashboardAgencyPerDiem `json:"perDiemsOnOpenTrips"`
+	InProgress              int              `json:"inProgress"`
+	StartingIn7Days         int              `json:"startingIn7Days"`
+	StartingIn30Days        int              `json:"startingIn30Days"`
+	CompletedWithoutInvoice int              `json:"completedWithoutInvoice"`
+	UpcomingTotal           int              `json:"upcomingTotal"`
+	Upcoming                []DashboardTrip  `json:"upcoming"`
+	InvoicesByStatus        []DashboardCount `json:"invoicesByStatus"`
+	TripsByMonth            []DashboardCount `json:"tripsByMonth"`
 }
 
 func dashboardSetBool(q url.Values, key string, v bool) {

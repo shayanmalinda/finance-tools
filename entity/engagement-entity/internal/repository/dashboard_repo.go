@@ -79,7 +79,6 @@ type DashboardRepository interface {
 	AgencyKPIs(ctx context.Context, agencyID int, w DashboardWindow) (DashboardAgencyKPIs, error)
 	AgencyInvoicesByStatus(ctx context.Context, agencyID int) ([]domain.DashboardCount, error)
 	AgencyTripsByMonth(ctx context.Context, agencyID int, w DashboardWindow) ([]domain.DashboardCount, error)
-	AgencyPerDiems(ctx context.Context, agencyID, limit int) ([]domain.DashboardAgencyPerDiem, error)
 
 	// expense_app
 	CardLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error)

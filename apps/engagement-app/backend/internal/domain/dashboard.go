@@ -174,29 +174,17 @@ type DashboardAllocationsOverTime struct {
 	ByBusinessUnit []DashboardBucket      `json:"byBusinessUnit"`
 }
 
-// DashboardAgentPerDiem is a per diem on an open trip of the agency.
-type DashboardAgentPerDiem struct {
-	JobNumber string   `json:"jobNumber"`
-	Traveller Person   `json:"traveller"`
-	StartDate *string  `json:"startDate"`
-	EndDate   *string  `json:"endDate"`
-	Days      *int     `json:"days"`
-	Currency  *string  `json:"currency"`
-	Total     *float64 `json:"total"`
-}
-
 // DashboardAgent is the travel agent dashboard.
 type DashboardAgent struct {
-	Agency                  string                  `json:"agency"`
-	InProgress              int                     `json:"inProgress"`
-	StartingIn7Days         int                     `json:"startingIn7Days"`
-	CompletedWithoutInvoice int                     `json:"completedWithoutInvoice"`
-	InvoicesRejected        int                     `json:"invoicesRejected"`
-	Upcoming                []DashboardAgentTrip    `json:"upcoming"`
-	UpcomingTotal           int                     `json:"upcomingTotal"`
-	InvoicesByStatus        []DashboardBucket       `json:"invoicesByStatus"`
-	TripsByMonth            []DashboardSeriesPoint  `json:"tripsByMonth"`
-	PerDiemsOnOpenTrips     []DashboardAgentPerDiem `json:"perDiemsOnOpenTrips"`
+	Agency                  string                 `json:"agency"`
+	InProgress              int                    `json:"inProgress"`
+	StartingIn7Days         int                    `json:"startingIn7Days"`
+	CompletedWithoutInvoice int                    `json:"completedWithoutInvoice"`
+	InvoicesRejected        int                    `json:"invoicesRejected"`
+	Upcoming                []DashboardAgentTrip   `json:"upcoming"`
+	UpcomingTotal           int                    `json:"upcomingTotal"`
+	InvoicesByStatus        []DashboardBucket      `json:"invoicesByStatus"`
+	TripsByMonth            []DashboardSeriesPoint `json:"tripsByMonth"`
 }
 
 // Dashboard is GET /dashboard. Absent sections are not shown.

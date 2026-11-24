@@ -380,11 +380,6 @@ func TestDashboardAgency(t *testing.T) {
 	m.travel.ExpectQuery(re(`WHERE t.travel_agent_id = ? AND COALESCE(t.status, '') != 'Cancelled' AND t.start_date >= ? AND t.start_date < ?`)).
 		WithArgs(2, w.YearStart, w.Tomorrow).
 		WillReturnRows(sqlmock.NewRows([]string{"m", "n"}).AddRow("2026-10", 4))
-	m.travel.ExpectQuery(re(`WHERE t.travel_agent_id = ? AND t.status IN ('In Progress', 'Extended') AND pa.status = 'Active'`)).
-		WithArgs(2, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"j", "e", "s", "en", "d", "c", "t"}).
-			AddRow("TRV-2026-10-1246", "jane@example.com", "2026-10-06", "2026-10-16", 11, "GBP", 770.0).
-			AddRow("TRV-2026-10-1247", "member@example.com", nil, nil, nil, nil, nil))
 
 	k, err := m.repo.AgencyKPIs(context.Background(), 2, w)
 	if err != nil || k != (DashboardAgencyKPIs{3, 1, 2, 1, 6}) {
@@ -397,10 +392,6 @@ func TestDashboardAgency(t *testing.T) {
 	bm, err := m.repo.AgencyTripsByMonth(context.Background(), 2, w)
 	if err != nil || len(bm) != 1 {
 		t.Fatalf("AgencyTripsByMonth = %+v, %v", bm, err)
-	}
-	pd, err := m.repo.AgencyPerDiems(context.Background(), 2, 5)
-	if err != nil || len(pd) != 2 || *pd[0].Days != 11 || *pd[0].Total != 770 || pd[1].Total != nil {
-		t.Fatalf("AgencyPerDiems = %+v, %v", pd, err)
 	}
 	m.verify(t)
 }

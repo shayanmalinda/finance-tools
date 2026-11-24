@@ -39,7 +39,7 @@ func TestDashboardClient_PathsAndDecoding(t *testing.T) {
 		case "/dashboard/engagements":
 			_, _ = w.Write([]byte(`{"startingSoon":[],"startingSoonTotal":0,"trend":{"byMonth":[],"byBusinessUnit":[]}}`))
 		case "/dashboard/agency":
-			_, _ = w.Write([]byte(`{"inProgress":2,"upcoming":[],"invoicesByStatus":[],"tripsByMonth":[],"perDiemsOnOpenTrips":[]}`))
+			_, _ = w.Write([]byte(`{"inProgress":2,"upcoming":[],"invoicesByStatus":[],"tripsByMonth":[]}`))
 		default:
 			http.NotFound(w, r)
 		}

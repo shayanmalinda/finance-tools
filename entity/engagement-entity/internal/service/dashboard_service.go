@@ -53,8 +53,6 @@ const (
 	dashboardUpcomingLimit = 5
 	// dashboardStartingSoonLimit is the length of "Starting in the Next 30 Days".
 	dashboardStartingSoonLimit = 6
-	// dashboardPerDiemLimit is the length of "Per Diems on Open Trips".
-	dashboardPerDiemLimit = 5
 )
 
 type dashboardService struct {
@@ -310,9 +308,6 @@ func (s *dashboardService) Agency(ctx context.Context, agencyID int, todayStr st
 		return domain.DashboardAgency{}, err
 	}
 	if out.TripsByMonth, err = s.repo.AgencyTripsByMonth(ctx, agencyID, w); err != nil {
-		return domain.DashboardAgency{}, err
-	}
-	if out.PerDiemsOnOpenTrips, err = s.repo.AgencyPerDiems(ctx, agencyID, dashboardPerDiemLimit); err != nil {
 		return domain.DashboardAgency{}, err
 	}
 	return out, nil
