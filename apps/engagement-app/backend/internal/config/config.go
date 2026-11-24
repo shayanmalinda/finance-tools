@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -78,6 +79,11 @@ type Config struct {
 	// once (REPORT_MAX_CONCURRENT, default 2); each holds a whole report in
 	// memory.
 	ReportMaxConcurrent int
+
+	// AccessRequestEmail (ACCESS_REQUEST_EMAIL) is where people without
+	// Finance-side access are told to write. Optional; unset, the webapp
+	// leaves the line out.
+	AccessRequestEmail string
 }
 
 // JWTConfig is how the caller's token is verified. There is no switch that
@@ -295,6 +301,7 @@ func Load() (*Config, error) {
 		Currency:            currency,
 		CORSAllowedOrigins:  getList("CORS_ALLOWED_ORIGINS"),
 		ReportMaxConcurrent: reportMax,
+		AccessRequestEmail:  strings.TrimSpace(os.Getenv("ACCESS_REQUEST_EMAIL")),
 	}, nil
 }
 
@@ -379,6 +386,11 @@ func (c *Config) Validate() error {
 		}
 		if err := requireHTTPS(u.key, u.val); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	if c.AccessRequestEmail != "" {
+		if a, err := mail.ParseAddress(c.AccessRequestEmail); err != nil || a.Address != c.AccessRequestEmail {
+			errs = append(errs, errors.New("ACCESS_REQUEST_EMAIL must be a plain email address such as team@wso2.com"))
 		}
 	}
 	if c.Files.Enabled() && c.Files.AccessKey == "" {

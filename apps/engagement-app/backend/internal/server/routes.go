@@ -56,6 +56,9 @@ type Deps struct {
 	CORSAllowedOrigins []string
 	// ReportMaxConcurrent caps unpaged report downloads per pod; 0 means 2.
 	ReportMaxConcurrent int
+	// AccessRequestEmail is shown to people with no Finance-side access;
+	// empty means none.
+	AccessRequestEmail string
 	// Now is the clock (tests pin it); nil means time.Now.
 	Now func() time.Time
 }
@@ -114,7 +117,7 @@ func NewRouter(d Deps) http.Handler {
 
 	// ── Shared services ──────────────────────────────────────────────────────
 	accessSvc := service.NewAccessService(d.Entity)
-	userInfoH := handler.NewUserInfoHandler(accessSvc)
+	userInfoH := handler.NewUserInfoHandler(accessSvc, d.AccessRequestEmail)
 
 	// ── Authenticated routes ─────────────────────────────────────────────────
 	api := http.NewServeMux()

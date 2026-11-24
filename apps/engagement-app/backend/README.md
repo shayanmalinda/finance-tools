@@ -143,6 +143,7 @@ committed files.
 | `GATEWAY_JWT_AUDIENCES` | Only if the gateway's JWT names another audience | `JWT_AUDIENCES` | The `aud` of the gateway's JWT (comma-separated list allowed) |
 | `JWT_CLOCK_SKEW_SECONDS` | No | `60` | – |
 | `REPORT_MAX_CONCURRENT` | No | `2` | Unpaged report downloads one pod builds at once (each is held in memory); one more answers 503 with `Retry-After: 10` |
+| `ACCESS_REQUEST_EMAIL` | No | – (line hidden) | Plain email address (for example `wso2-digital-team@wso2.com`) that people with no Engagement App access are told to write to; returned as `accessRequestEmail` by `GET /user-info`. A malformed value stops startup |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |
 | `SERVER_PORT` | No | `8190` | – |
 | `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | Base URL of the **Email Service** (`POST /send-email`), not the legacy Email Alert Service: the backend renders each email from its own templates and sends the finished HTML (see Emails) |

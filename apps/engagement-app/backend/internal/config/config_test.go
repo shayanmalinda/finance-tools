@@ -32,7 +32,7 @@ var allKeys = []string{
 	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
 	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
-	"REPORT_MAX_CONCURRENT", "OUTBOUND_SCOPES",
+	"REPORT_MAX_CONCURRENT", "OUTBOUND_SCOPES", "ACCESS_REQUEST_EMAIL",
 }
 
 func setMinimalEnv(t *testing.T) {
@@ -382,5 +382,26 @@ func TestValidateEmailsLiveOrTestRecipients(t *testing.T) {
 	t.Setenv("IS_LIVE_EMAILS", "yes please")
 	if _, err := Load(); err == nil {
 		t.Error("IS_LIVE_EMAILS=yes please: want error")
+	}
+}
+
+// ACCESS_REQUEST_EMAIL is optional, trimmed, and must be a plain address.
+func TestAccessRequestEmail(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil || c.Validate() != nil || c.AccessRequestEmail != "" {
+		t.Fatalf("unset: %q, %v, %v", c.AccessRequestEmail, err, c.Validate())
+	}
+	t.Setenv("ACCESS_REQUEST_EMAIL", " wso2-digital-team@wso2.com ")
+	c, _ = Load()
+	if c.Validate() != nil || c.AccessRequestEmail != "wso2-digital-team@wso2.com" {
+		t.Errorf("valid: %q, %v", c.AccessRequestEmail, c.Validate())
+	}
+	for _, bad := range []string{"not-an-email", "Team <team@wso2.com>", "a@b.com, c@d.com"} {
+		t.Setenv("ACCESS_REQUEST_EMAIL", bad)
+		c, _ = Load()
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ACCESS_REQUEST_EMAIL") {
+			t.Errorf("%q: Validate() = %v, want an ACCESS_REQUEST_EMAIL error", bad, err)
+		}
 	}
 }

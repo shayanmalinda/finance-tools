@@ -22,6 +22,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
@@ -152,5 +153,21 @@ func TestMuxErrorsAreJSON(t *testing.T) {
 		if tc.want == http.StatusMethodNotAllowed && rec.Header().Get("Allow") == "" {
 			t.Error("405 lost the Allow header")
 		}
+	}
+}
+
+func TestUserInfoAccessRequestEmail(t *testing.T) {
+	router := func(email string) http.Handler {
+		return NewRouter(Deps{
+			Verifier:           fakeVerifier{claims: oidc.Claims{Email: "jane@wso2.com", Groups: []string{"wso2-employees"}, GroupsPresent: true}},
+			Entity:             fakeEntity{},
+			AccessRequestEmail: email,
+		})
+	}
+	if body := get(router("team@wso2.com"), "/user-info", "valid").Body.String(); !strings.Contains(body, `"accessRequestEmail":"team@wso2.com"`) {
+		t.Errorf("configured: body = %s", body)
+	}
+	if body := get(router(""), "/user-info", "valid").Body.String(); strings.Contains(body, "accessRequestEmail") {
+		t.Errorf("unset must omit the field: body = %s", body)
 	}
 }

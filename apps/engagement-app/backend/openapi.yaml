@@ -2627,6 +2627,13 @@ components:
           $ref: '#/components/schemas/TravelAccess'
         workQueues:
           $ref: '#/components/schemas/WorkQueues'
+        accessRequestEmail:
+          type: string
+          format: email
+          description: >-
+            Where a person with no Finance-side access should write to ask for
+            it (the `ACCESS_REQUEST_EMAIL` setting). Omitted when not set.
+          example: wso2-digital-team@wso2.com
       example:
         email: jane@wso2.com
         allocations:
@@ -2642,6 +2649,7 @@ components:
           invoices: [approve, push, all]
           perDiemPayments: []
           netsuiteSyncFailures: true
+        accessRequestEmail: wso2-digital-team@wso2.com
 
     # ── Vocabularies (legacy values) ──
     EngagementKind:
