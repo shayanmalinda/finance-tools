@@ -40,6 +40,9 @@ const (
 	DefaultJWKSURL     = "https://api.asgardeo.io/t/wso2/oauth2/jwks"
 	DefaultUserinfoURL = "https://api.asgardeo.io/t/wso2/oauth2/userinfo"
 	DefaultTokenURL    = "https://api.asgardeo.io/t/wso2/oauth2/token"
+
+	// DefaultAccessRequestEmail is used when ACCESS_REQUEST_EMAIL is not set.
+	DefaultAccessRequestEmail = "wso2-digital-team@wso2.com"
 )
 
 // Config holds all environment-driven settings for the Engagement App Backend.
@@ -81,8 +84,8 @@ type Config struct {
 	ReportMaxConcurrent int
 
 	// AccessRequestEmail (ACCESS_REQUEST_EMAIL) is where people without
-	// Finance-side access are told to write. Optional; unset, the webapp
-	// leaves the line out.
+	// Finance-side access are told to write. Defaults to
+	// DefaultAccessRequestEmail.
 	AccessRequestEmail string
 }
 
@@ -301,7 +304,7 @@ func Load() (*Config, error) {
 		Currency:            currency,
 		CORSAllowedOrigins:  getList("CORS_ALLOWED_ORIGINS"),
 		ReportMaxConcurrent: reportMax,
-		AccessRequestEmail:  strings.TrimSpace(os.Getenv("ACCESS_REQUEST_EMAIL")),
+		AccessRequestEmail:  strings.TrimSpace(getEnvOrDefault("ACCESS_REQUEST_EMAIL", DefaultAccessRequestEmail)),
 	}, nil
 }
 

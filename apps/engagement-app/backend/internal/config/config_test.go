@@ -385,11 +385,11 @@ func TestValidateEmailsLiveOrTestRecipients(t *testing.T) {
 	}
 }
 
-// ACCESS_REQUEST_EMAIL is optional, trimmed, and must be a plain address.
+// ACCESS_REQUEST_EMAIL defaults to the team address, is trimmed, and must be a plain address.
 func TestAccessRequestEmail(t *testing.T) {
 	setMinimalEnv(t)
 	c, err := Load()
-	if err != nil || c.Validate() != nil || c.AccessRequestEmail != "" {
+	if err != nil || c.Validate() != nil || c.AccessRequestEmail != DefaultAccessRequestEmail {
 		t.Fatalf("unset: %q, %v, %v", c.AccessRequestEmail, err, c.Validate())
 	}
 	t.Setenv("ACCESS_REQUEST_EMAIL", " wso2-digital-team@wso2.com ")

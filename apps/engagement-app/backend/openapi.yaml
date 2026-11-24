@@ -2660,7 +2660,8 @@ components:
           format: email
           description: >-
             Where a person with no Finance-side access should write to ask for
-            it (the `ACCESS_REQUEST_EMAIL` setting). Omitted when not set.
+            it (the `ACCESS_REQUEST_EMAIL` setting, which defaults to
+            wso2-digital-team@wso2.com).
           example: wso2-digital-team@wso2.com
       example:
         email: jane@wso2.com
