@@ -67,6 +67,8 @@ type area struct {
 	Access    service.AccessService
 	Idem      *middleware.Idempotency
 	Campaigns *service.CampaignNames
+	// Converter is the currency conversion service, built once for every route that needs it; nil when unconfigured.
+	Converter service.FinanceCurrencyConverter
 	// Reports is the per-pod cap on unpaged report downloads.
 	Reports func(http.Handler) http.Handler
 	mux     *http.ServeMux
@@ -119,7 +121,7 @@ func NewRouter(d Deps) http.Handler {
 	api.HandleFunc("GET /user-info", userInfoH.Get)
 
 	a := &area{Deps: d, Access: accessSvc, Idem: middleware.NewIdempotency(), Campaigns: service.NewCampaignNames(d.Sales),
-		Reports: middleware.Limit(d.ReportMaxConcurrent), mux: api}
+		Reports: middleware.Limit(d.ReportMaxConcurrent), Converter: financeCurrency(d.Currency), mux: api}
 	registerEngagementRoutes(a)
 	registerAllocationRoutes(a)
 	registerTravelRoutes(a)

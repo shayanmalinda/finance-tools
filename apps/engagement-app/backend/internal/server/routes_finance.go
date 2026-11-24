@@ -32,7 +32,7 @@ import (
 // it is not configured (conversions answer 503).
 func financeCurrency(c config.CurrencyConfig) service.FinanceCurrencyConverter {
 	if !c.Configured() {
-		slog.Warn("CURRENCY_CONVERT_SERVICE_URL is not set: per diem payment add and edit answer 503")
+		slog.Warn("CURRENCY_CONVERT_SERVICE_URL is not set: per diem payment add and edit answer 503, and Travel Cost lists every non-USD amount as not converted")
 		return nil
 	}
 	return service.NewFinanceCurrencyClient(c.URL, rest.NewOAuthHTTPClient(c.Client.TokenURL, c.Client.ClientID, c.Client.ClientSecret, c.Client.Scopes))
@@ -46,7 +46,7 @@ func registerFinanceRoutes(a *area) {
 	svc := service.NewFinanceService(a.Entity, a.HR, a.Email, email.FinanceRecipients{
 		TravelLogisticsGroup: rc.TravelLogisticsGroup, FinanceGroup: rc.FinanceGroup,
 		CompanyRecipients: rc.CompanyRecipients, AppBaseURL: rc.AppBaseURL,
-	}, financeCurrency(a.Currency), a.Now)
+	}, a.Converter, a.Now)
 	svc.Campaigns = a.Campaigns
 	if a.Recipients.Enabled() {
 		svc.WithEmailAudit(func(ctx context.Context, m email.Message) {

@@ -47,16 +47,18 @@ type DashboardService interface {
 type dashboardService struct {
 	entity engagemententity.DashboardAPI
 	people *travelPeople
+	rates  *dashboardRates
 	now    func() time.Time
 }
 
 // NewDashboardService constructs a DashboardService. hr may be nil (no
-// traveller names); now may be nil (time.Now).
-func NewDashboardService(entity engagemententity.DashboardAPI, hr hrentity.Client, now func() time.Time) DashboardService {
+// traveller names); currency may be nil (every non-USD amount is then listed
+// as not converted); now may be nil (time.Now).
+func NewDashboardService(entity engagemententity.DashboardAPI, hr hrentity.Client, currency FinanceCurrencyConverter, now func() time.Time) DashboardService {
 	if now == nil {
 		now = time.Now
 	}
-	s := &dashboardService{entity: entity, now: now}
+	s := &dashboardService{entity: entity, now: now, rates: newDashboardRates(currency, now)}
 	if hr != nil {
 		s.people = newTravelPeople(hr)
 	}
@@ -243,7 +245,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 			if err != nil {
 				return err
 			}
-			out.MyWork = dashboardMyWork(mw, todayStr, myAllocs)
+			out.MyWork = dashboardMyWork(mw, todayStr, myAllocs, allocListTypes(p))
 			return nil
 		})
 	}
@@ -289,7 +291,7 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms) (domai
 				out.Travel = dashboardTravel(t.Trips, today)
 			}
 			if cost {
-				out.TravelCost = dashboardTravelCost(t, today, card)
+				out.TravelCost = dashboardTravelCost(gctx, t, today, card, s.rates)
 			}
 			return nil
 		})
@@ -384,9 +386,9 @@ func dashboardStr(s *string) string {
 	return *s
 }
 
-func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool) domain.DashboardAllocationSummary {
+func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool, visible map[int]bool) domain.DashboardAllocationSummary {
 	return domain.DashboardAllocationSummary{
-		ID: a.ID, EngagementID: a.EngagementID,
+		ID: a.ID, EngagementID: a.EngagementID, CanOpen: a.EngagementTypeID != nil && visible[*a.EngagementTypeID],
 		EngagementTitle: dashboardEngagementTitle(a.EngagementID, a.EngagementTypeID, a.Account, a.Title),
 		StartDate:       a.StartDate, EndDate: a.EndDate, ClearanceStatus: a.ClearanceStatus, Current: current,
 	}
@@ -395,15 +397,15 @@ func dashboardAllocation(a engagemententity.DashboardOwnAllocation, current bool
 // dashboardSplitAllocations returns the current allocation (the first that
 // covers today) and the future ones, in start order. The entity returns
 // only allocations ending today or later.
-func dashboardSplitAllocations(list []engagemententity.DashboardOwnAllocation, today string) (*domain.DashboardAllocationSummary, []domain.DashboardAllocationSummary) {
+func dashboardSplitAllocations(list []engagemententity.DashboardOwnAllocation, today string, visible map[int]bool) (*domain.DashboardAllocationSummary, []domain.DashboardAllocationSummary) {
 	var current *domain.DashboardAllocationSummary
 	next := []domain.DashboardAllocationSummary{}
 	for _, a := range list {
 		switch {
 		case a.StartDate > today:
-			next = append(next, dashboardAllocation(a, false))
+			next = append(next, dashboardAllocation(a, false, visible))
 		case current == nil:
-			c := dashboardAllocation(a, true)
+			c := dashboardAllocation(a, true, visible)
 			current = &c
 		}
 	}
@@ -422,10 +424,10 @@ func dashboardTrips(list []engagemententity.DashboardTrip) []domain.DashboardTri
 }
 
 // dashboardMyWork shapes My Work; nil when there is nothing to show.
-func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs bool) *domain.DashboardMyWork {
+func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs bool, visible map[int]bool) *domain.DashboardMyWork {
 	out := &domain.DashboardMyWork{NextTrips: dashboardTrips(mw.Trips), UpcomingTripCount: mw.TripCount}
 	if allocs {
-		current, next := dashboardSplitAllocations(mw.Allocations, today)
+		current, next := dashboardSplitAllocations(mw.Allocations, today, visible)
 		out.CurrentAllocation = current
 		if len(next) > 0 {
 			out.NextAllocation = &next[0]
@@ -448,8 +450,7 @@ func dashboardMyWork(mw *engagemententity.DashboardMyWork, today string, allocs 
 // ── Waiting on You ──────────────────────────────────────────────────────────
 
 // dashboardQueuePlan is which cards apply to the caller and the entity
-// counts they need. Every gate uses the own privileges (no super admin),
-// except Ready for Clearance.
+// counts they need. Every gate uses the own privileges (no super admin).
 type dashboardQueuePlan struct {
 	filter                                    engagemententity.DashboardQueuesFilter
 	pending, clearance, newTravel             bool
@@ -472,7 +473,7 @@ func dashboardPlanQueues(p domain.Perms) dashboardQueuePlan {
 		}
 	}
 	pl.pending = len(pl.filter.PendingApprovalTypes) > 0
-	pl.filter.ClearanceTypes = dashboardClearanceTypes(p.Alloc)
+	pl.filter.ClearanceTypes = dashboardClearanceTypes(ao)
 	pl.clearance = len(pl.filter.ClearanceTypes) > 0
 	pl.newTravel = to.Has(1)
 	pl.filter.TravelRequests = pl.newTravel
@@ -635,15 +636,28 @@ func dashboardTravel(t *engagemententity.DashboardTravelTrips, today time.Time) 
 	}
 }
 
-// dashboardTravelCost sums the cost lines in USD. Lines without a USD amount
-// are reported in NotConverted, not added (there is no rate source without
-// new configuration).
-func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, card bool) *domain.DashboardTravelCost {
+// dashboardTravelCost sums the cost lines in USD. Each line is converted
+// from its original currency at NetSuite's rate on the last day of its month
+// (today's rate for the current month); USD lines, and card lines billed in
+// USD, are used as recorded. A line with no rate (blank currency, unknown
+// rate, rate service down or not configured) is reported in NotConverted and
+// left out of every total.
+func dashboardTravelCost(ctx context.Context, t *engagemententity.DashboardTravel, today time.Time, card bool, rates *dashboardRates) *domain.DashboardTravelCost {
 	months := dashboardMonths(today)
 	inWindow := map[string]bool{}
 	for _, m := range months {
 		inWindow[m] = true
 	}
+	var pairs []ratePair
+	for _, l := range t.Cost {
+		if (l.Source == engagemententity.DashboardCostCard || l.Source == engagemententity.DashboardCostClaim) && !card {
+			continue
+		}
+		if inWindow[l.Month] && usdNeedsRate(l.Currency, l.CCCurrency) {
+			pairs = append(pairs, ratePair{strings.ToUpper(strings.TrimSpace(l.Currency)), dashboardRateDate(l.Month, today)})
+		}
+	}
+	rs := rates.resolve(ctx, pairs)
 	series := map[string]map[string]float64{}
 	byType := map[string]float64{}
 	type key struct{ source, currency string }
@@ -656,26 +670,28 @@ func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, c
 		if !inWindow[l.Month] {
 			continue
 		}
-		if l.Currency != "USD" {
-			unconverted[key{l.Source, l.Currency}] += l.Amount
+		conv, ok := rs.usd(l.Currency, l.Amount, l.CCCurrency, l.CCAmount, l.Month, today)
+		if !ok {
+			unconverted[key{l.Source, strings.ToUpper(strings.TrimSpace(l.Currency))}] += l.Amount
 			continue
 		}
+		amount := conv.USD
 		var name, typ string
 		switch l.Source {
 		case engagemententity.DashboardCostInvoice:
-			inv += l.Amount
+			inv += amount
 			name, typ = dashboardSeriesInvoices, l.CostType
 			if typ == "" {
 				typ = "Other"
 			}
 		case engagemententity.DashboardCostPerDiem:
-			pd += l.Amount
+			pd += amount
 			name, typ = dashboardSeriesPerDiems, dashboardSeriesPerDiems
 		case engagemententity.DashboardCostCard:
-			cc += l.Amount
+			cc += amount
 			name, typ = dashboardSeriesCards, dashboardSeriesCards
 		case engagemententity.DashboardCostClaim:
-			ec += l.Amount
+			ec += amount
 			name, typ = dashboardSeriesClaims, dashboardSeriesClaims
 		default:
 			continue
@@ -683,12 +699,12 @@ func dashboardTravelCost(t *engagemententity.DashboardTravel, today time.Time, c
 		if series[l.Month] == nil {
 			series[l.Month] = map[string]float64{}
 		}
-		series[l.Month][name] += l.Amount
-		byType[typ] += l.Amount
+		series[l.Month][name] += amount
+		byType[typ] += amount
 	}
 
 	out := &domain.DashboardTravelCost{
-		Currency: "USD", From: t.From, To: t.To,
+		Currency: "USD", RateRule: "monthEnd", From: t.From, To: t.To,
 		Total: dashboardRound(inv + pd + cc + ec), TravelInvoices: dashboardRound(inv), PerDiems: dashboardRound(pd),
 		ByMonth: make([]domain.DashboardSeriesPoint, 0, len(months)), NotConverted: []domain.DashboardUnconverted{},
 	}
@@ -895,7 +911,7 @@ func (s *dashboardService) MeOverview(ctx context.Context, p domain.Perms) (doma
 		return domain.MeOverview{}, err
 	}
 	if allocs {
-		current, next := dashboardSplitAllocations(mw.Allocations, today)
+		current, next := dashboardSplitAllocations(mw.Allocations, today, allocListTypes(p))
 		if current != nil {
 			out.UpcomingAllocations = append(out.UpcomingAllocations, *current)
 		}

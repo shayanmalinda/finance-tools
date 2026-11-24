@@ -5134,8 +5134,9 @@ components:
           type: array
           items:
             type: object
-            description: Sum by source, month, cost type (invoices) and currency; USD when the record
-              carries a USD amount on either side, else the original currency.
+            description: Sum of original amounts by source, month, cost type (invoices) and original
+              currency (upper-cased, blank when none). Card sums are also split by whether the card was
+              billed in USD. No conversion happens here.
             properties:
               source:
                 type: string
@@ -5153,8 +5154,17 @@ components:
                 type: string
               currency:
                 type: string
+                description: Original currency.
               amount:
                 type: number
+                description: Sum of the original amounts, in currency.
+              ccAmount:
+                type: number
+                description: Card only. Sum of cc_amount, the amount the card was billed.
+              ccCurrency:
+                type: string
+                description: Card only. USD when the card was billed in USD (ccAmount is in USD), absent
+                  otherwise.
     DashboardEngagements:
       type: object
       properties:

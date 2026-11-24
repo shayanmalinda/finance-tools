@@ -135,7 +135,7 @@ var (
 // endpoint (Allocations Today has its own).
 func TestDashboard_Employee(t *testing.T) {
 	f := &fakeDashboardEntity{}
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestDashboard_Employee(t *testing.T) {
 func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{NewTravelRequests: 4, InvoicesPending: 2, InvoicesToPush: 9}}
 	poOwn := append(dashboardRange(1, 17), 25, 26, 27, 28, 30, 32, 41, 42, 45, 46)
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	got, err := svc.Dashboard(context.Background(), dashboardPerms("employee@wso2.com", dashboardRange(1, 33), []int{1}, dashboardRange(1, 49), poOwn, "app-travel-admin-super-stg", "app-travel-manager-po-stg"))
 	if err != nil {
 		t.Fatal(err)
@@ -167,14 +167,14 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 	for _, c := range got.WaitingOnYou {
 		keys = append(keys, c.Key)
 	}
-	if strings.Join(keys, ",") != "readyForClearance,newTravelRequests,approve-po" {
+	if strings.Join(keys, ",") != "newTravelRequests,approve-po" {
 		t.Errorf("cards = %v", keys)
 	}
 	if f.queues.Invoices != true || f.queues.Payments || len(f.queues.PendingApprovalTypes) != 0 ||
-		!reflect.DeepEqual(f.queues.ClearanceTypes, []int{1, 3, 4, 5, 6, 7}) {
+		len(f.queues.ClearanceTypes) != 0 {
 		t.Errorf("queues filter = %+v", f.queues)
 	}
-	if got.WaitingOnYou[1].Count != 4 || got.WaitingOnYou[2].Count != 2 || got.WaitingOnYou[2].List.Path != "/finance/engagement-app/invoices/po" {
+	if got.WaitingOnYou[0].Count != 4 || got.WaitingOnYou[1].Count != 2 || got.WaitingOnYou[1].List.Path != "/finance/engagement-app/invoices/po" {
 		t.Errorf("cards = %+v", got.WaitingOnYou)
 	}
 	if f.travel == nil || !f.travel.Trips || f.travel.CostInvoices || f.travel.CostPayments || f.travel.CostCards || got.TravelCost != nil {
@@ -187,12 +187,12 @@ func TestDashboard_TravelTeamQueuesIgnoreSuperAdmin(t *testing.T) {
 
 	// Super admin alone (no Travel Team group): Travel, but no travel queues.
 	f = &fakeDashboardEntity{}
-	got, err = NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("s@wso2.com",
+	got, err = NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("s@wso2.com",
 		dashboardRange(1, 25), []int{1}, dashboardRange(1, 49), dashboardEmployeeTravel, "app-travel-admin-super-stg", "wso2-employees"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !f.travel.Trips || f.travel.CostInvoices || got.TravelCost != nil || f.queues.TravelRequests || f.queues.Invoices || f.queues.Payments {
+	if !f.travel.Trips || f.travel.CostInvoices || got.TravelCost != nil || f.queues != nil {
 		t.Errorf("super admin: travel %+v queues %+v", f.travel, f.queues)
 	}
 }
@@ -204,7 +204,7 @@ func TestDashboard_FinanceQueuesAndCardSpend(t *testing.T) {
 	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{
 		InvoicesAcceptedByTravel: 3, InvoicesToPush: 2, InvoicesFailed: 1, PaymentsToPush: 5, PaymentsFailed: 2,
 	}}
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	p := dashboardPerms("analyst@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, approverFinance, approverFinance, "App-Travel-Approver-Finance-stg")
 	got, err := svc.Dashboard(context.Background(), p)
 	if err != nil {
@@ -243,7 +243,7 @@ func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
 	f := &fakeDashboardEntity{queuesResp: &engagemententity.DashboardQueues{
 		PendingApproval: map[int]int{1: 2, 5: 9}, Clearance: map[string]int{"Ready for Clearance": 4},
 	}}
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	got, err := svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", internalMgr, internalMgr, nil, nil))
 	if err != nil {
 		t.Fatal(err)
@@ -288,10 +288,36 @@ func TestDashboard_ApprovalAndClearanceQueues(t *testing.T) {
 	}
 }
 
+// Ready for Clearance counts on own privileges only: a super admin who holds
+// the privileges through the super admin group alone gets no tile.
+func TestDashboard_ClearanceIgnoresSuperAdmin(t *testing.T) {
+	f := &fakeDashboardEntity{}
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
+	all := dashboardRange(1, 40)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("sa@wso2.com", all, nil, nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range got.WaitingOnYou {
+		if c.Key == "readyForClearance" {
+			t.Errorf("super admin got a clearance tile: %+v", got.WaitingOnYou)
+		}
+	}
+	if f.queues != nil && len(f.queues.ClearanceTypes) != 0 {
+		t.Errorf("clearance types for a super admin: %v", f.queues.ClearanceTypes)
+	}
+
+	own := append(append([]int{1, 11}, dashboardRange(13, 21)...), 26, 27, 28)
+	got, _ = svc.Dashboard(context.Background(), dashboardPerms("m@wso2.com", all, own, nil, nil))
+	if f.queues == nil || len(f.queues.ClearanceTypes) == 0 {
+		t.Errorf("own-privilege manager lost the clearance queue: %+v", got.WaitingOnYou)
+	}
+}
+
 // Available Consultants is gated on 9, 19 or 21 alone, not on 3 or 13.
 func TestDashboard_AvailableConsultantsWithoutEngagements(t *testing.T) {
 	f := &fakeDashboardEntity{}
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	got, err := svc.Dashboard(context.Background(), dashboardPerms("rm@wso2.com", []int{21}, []int{21}, nil, nil))
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +334,7 @@ func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 	f := &fakeDashboardEntity{}
 	p := dashboardPerms("agent@acorn.com", nil, nil, []int{3, 4, 6, 18, 26, 27, 28, 30, 31}, []int{3, 4, 6, 18, 26, 27, 28, 30, 31})
 	p.Agency = &domain.TravelAgency{ID: 3, Name: "Acorn Travels"}
-	got, err := NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(), p)
+	got, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +353,7 @@ func TestDashboard_TravelAgentGetsOnlyTheAgentDashboard(t *testing.T) {
 
 func TestDashboard_EntityErrorFailsTheRequest(t *testing.T) {
 	f := &fakeDashboardEntity{fail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
-	_, err := NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil))
+	_, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(), dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil))
 	var up *apierror.UpstreamError
 	if !errors.As(err, &up) {
 		t.Errorf("err = %v", err)
@@ -337,7 +363,7 @@ func TestDashboard_EntityErrorFailsTheRequest(t *testing.T) {
 // One failing section is reported; the others are still returned.
 func TestDashboard_FailedSectionKeepsTheOthers(t *testing.T) {
 	f := &fakeDashboardEntity{travelFail: &apierror.UpstreamError{Service: "engagement-entity", Msg: "down"}}
-	got, err := NewDashboardService(f, nil, dashboardNow).Dashboard(context.Background(),
+	got, err := NewDashboardService(f, nil, nil, dashboardNow).Dashboard(context.Background(),
 		dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, []int{1, 2, 49}, []int{1, 2, 49}))
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +388,7 @@ func TestDashboard_MyWork(t *testing.T) {
 		Trips:          []engagemententity.DashboardTrip{{JobNumber: "TRV-2026-11-0001", TravellerEmail: "jane@wso2.com"}},
 		TripCount:      2,
 	}}
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	got, err := svc.Dashboard(context.Background(), dashboardPerms("jane@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, dashboardEmployeeTravel, dashboardEmployeeTravel))
 	if err != nil {
 		t.Fatal(err)
@@ -401,7 +427,7 @@ func TestDashboard_MyWork(t *testing.T) {
 	}
 }
 
-func TestDashboard_TravelCostInUSD(t *testing.T) {
+func TestDashboard_TravelCostUnconvertedWithoutConverter(t *testing.T) {
 	cost := []engagemententity.DashboardCostLine{
 		{Source: "invoice", Month: "2026-11", CostType: "Air Ticket", Currency: "USD", Amount: 1000},
 		{Source: "invoice", Month: "2026-10", CostType: "Hotel", Currency: "USD", Amount: 500.555},
@@ -415,7 +441,7 @@ func TestDashboard_TravelCostInUSD(t *testing.T) {
 	tr := &engagemententity.DashboardTravel{From: "2025-12-01", To: "2026-12-01", Cost: cost}
 	today := dashboardNow()
 
-	c := dashboardTravelCost(tr, today, true)
+	c := dashboardTravelCost(context.Background(), tr, today, true, newDashboardRates(nil, dashboardNow))
 	if c.Total != 2050.56 || c.TravelInvoices != 1500.56 || c.PerDiems != 400 || c.CreditCardExpenses == nil || *c.CreditCardExpenses != 100 ||
 		c.ExpenseClaims == nil || *c.ExpenseClaims != 50 {
 		t.Errorf("totals = %+v", c)
@@ -434,12 +460,114 @@ func TestDashboard_TravelCostInUSD(t *testing.T) {
 	}
 
 	// Without a card role, card lines are ignored and the series has no card key.
-	c = dashboardTravelCost(tr, today, false)
+	c = dashboardTravelCost(context.Background(), tr, today, false, newDashboardRates(nil, dashboardNow))
 	if c.CreditCardExpenses != nil || c.ExpenseClaims != nil || c.Total != 1900.56 {
 		t.Errorf("no card: %+v", c)
 	}
 	if _, ok := c.ByMonth[10].Values["Credit Card Expenses"]; ok {
 		t.Error("card series without a card role")
+	}
+}
+
+// fakeRates answers with fixed USD rates and counts calls.
+type fakeRates struct {
+	mu    sync.Mutex
+	rates map[string]float64 // base currency -> units per USD
+	err   error
+	calls []string
+	delay time.Duration
+}
+
+func (f *fakeRates) Rates(ctx context.Context, base, date string) (map[string]float64, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, base+"|"+date)
+	delay, fail := f.delay, f.err
+	f.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if fail != nil {
+		return nil, fail
+	}
+	return map[string]float64{"USD": f.rates[base]}, nil
+}
+
+func (f *fakeRates) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func dashboardCostFixture() *engagemententity.DashboardTravel {
+	return &engagemententity.DashboardTravel{From: "2025-12-01", To: "2026-12-01", Cost: []engagemententity.DashboardCostLine{
+		{Source: "invoice", Month: "2026-10", CostType: "Hotel", Currency: "LKR", Amount: 90000},
+		{Source: "invoice", Month: "2026-11", CostType: "Hotel", Currency: "LKR", Amount: 30000},
+		{Source: "perDiem", Month: "2026-10", Currency: "USD", Amount: 400},
+		{Source: "card", Month: "2026-10", Currency: "LKR", Amount: 15000, CCCurrency: "USD", CCAmount: 48.2},
+		{Source: "claim", Month: "2026-10", Currency: "EUR", Amount: 100},
+	}}
+}
+
+func TestDashboard_TravelCostConvertsAtMonthEndRate(t *testing.T) {
+	f := &fakeRates{rates: map[string]float64{"LKR": 300, "EUR": 0.9}}
+	c := dashboardTravelCost(context.Background(), dashboardCostFixture(), dashboardNow(), true, newDashboardRates(f, dashboardNow))
+	// 90000/300 = 300 (October), 30000/300 = 100 (November, today's rate), 400 USD,
+	// the card billed in USD counts 48.20 without a rate, 100 EUR / 0.9 = 111.11.
+	if c.TravelInvoices != 400 || c.PerDiems != 400 || *c.CreditCardExpenses != 48.2 || *c.ExpenseClaims != 111.11 || c.Total != 959.31 {
+		t.Errorf("totals = %+v", c)
+	}
+	if c.CurrentMonth != 100 || c.LastMonth != 859.31 {
+		t.Errorf("months: last %v current %v", c.LastMonth, c.CurrentMonth)
+	}
+	if c.RateRule != "monthEnd" || len(c.NotConverted) != 0 {
+		t.Errorf("notConverted = %+v", c.NotConverted)
+	}
+	got := map[string]bool{}
+	for _, call := range f.calls {
+		got[call] = true
+	}
+	// LKR October (month end), LKR November (today), EUR October; the USD line
+	// and the card billed in USD make no call.
+	if len(f.calls) != 3 || !got["LKR|2026-10-31"] || !got["LKR|2026-11-05"] || !got["EUR|2026-10-31"] {
+		t.Errorf("rate calls = %v", f.calls)
+	}
+}
+
+func TestDashboard_TravelCostNotConverted(t *testing.T) {
+	cases := map[string]FinanceCurrencyConverter{
+		"nil converter":  nil,
+		"converter down": &fakeRates{err: errors.New("boom")},
+		"rate zero":      &fakeRates{rates: map[string]float64{"LKR": 0, "EUR": 0}},
+	}
+	for name, conv := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := dashboardTravelCost(context.Background(), dashboardCostFixture(), dashboardNow(), true, newDashboardRates(conv, dashboardNow))
+			// Only the USD per diem and the USD-billed card line are totalled.
+			if c.Total != 448.2 || c.PerDiems != 400 || c.TravelInvoices != 0 || *c.ExpenseClaims != 0 {
+				t.Errorf("totals = %+v", c)
+			}
+			want := []domain.DashboardUnconverted{
+				{Source: "claim", Currency: "EUR", Amount: 100},
+				{Source: "invoice", Currency: "LKR", Amount: 120000},
+			}
+			if len(c.NotConverted) != 2 || c.NotConverted[0] != want[0] || c.NotConverted[1] != want[1] {
+				t.Errorf("notConverted = %+v", c.NotConverted)
+			}
+		})
+	}
+}
+
+func TestDashboard_TravelCostSectionSurvivesRateFailure(t *testing.T) {
+	f := &fakeDashboardEntity{travelResp: dashboardCostFixture()}
+	svc := NewDashboardService(f, nil, &fakeRates{err: errors.New("down")}, dashboardNow)
+	got, err := svc.Dashboard(context.Background(), dashboardPerms("fin@wso2.com", nil, nil, []int{39, 41}, []int{39, 41},
+		"App-Travel-Approver-Finance-stg"))
+	if err != nil || got.TravelCost == nil || len(got.FailedSections) != 0 || len(got.TravelCost.NotConverted) != 2 {
+		t.Fatalf("got %+v, %v", got.TravelCost, err)
 	}
 }
 
@@ -453,7 +581,7 @@ func TestDashboardBuckets_TopNWithOther(t *testing.T) {
 
 func TestDashboardAllocationsTodayService(t *testing.T) {
 	f := &fakeDashboardEntity{}
-	svc := NewDashboardService(f, nil, dashboardNow)
+	svc := NewDashboardService(f, nil, nil, dashboardNow)
 	p := dashboardPerms("a@wso2.com", dashboardEmployeeAlloc, dashboardEmployeeAlloc, nil, nil)
 
 	got, err := svc.AllocationsToday(context.Background(), p, "", 0)
@@ -483,5 +611,21 @@ func TestDashboardAllocationsTodayService(t *testing.T) {
 	var ve *apierror.ValidationError
 	if _, err := svc.AllocationsToday(context.Background(), p, "2026-11-06", 0); !errors.As(err, &ve) {
 		t.Errorf("future date: %v", err)
+	}
+}
+
+func TestDashboardSplitAllocationsCanOpen(t *testing.T) {
+	paid, marketing := domain.EngagementTypePaid, domain.EngagementTypeMarketing
+	list := []engagemententity.DashboardOwnAllocation{
+		{ID: "1", EngagementID: "E1", EngagementTypeID: &paid, StartDate: "2026-11-01", EndDate: "2026-11-30"},
+		{ID: "2", EngagementID: "E2", EngagementTypeID: &marketing, StartDate: "2026-12-01", EndDate: "2026-12-05"},
+		{ID: "3", EngagementID: "E3", StartDate: "2026-12-10", EndDate: "2026-12-12"},
+	}
+	current, next := dashboardSplitAllocations(list, "2026-11-24", map[int]bool{paid: true})
+	if current == nil || !current.CanOpen {
+		t.Fatalf("current = %+v, want E1 openable", current)
+	}
+	if len(next) != 2 || next[0].CanOpen || next[1].CanOpen {
+		t.Fatalf("next = %+v, want E2 and E3 not openable", next)
 	}
 }

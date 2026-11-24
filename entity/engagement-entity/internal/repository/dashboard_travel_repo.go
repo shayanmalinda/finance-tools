@@ -161,16 +161,14 @@ func (r *dashboardRepo) TravelCells(ctx context.Context, w DashboardWindow) ([]D
 }
 
 // InvoiceCost sums invoices that are not rejected and not of cost type
-// Currency, added in the 12-month window, by month, cost type and currency.
-// The amount is the USD one when either side is USD (invoice_currency, or
-// converted_currency, which the Travel Team fills in, USD by default);
-// otherwise the original amount in its currency.
+// Currency, added in the 12-month window, by month, cost type and original
+// currency (invoice_currency). The amount is the original invoice_amount: the
+// stored converted_* columns are not read, the BFF converts at NetSuite's
+// month-end rate.
 func (r *dashboardRepo) InvoiceCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
 	q := `SELECT DATE_FORMAT(i.added_date, '%Y-%m') AS d_month, COALESCE(ct.name, '') AS d_cost_type,
-			CASE WHEN i.invoice_currency = 'USD' OR i.converted_currency = 'USD' THEN 'USD' ELSE i.invoice_currency END AS d_currency,
-			SUM(CASE WHEN i.invoice_currency = 'USD' THEN i.invoice_amount
-				WHEN i.converted_currency = 'USD' THEN i.converted_amount
-				ELSE i.invoice_amount END) AS amount
+			UPPER(TRIM(COALESCE(i.invoice_currency, ''))) AS d_currency,
+			SUM(i.invoice_amount) AS amount
 		FROM invoice AS i
 		LEFT JOIN inv_cost_type AS ct ON i.inv_cost_type_id = ct.id
 		WHERE i.added_date >= ? AND i.added_date < ?
@@ -185,14 +183,12 @@ func (r *dashboardRepo) InvoiceCost(ctx context.Context, w DashboardWindow) ([]d
 }
 
 // PaymentCost sums per diem payments (every NetSuite status) added in the
-// 12-month window, by month and currency: USD when the payment or its
-// subsidiary conversion is in USD, else the payment currency.
+// 12-month window, by month and original currency (payment_currency), with
+// the original payment_amount. The stored converted_* columns are not read.
 func (r *dashboardRepo) PaymentCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
 	q := `SELECT DATE_FORMAT(pp.added_date, '%Y-%m') AS d_month, '' AS d_cost_type,
-			CASE WHEN pp.payment_currency = 'USD' OR pp.converted_currency = 'USD' THEN 'USD' ELSE COALESCE(pp.payment_currency, '') END AS d_currency,
-			SUM(CASE WHEN pp.payment_currency = 'USD' THEN pp.payment_amount
-				WHEN pp.converted_currency = 'USD' THEN pp.converted_amount
-				ELSE pp.payment_amount END) AS amount
+			UPPER(TRIM(COALESCE(pp.payment_currency, ''))) AS d_currency,
+			SUM(pp.payment_amount) AS amount
 		FROM perdiem_payment AS pp
 		WHERE pp.added_date >= ? AND pp.added_date < ?
 		GROUP BY d_month, d_currency`
@@ -308,44 +304,61 @@ func (r *dashboardRepo) AgencyPerDiems(ctx context.Context, agencyID, limit int)
 // ── expense_app ─────────────────────────────────────────────────────────────
 
 // CardCost sums the card transactions (expense_app.cc_txn) tagged with a
-// travel job number, except invalid ones, by transaction month and currency:
-// USD when the transaction or the card is in USD, else the transaction
-// currency. The tag is free text; it is not checked against travelapp.
+// travel job number, except invalid ones, by transaction month, original
+// currency (txn_currency) and whether the card was billed in USD. Amount is
+// the sum of txn_amount; CCAmount is the sum of cc_amount and CCCurrency is
+// "USD" for the groups billed in USD (a USD card row with no billed amount
+// counts as not billed in USD), blank otherwise. The tag is free text;
+// it is not checked against travelapp.
 func (r *dashboardRepo) CardCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
 	if r.expense == nil {
 		return nil, ErrDashboardNoExpenseDB
 	}
 	q := `SELECT DATE_FORMAT(c.txn_date, '%Y-%m') AS d_month, '' AS d_cost_type,
-			CASE WHEN c.txn_currency = 'USD' OR c.cc_currency = 'USD' THEN 'USD' ELSE c.txn_currency END AS d_currency,
-			SUM(CASE WHEN c.txn_currency = 'USD' THEN c.txn_amount
-				WHEN c.cc_currency = 'USD' THEN c.cc_amount
-				ELSE c.txn_amount END) AS amount
+			UPPER(TRIM(COALESCE(c.txn_currency, ''))) AS d_currency,
+			CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' AND c.cc_amount IS NOT NULL THEN 'USD' ELSE '' END AS d_cc_currency,
+			SUM(c.txn_amount) AS amount, SUM(c.cc_amount) AS cc_amount
 		FROM cc_txn AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?
 			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''
 			AND COALESCE(c.status, '') != 'invalid'
-		GROUP BY d_month, d_currency`
+		GROUP BY d_month, d_currency, d_cc_currency`
 	rows, err := r.expense.QueryContext(ctx, q, w.YearStart, w.NextMonth)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard.CardCost: %w", err)
 	}
-	return dashboardCostRows(rows, domain.DashboardCostCard, "dashboard.CardCost")
+	defer rows.Close()
+	out := []domain.DashboardCostLine{}
+	for rows.Next() {
+		var month, costType, currency, ccCurrency sql.NullString
+		var amount, ccAmount sql.NullFloat64
+		if err := rows.Scan(&month, &costType, &currency, &ccCurrency, &amount, &ccAmount); err != nil {
+			return nil, fmt.Errorf("dashboard.CardCost scan: %w", err)
+		}
+		out = append(out, domain.DashboardCostLine{
+			Source: domain.DashboardCostCard, Month: month.String, CostType: costType.String,
+			Currency: currency.String, Amount: amount.Float64,
+			CCCurrency: ccCurrency.String, CCAmount: ccAmount.Float64,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dashboard.CardCost rows: %w", err)
+	}
+	return out, nil
 }
 
 // ClaimCost sums the expense claims (expense_app.expense_claims) tagged with a
 // travel job number, except deleted (-1) and rejected (1) ones (so claims
-// not yet approved count), by
-// transaction month and currency, the same way as CardCost: USD when the
-// transaction or the reimbursement is in USD.
+// not yet approved count), by transaction month and original currency
+// (txn_currency), with the original txn_amount. The reimbursement_* columns
+// are not read.
 func (r *dashboardRepo) ClaimCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error) {
 	if r.expense == nil {
 		return nil, ErrDashboardNoExpenseDB
 	}
 	q := `SELECT DATE_FORMAT(c.txn_date, '%Y-%m') AS d_month, '' AS d_cost_type,
-			CASE WHEN c.txn_currency = 'USD' OR c.reimbursement_currency = 'USD' THEN 'USD' ELSE c.txn_currency END AS d_currency,
-			SUM(CASE WHEN c.txn_currency = 'USD' THEN c.txn_amount
-				WHEN c.reimbursement_currency = 'USD' THEN c.reimbursement_amount
-				ELSE c.txn_amount END) AS amount
+			UPPER(TRIM(COALESCE(c.txn_currency, ''))) AS d_currency,
+			SUM(c.txn_amount) AS amount
 		FROM expense_claims AS c
 		WHERE c.txn_date >= ? AND c.txn_date < ?
 			AND c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != ''

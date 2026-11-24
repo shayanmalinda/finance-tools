@@ -63,6 +63,9 @@ type DashboardAllocationSummary struct {
 	EndDate         string  `json:"endDate"`
 	ClearanceStatus *string `json:"clearanceStatus"`
 	Current         bool    `json:"current"`
+	// CanOpen: the person may open the engagement (the same rule as My
+	// Allocations' engagement link).
+	CanOpen bool `json:"canOpen"`
 }
 
 // DashboardTeamAllocation is today's team allocation (openapi TimelineItem,
@@ -138,6 +141,7 @@ type DashboardUnconverted struct {
 // DashboardTravelCost is the Travel Cost section, in USD.
 type DashboardTravelCost struct {
 	Currency           string                 `json:"currency"`
+	RateRule           string                 `json:"rateRule"`
 	From               string                 `json:"from"`
 	To                 string                 `json:"to"`
 	Total              float64                `json:"total"`
