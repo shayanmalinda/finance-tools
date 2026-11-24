@@ -100,6 +100,22 @@ func TestDashboardRates_BudgetLeavesSlowPairsUnresolved(t *testing.T) {
 	}
 }
 
+func TestDashboardRates_CancelledLookupIsNotRemembered(t *testing.T) {
+	f := &fakeRates{rates: map[string]float64{"LKR": 300}, delay: 5 * time.Second}
+	r := newDashboardRates(f, dashboardNow)
+	r.budget = 50 * time.Millisecond
+	p := []ratePair{{"LKR", "2026-10-31"}}
+	if got := r.resolve(context.Background(), p); len(got) != 0 {
+		t.Fatalf("resolve = %v, want none within the budget", got)
+	}
+	f.mu.Lock()
+	f.delay = 0
+	f.mu.Unlock()
+	if got := r.resolve(context.Background(), p); got[p[0]] != 300 || f.count() != 2 {
+		t.Errorf("resolve = %v after %d calls, want the rate from a second call", got, f.count())
+	}
+}
+
 func TestDashboardRates_NilConverter(t *testing.T) {
 	r := newDashboardRates(nil, dashboardNow)
 	if got := r.resolve(context.Background(), []ratePair{{"LKR", "2026-10-31"}}); len(got) != 0 {
