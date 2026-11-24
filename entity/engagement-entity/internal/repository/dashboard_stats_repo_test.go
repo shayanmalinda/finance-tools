@@ -282,7 +282,7 @@ func TestDashboardAccountManagerQueries(t *testing.T) {
 	m.alloc.ExpectQuery(re(`ELSE COALESCE(NULLIF(e.engagement_status, ''), 'New') END AS d_status`)).
 		WithArgs("jane@example.com", "2025-12-01").
 		WillReturnRows(sqlmock.NewRows([]string{"s", "n"}).AddRow("In Progress", 4).AddRow("Pending Approval", 1))
-	m.alloc.ExpectQuery(re(`WHERE LOWER(e.username) = ? AND e.status NOT IN ('Cancelled', 'Deleted')
+	m.alloc.ExpectQuery(re(`WHERE LOWER(e.username) = ? AND e.status NOT IN ('Cancelled', 'Deleted') AND COALESCE(e.engagement_status, '') != 'Cancelled'
 			AND e.start_date >= ? AND e.start_date < ?`)).
 		WithArgs("jane@example.com", "2026-11-01", "2027-05-01").
 		WillReturnRows(sqlmock.NewRows([]string{"m", "n"}).AddRow("2026-12", 2))
@@ -297,7 +297,7 @@ func TestDashboardAccountManagerQueries(t *testing.T) {
 
 func TestDashboardEventQueries(t *testing.T) {
 	m := newDashboardMocks(t)
-	m.alloc.ExpectQuery(re(`WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted')
+	m.alloc.ExpectQuery(re(`WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted') AND COALESCE(e.engagement_status, '') != 'Cancelled'
 			AND e.start_date >= ? AND e.start_date < ?
 		GROUP BY d_month`)).WithArgs("2025-12-01", "2026-12-01").
 		WillReturnRows(sqlmock.NewRows([]string{"m", "n"}).AddRow("2026-10", 3))

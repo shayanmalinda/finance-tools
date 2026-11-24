@@ -51,8 +51,13 @@ func EmailAuditor(entity EmailAuditAPI, now func() time.Time) email.AuditFunc {
 	return func(ctx context.Context, m email.Message, sendErr error) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), emailAuditTimeout)
 		defer cancel()
+		subject := strings.TrimSpace(m.Subject)
+		if subject == "" {
+			// The entity rejects a blank subject, and a failed send must still be logged.
+			subject = "(no subject)"
+		}
 		row := engagemententity.EmailAudit{
-			Subject: m.Subject, TemplateID: m.TemplateID,
+			Subject: subject, TemplateID: m.TemplateID,
 			ContentKeyValPairs: email.AuditContent(m, now().UTC().Year()),
 			Recipients:         joinNonEmpty(m.To), CCRecipients: joinNonEmpty(m.CC),
 			Status: engagemententity.EmailAuditSent,

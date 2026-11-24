@@ -951,9 +951,24 @@ func (c *costPrepared) prevFailed() []string {
 	return out
 }
 
-// comparable is whether last year's figures are complete enough to compare with.
+// currentFailed is the selected sources that could not be read for the current period.
+func (c *costPrepared) currentFailed() []string {
+	var out []string
+	for _, f := range c.set.failed {
+		if contains(c.selected, f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// comparable is whether both periods are complete enough to compare. A source
+// missing from either side would read as a rise or a fall in spend.
 func (c *costPrepared) comparable() bool {
-	return c.prevSet == nil || (len(c.prevFailed()) == 0 && !c.prevSet.truncated)
+	if c.prevSet == nil {
+		return true
+	}
+	return len(c.prevFailed()) == 0 && !c.prevSet.truncated && len(c.currentFailed()) == 0 && !c.set.truncated
 }
 
 // incompleteText names what is missing from the data in one short phrase, or is empty when nothing is.
@@ -1054,6 +1069,11 @@ func (s *dashboardService) CostTransactions(ctx context.Context, p domain.Perms,
 		if _, ok := costGroupKeys[t.GroupBy]; !ok {
 			return nil, &apierror.ValidationError{Msg: "groupBy must be employee, jobNumber, country, customer, travelAgent, source, costType or month."}
 		}
+	}
+	// Only grouped rows carry last year's figures, so a plain page must not
+	// depend on, or fail with, the prior-period read.
+	if t.GroupBy == "" {
+		q.Compare = false
 	}
 	pr, err := s.prepare(ctx, p, q)
 	if err != nil {
@@ -1312,7 +1332,7 @@ func (s *dashboardService) TravelCostsCSV(ctx context.Context, p domain.Perms, q
 	}
 	// The header block must not claim a comparison that is not in the file.
 	hq := q
-	hq.Compare = compare
+	hq.Compare = compare && section != "byMonth" // the monthly table has no comparison columns
 	rows := costHeaderBlock(title, pr, hq)
 	for _, sec := range secs {
 		rows = append(rows, []string{}, []string{costSectionTitle[sec]})
@@ -1345,6 +1365,7 @@ var costTransactionsHead = []string{"Date", "Source", "Reference", "Travel Job N
 
 // CostTransactionsCSV is a plain table, header row first, one row per line, newest first.
 func (s *dashboardService) CostTransactionsCSV(ctx context.Context, p domain.Perms, q CostQuery) (*CostCSV, error) {
+	q.Compare = false // the file is current-period lines only
 	pr, err := s.prepare(ctx, p, q)
 	if err != nil {
 		return nil, err

@@ -121,3 +121,13 @@ func TestEmailAudit_SendAndLogFailuresDoNotFailTheAction(t *testing.T) {
 		t.Errorf("rows = %+v", log.travel)
 	}
 }
+
+func TestEmailAuditor_BlankSubjectStillLogsTheFailure(t *testing.T) {
+	f := &auditFake{}
+	m := auditMsg(email.AppTravel)
+	m.Subject = "  "
+	EmailAuditor(f, nil)(context.Background(), m, errors.New("render failed"))
+	if len(f.travel) != 1 || f.travel[0].Subject != "(no subject)" || f.travel[0].Status != engagemententity.EmailAuditFailed {
+		t.Fatalf("got %+v", f.travel)
+	}
+}

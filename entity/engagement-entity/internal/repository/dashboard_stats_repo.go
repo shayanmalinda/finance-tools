@@ -380,7 +380,7 @@ func (r *dashboardRepo) OwnEngagementsByStatus(ctx context.Context, email, yearS
 func (r *dashboardRepo) OwnEngagementsByMonth(ctx context.Context, email, from, to string) ([]domain.DashboardCount, error) {
 	q := `SELECT DATE_FORMAT(e.start_date, '%Y-%m') AS d_month, COUNT(*)
 		FROM engagement AS e
-		WHERE LOWER(e.username) = ? AND e.status NOT IN ('Cancelled', 'Deleted')
+		WHERE LOWER(e.username) = ? AND e.status NOT IN ('Cancelled', 'Deleted') AND COALESCE(e.engagement_status, '') != 'Cancelled'
 			AND e.start_date >= ? AND e.start_date < ?
 		GROUP BY d_month
 		ORDER BY d_month`
@@ -397,7 +397,7 @@ func (r *dashboardRepo) OwnEngagementsByMonth(ctx context.Context, email, from, 
 // Deleted) in a start range.
 const dashboardEventFrom = `FROM engagement AS e
 		JOIN allocation_type AS aT ON e.allocation_type = aT.id
-		WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted')
+		WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted') AND COALESCE(e.engagement_status, '') != 'Cancelled'
 			AND e.start_date >= ? AND e.start_date < ?`
 
 // EventsByMonth counts events starting in [from, to) by start month.
@@ -419,7 +419,7 @@ func (r *dashboardRepo) eventsByFunding(ctx context.Context, join, nameCol, what
 		JOIN allocation_type AS aT ON e.allocation_type = aT.id
 		JOIN engagement_funding_source AS efs ON efs.engagement_id = e.id
 		`+join+`
-		WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted')
+		WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted') AND COALESCE(e.engagement_status, '') != 'Cancelled'
 			AND e.start_date >= ? AND e.start_date < ?
 		GROUP BY d_name
 		ORDER BY COUNT(DISTINCT e.id) DESC, d_name
@@ -451,7 +451,7 @@ func (r *dashboardRepo) EventCampaignCoverage(ctx context.Context, from string) 
 			COALESCE(SUM(COALESCE(e.campaign_id, '') != ''), 0)
 		FROM engagement AS e
 		JOIN allocation_type AS aT ON e.allocation_type = aT.id
-		WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted') AND e.start_date >= ?
+		WHERE aT.engagement_type = 5 AND e.status NOT IN ('Cancelled', 'Deleted') AND COALESCE(e.engagement_status, '') != 'Cancelled' AND e.start_date >= ?
 		GROUP BY LOWER(COALESCE(e.username, ''))
 		ORDER BY COUNT(*) DESC, 1`, from)
 	if err != nil {

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/middleware"
 )
@@ -28,12 +29,16 @@ import (
 func TestCSVOnly_CapsDownloadsNotViews(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	hold, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(release) }) // frees the held slot even when an assertion below fails
 	blocking := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { close(hold); <-release })
 	limit := middleware.Limit(1)
 	// Take the only slot with a CSV download that does not finish yet.
 	go csvOnly(limit(blocking), ok).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x?format=csv", nil))
-	<-hold
-	defer close(release)
+	select {
+	case <-hold:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the CSV download never reached the cap")
+	}
 	h := csvOnly(limit(ok), ok)
 	for _, tc := range []struct {
 		url  string

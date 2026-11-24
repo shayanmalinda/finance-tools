@@ -4464,6 +4464,7 @@ components:
         status:
           type: string
           enum:
+          - ''
           - Sent
           - Failed
           description: Empty means Sent.

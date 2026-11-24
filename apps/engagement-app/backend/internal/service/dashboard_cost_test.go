@@ -859,16 +859,31 @@ func TestCostCSV_WriteSamples(t *testing.T) {
 func TestCostPrepared_ComparisonIgnoresSourcesOutsideTheFilter(t *testing.T) {
 	allowed := []string{"invoice", "card"}
 	prev := &costSet{failed: []string{"card"}}
-	cards := &costPrepared{allowed: allowed, selected: costSelected(allowed, []string{"invoice"}), prevSet: prev}
+	cards := &costPrepared{allowed: allowed, selected: costSelected(allowed, []string{"invoice"}), set: &costSet{}, prevSet: prev}
 	if !cards.comparable() {
 		t.Fatal("a card failure must not block an invoice-only comparison")
 	}
-	inv := &costPrepared{allowed: allowed, selected: costSelected(allowed, []string{"Invoice"}), prevSet: &costSet{failed: []string{"invoice"}}}
+	inv := &costPrepared{allowed: allowed, selected: costSelected(allowed, []string{"Invoice"}), set: &costSet{}, prevSet: &costSet{failed: []string{"invoice"}}}
 	if inv.comparable() {
 		t.Fatal("an invoice failure must block an invoice comparison")
 	}
-	all := &costPrepared{allowed: allowed, selected: costSelected(allowed, nil), prevSet: prev}
+	all := &costPrepared{allowed: allowed, selected: costSelected(allowed, nil), set: &costSet{}, prevSet: prev}
 	if all.comparable() {
 		t.Fatal("with no source filter a card failure must block the comparison")
+	}
+}
+
+func TestCostPrepared_CurrentPeriodFailureBlocksTheComparison(t *testing.T) {
+	allowed := []string{"invoice", "card"}
+	prev := &costSet{}
+	cur := &costSet{failed: []string{"card"}}
+	if (&costPrepared{allowed: allowed, selected: allowed, set: cur, prevSet: prev}).comparable() {
+		t.Fatal("a card set missing now would show last year's cards as a drop")
+	}
+	if !(&costPrepared{allowed: allowed, selected: []string{"invoice"}, set: cur, prevSet: prev}).comparable() {
+		t.Fatal("a card failure must not block an invoice-only comparison")
+	}
+	if !(&costPrepared{allowed: allowed, selected: allowed, set: cur}).comparable() {
+		t.Fatal("with no comparison period there is nothing to block")
 	}
 }

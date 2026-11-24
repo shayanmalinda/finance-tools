@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -84,8 +85,8 @@ func TestCostSetCache_BoundsConcurrentLoads(t *testing.T) {
 	ran := false
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if _, err := c.get(ctx, "extra", func() (*costSet, error) { ran = true; return &costSet{}, nil }); err == nil || ran {
-		t.Fatalf("over the bound: err = %v, ran = %v; want a ctx error and no load", err, ran)
+	if _, err := c.get(ctx, "extra", func() (*costSet, error) { ran = true; return &costSet{}, nil }); !errors.Is(err, context.DeadlineExceeded) || ran {
+		t.Fatalf("over the bound: err = %v, ran = %v; want a deadline error and no load", err, ran)
 	}
 	close(release)
 	for i := 0; i < costSetMaxLoads; i++ {
@@ -93,5 +94,60 @@ func TestCostSetCache_BoundsConcurrentLoads(t *testing.T) {
 	}
 	if _, err := c.get(context.Background(), "extra", func() (*costSet, error) { ran = true; return &costSet{}, nil }); err != nil || !ran {
 		t.Fatalf("after a slot frees: err = %v, ran = %v", err, ran)
+	}
+}
+
+// A joiner whose own request is live starts over when the caller that queued
+// the key leaves before a slot opens.
+func TestCostSetCache_JoinerRetriesWhenTheQueuedCallerLeaves(t *testing.T) {
+	c := newCostSetCache(8, time.Minute, nil)
+	release := make(chan struct{})
+	started := make(chan struct{}, costSetMaxLoads)
+	for i := 0; i < costSetMaxLoads; i++ {
+		key := string(rune('a' + i))
+		go func() {
+			_, _ = c.get(context.Background(), key, func() (*costSet, error) {
+				started <- struct{}{}
+				<-release
+				return &costSet{}, nil
+			})
+		}()
+	}
+	for i := 0; i < costSetMaxLoads; i++ {
+		<-started
+	}
+	leaderCtx, leave := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := c.get(leaderCtx, "extra", func() (*costSet, error) { return &costSet{}, nil })
+		leaderDone <- err
+	}()
+	for { // wait until the leader has queued the key
+		c.mu.Lock()
+		_, queued := c.inflight["extra"]
+		c.mu.Unlock()
+		if queued {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	joinerDone := make(chan error, 1)
+	go func() {
+		_, err := c.get(context.Background(), "extra", func() (*costSet, error) { return &costSet{}, nil })
+		joinerDone <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	leave()
+	if err := <-leaderDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("leader err = %v", err)
+	}
+	close(release)
+	select {
+	case err := <-joinerDone:
+		if err != nil {
+			t.Fatalf("joiner err = %v, want it to load on its own context", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("joiner never finished")
 	}
 }

@@ -54,9 +54,10 @@ type costSetEntry struct {
 }
 
 type costSetCall struct {
-	done chan struct{}
-	set  *costSet
-	err  error
+	done      chan struct{}
+	set       *costSet
+	err       error
+	abandoned bool // the caller that queued it left before a slot opened; set before done closes
 }
 
 func newCostSetCache(size int, ttl time.Duration, now func() time.Time) *costSetCache {
@@ -80,56 +81,74 @@ func (c *costSetCache) touch(key string) {
 	c.order = append(c.order, key)
 }
 
+// acquire waits for one of the costSetMaxLoads read slots until ctx ends.
+// Every read of cost lines from the entity takes one, and gives it back with release.
+func (c *costSetCache) acquire(ctx context.Context) error {
+	select {
+	case c.loads <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *costSetCache) release() { <-c.loads }
+
 // get returns the cached set for key, or runs load once for all callers that
 // ask at the same time and caches its result (a failure is not cached). A
 // caller that joins a load in flight stops waiting when its own ctx ends;
 // the load goes on for the others. At most costSetMaxLoads different keys
-// load at once; a new key waits for a slot while its ctx lasts.
+// load at once; a new key waits for a slot while its ctx lasts. If the
+// caller that queued the key gives up before it gets a slot, the callers
+// that joined it try again on their own contexts.
 func (c *costSetCache) get(ctx context.Context, key string, load func() (*costSet, error)) (*costSet, error) {
-	c.mu.Lock()
-	if e, ok := c.items[key]; ok && c.now().Before(e.expires) {
-		c.touch(key)
-		c.mu.Unlock()
-		return e.set, nil
-	}
-	if call, busy := c.inflight[key]; busy {
-		c.mu.Unlock()
-		select {
-		case <-call.done:
-			return call.set, call.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
+	for {
+		c.mu.Lock()
+		if e, ok := c.items[key]; ok && c.now().Before(e.expires) {
+			c.touch(key)
+			c.mu.Unlock()
+			return e.set, nil
 		}
-	}
-	call := &costSetCall{done: make(chan struct{})}
-	c.inflight[key] = call
-	c.mu.Unlock()
+		if call, busy := c.inflight[key]; busy {
+			c.mu.Unlock()
+			select {
+			case <-call.done:
+				if call.abandoned {
+					continue
+				}
+				return call.set, call.err
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		call := &costSetCall{done: make(chan struct{})}
+		c.inflight[key] = call
+		c.mu.Unlock()
 
-	select {
-	case c.loads <- struct{}{}:
-	case <-ctx.Done():
-		// No slot in time: let anyone who joined this key retry; nothing is cached.
-		call.err = ctx.Err()
+		if err := c.acquire(ctx); err != nil {
+			// No slot in time: nothing is cached and joiners start over.
+			call.abandoned = true
+			c.mu.Lock()
+			delete(c.inflight, key)
+			c.mu.Unlock()
+			close(call.done)
+			return nil, err
+		}
+		call.set, call.err = load()
+		c.release()
+
 		c.mu.Lock()
 		delete(c.inflight, key)
+		if call.err == nil {
+			c.items[key] = &costSetEntry{set: call.set, expires: c.now().Add(c.ttl)}
+			c.touch(key)
+			for len(c.order) > c.size {
+				delete(c.items, c.order[0])
+				c.order = c.order[1:]
+			}
+		}
 		c.mu.Unlock()
 		close(call.done)
-		return nil, call.err
+		return call.set, call.err
 	}
-	call.set, call.err = load()
-	<-c.loads
-
-	c.mu.Lock()
-	delete(c.inflight, key)
-	if call.err == nil {
-		c.items[key] = &costSetEntry{set: call.set, expires: c.now().Add(c.ttl)}
-		c.touch(key)
-		for len(c.order) > c.size {
-			delete(c.items, c.order[0])
-			c.order = c.order[1:]
-		}
-	}
-	c.mu.Unlock()
-	close(call.done)
-	return call.set, call.err
 }

@@ -67,11 +67,16 @@ func (s *dashboardService) JobCostSummary(ctx context.Context, p domain.Perms, j
 		if end.After(to) {
 			end = to
 		}
+		// Job reads share the pod-wide bound on cost-line reads with the report loads.
+		if err := s.costCache.acquire(ctx); err != nil {
+			return nil, err
+		}
 		ectx, cancel := context.WithTimeout(ctx, costEntityBudget)
 		res, err := s.entity.DashboardCostLines(ectx, engagemententity.DashboardCostLinesFilter{
 			From: start.Format(dashboardDateLayout), To: end.Format(dashboardDateLayout), JobNumbers: []string{jobNumber},
 		})
 		cancel()
+		s.costCache.release()
 		if err != nil {
 			return nil, err
 		}
