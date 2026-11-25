@@ -209,6 +209,7 @@ the version segment; paths below are relative to it.
 | Screen | Paths |
 |---|---|
 | Access | `GET /health` (no token), `GET /user-info` (privileges per app, own privileges, roles, agency `{id, name}`, `workQueues`) |
+| Search | `GET /search?q=&limit=` (global search: travel requests, invoices, per diem payments, engagements, allocations; each group follows its list's privileges, a failed group is named in `failed`) |
 | Lookups | `GET /reference-data`, `/accounts` (search as you type), `/accounts/{id}/opportunities`, `/campaigns`, `/employees`, `/org-structure` |
 | Dashboard, Me | `GET /dashboard`, `/dashboard/allocations-today`, `/me/overview`, `/me/travel-requests`, `/me/visas`, `/me/travel-documents`, `/me/passports` (+ POST for own visas and documents) |
 | Engagements, Approvals | `GET`/`POST /engagements`, `GET /engagements/facets`, `GET`/`PATCH /engagements/{id}`, `POST /engagements/{id}/request-status`, `/engagement-status`, `/approve`, `GET /approvals` |

@@ -47,6 +47,7 @@ func registerFinanceRoutes(a *area) {
 		CompanyRecipients: rc.CompanyRecipients, AppBaseURL: rc.AppBaseURL,
 	}, a.Converter, a.Now)
 	svc.Campaigns = a.Campaigns
+	a.finance = svc
 	h := handler.NewFinanceHandler(svc)
 	travel := func(ids ...int) domain.Gate { return domain.Gate{domain.AppTravel: ids} }
 

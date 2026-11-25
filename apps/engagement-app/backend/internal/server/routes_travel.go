@@ -43,8 +43,9 @@ func travelOptions(a *area) service.TravelOptions {
 // live here, each behind a.handle / a.handleIdem with its legacy gate.
 func registerTravelRoutes(a *area) {
 	opts := travelOptions(a)
+	a.travel = service.NewTravelService(a.Entity, a.HR, a.Email, opts)
 	h := handler.NewTravelHandler(
-		service.NewTravelService(a.Entity, a.HR, a.Email, opts),
+		a.travel,
 		service.NewTravelDocumentsService(a.Entity, a.HR, a.Files, a.Now, opts.VisaNotApplicableID, opts.NoValidVisaID),
 	)
 	travel := func(ids ...int) domain.Gate { return domain.Gate{domain.AppTravel: ids} }
