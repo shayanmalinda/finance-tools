@@ -81,3 +81,14 @@ func TestSearchHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestTravelListQuery_ReadsSort(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/travel-requests?segment=all&sort=%20-startDate%20", nil)
+	q, err := travelListQuery(r)
+	if err != nil || q.Sort != "-startDate" {
+		t.Fatalf("sort = %q err %v", q.Sort, err)
+	}
+	if q, _ := travelListQuery(httptest.NewRequest(http.MethodGet, "/travel-requests", nil)); q.Sort != "" {
+		t.Errorf("default sort = %q", q.Sort)
+	}
+}

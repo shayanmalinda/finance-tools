@@ -126,10 +126,26 @@ func travelWhere(f domain.TravelRequestSearch, withStatuses bool) (string, []any
 	return b.String(), args
 }
 
+// travelSortOrders maps each whitelisted sort to a fixed ORDER BY. User
+// input is never interpolated; an unknown sort falls through to the default.
+var travelSortOrders = map[string]string{
+	domain.TravelSortStartDesc:       ` ORDER BY t.start_date DESC, t.job_number`,
+	domain.TravelSortJobNumber:       ` ORDER BY t.job_number`,
+	domain.TravelSortJobNumberDesc:   ` ORDER BY t.job_number DESC`,
+	domain.TravelSortStartDate:       ` ORDER BY t.start_date, t.job_number`,
+	domain.TravelSortStartDateDesc:   ` ORDER BY t.start_date DESC, t.job_number`,
+	domain.TravelSortDestination:     ` ORDER BY t.country, t.city, t.job_number`,
+	domain.TravelSortDestinationDesc: ` ORDER BY t.country DESC, t.city DESC, t.job_number`,
+	domain.TravelSortAgency:          ` ORDER BY ta.name_of_travel_agent, t.job_number`,
+	domain.TravelSortAgencyDesc:      ` ORDER BY ta.name_of_travel_agent DESC, t.job_number`,
+	domain.TravelSortStatus:          ` ORDER BY t.status, t.job_number`,
+	domain.TravelSortStatusDesc:      ` ORDER BY t.status DESC, t.job_number`,
+}
+
 // travelOrder returns the ORDER BY of a whitelisted sort.
 func travelOrder(f domain.TravelRequestSearch) (string, []any) {
-	if f.Sort == domain.TravelSortStartDesc {
-		return ` ORDER BY t.start_date DESC, t.job_number`, nil
+	if o, ok := travelSortOrders[f.Sort]; ok {
+		return o, nil
 	}
 	today := f.Today
 	if today == "" {

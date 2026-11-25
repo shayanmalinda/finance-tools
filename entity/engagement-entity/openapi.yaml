@@ -4185,7 +4185,23 @@ components:
           enum:
           - current
           - startDesc
+          - jobNumber
+          - -jobNumber
+          - startDate
+          - -startDate
+          - destination
+          - -destination
+          - agency
+          - -agency
+          - status
+          - -status
           default: current
+          description: >-
+            `current` lists trips ending today or later first (start date
+            ascending), then past trips (start date descending). The column
+            sorts (a leading `-` is descending) order by job number, start
+            date, destination (country, then city), agency name or status;
+            all of them end with the job number as a tiebreak.
         today:
           type: string
           format: date

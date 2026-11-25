@@ -55,7 +55,27 @@ const (
 	TravelSortCurrentFirst = "current"
 	// TravelSortStartDesc lists by start date, newest first.
 	TravelSortStartDesc = "startDesc"
+	// The column sorts: a leading "-" means descending. Every one ends with
+	// the job number as a stable tiebreak.
+	TravelSortJobNumber       = "jobNumber"
+	TravelSortJobNumberDesc   = "-jobNumber"
+	TravelSortStartDate       = "startDate"
+	TravelSortStartDateDesc   = "-startDate"
+	TravelSortDestination     = "destination"
+	TravelSortDestinationDesc = "-destination"
+	TravelSortAgency          = "agency"
+	TravelSortAgencyDesc      = "-agency"
+	TravelSortStatus          = "status"
+	TravelSortStatusDesc      = "-status"
 )
+
+// TravelSorts is every accepted Sort value.
+var TravelSorts = []string{
+	TravelSortCurrentFirst, TravelSortStartDesc,
+	TravelSortJobNumber, TravelSortJobNumberDesc, TravelSortStartDate, TravelSortStartDateDesc,
+	TravelSortDestination, TravelSortDestinationDesc, TravelSortAgency, TravelSortAgencyDesc,
+	TravelSortStatus, TravelSortStatusDesc,
+}
 
 // TravelRequestSearch filters POST /travel-requests/search. Every multi-value
 // filter is OR within itself and AND across filters. Rows with status
@@ -81,7 +101,7 @@ type TravelRequestSearch struct {
 	Search            string `json:"search"`
 	SearchEngagements bool   `json:"searchEngagements"`
 	SearchAgency      bool   `json:"searchAgency"`
-	// Sort is TravelSortCurrentFirst (default) or TravelSortStartDesc.
+	// Sort is one of TravelSorts; empty means TravelSortCurrentFirst.
 	Sort string `json:"sort"`
 	// Today (YYYY-MM-DD) splits current from past trips; empty means the
 	// entity's UTC date.
