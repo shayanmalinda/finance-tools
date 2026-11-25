@@ -20,11 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/middleware"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/oidc"
 )
 
@@ -34,21 +38,46 @@ type dashboardEntity struct {
 	roles     map[domain.App]map[string][]int
 	allocDate string
 	buID      int
+	agency    *domain.TravelAgency
+	mu        sync.Mutex
+	audits    []domain.AuditEvent
 }
 
-func (*dashboardEntity) RecordAuditEvent(context.Context, domain.AuditEvent) error { return nil }
+func (f *dashboardEntity) RecordAuditEvent(_ context.Context, e domain.AuditEvent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.audits = append(f.audits, e)
+	return nil
+}
+
+func (f *dashboardEntity) GetTravelRequest(_ context.Context, jn string) (engagemententity.TravelRequestRecord, error) {
+	if jn != "TRV-2026-10-0001" {
+		return engagemententity.TravelRequestRecord{}, &apierror.UpstreamError{Service: "engagement-entity", StatusCode: 404, Msg: "not found"}
+	}
+	id := 7
+	return engagemententity.TravelRequestRecord{JobNumber: jn, TravellerEmail: "bob@wso2.com", StartDate: "2026-10-10", EndDate: "2026-10-20", TravelAgentID: &id}, nil
+}
 
 func (f *dashboardEntity) RolePrivileges(_ context.Context, app domain.App) (map[string][]int, error) {
 	return f.roles[app], nil
 }
 func (f *dashboardEntity) TravelAgency(context.Context, string) (*domain.TravelAgency, error) {
-	return nil, nil
+	return f.agency, nil
 }
 func (f *dashboardEntity) DashboardAllocationsToday(_ context.Context, date string, bu int) (*engagemententity.DashboardAllocationsToday, error) {
 	f.allocDate, f.buID = date, bu
 	return &engagemententity.DashboardAllocationsToday{
 		ByEngagementType: []engagemententity.DashboardEngagementTypeCount{{EngagementTypeID: 5, EngagementType: "Marketing Event", Count: 3}},
 	}, nil
+}
+func (f *dashboardEntity) DashboardCostLines(context.Context, engagemententity.DashboardCostLinesFilter) (*engagemententity.DashboardCostLines, error) {
+	cust := "=SUM(A1)"
+	return &engagemententity.DashboardCostLines{Items: []engagemententity.DashboardCostEntry{
+		{ID: "INV-1", Source: "invoice", Date: "2026-10-01", OriginalCurrency: "USD", OriginalAmount: 12.5, CostType: "Hotel", Customer: &cust, Paid: "paid"},
+	}}, nil
+}
+func (f *dashboardEntity) DashboardMyVisas(context.Context, string, string) (*engagemententity.DashboardMyVisas, error) {
+	return &engagemententity.DashboardMyVisas{}, nil
 }
 func (f *dashboardEntity) DashboardMyWork(context.Context, engagemententity.DashboardMyWorkFilter) (*engagemententity.DashboardMyWork, error) {
 	return &engagemententity.DashboardMyWork{
@@ -71,7 +100,7 @@ var dashboardEmployeeRoles = map[domain.App]map[string][]int{
 }
 
 func TestDashboardRoutes_Gates(t *testing.T) {
-	// A signed-in person outside every role: 403 on all three.
+	// A signed-in person outside every role: 403 on both.
 	h, _ := newDashboardRouter([]string{"someone-else"}, dashboardEmployeeRoles)
 	for _, path := range []string{"/dashboard", "/dashboard/allocations-today", "/me/overview"} {
 		if rec := get(h, path, "valid"); rec.Code != http.StatusForbidden {
@@ -125,8 +154,150 @@ func TestDashboardRoutes_MeOverview(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
 	}
-	const want = `{"upcomingAllocations":[],"upcomingTrips":[{"jobNumber":"TRV-2026-11-0001","status":null,"traveller":{"email":"jane@wso2.com","name":null},"city":null,"country":null,"startDate":"2026-11-10","endDate":"2026-11-12","agency":null}]}` + "\n"
+	const want = `{"upcomingAllocations":[],"upcomingTrips":[{"jobNumber":"TRV-2026-11-0001","status":null,"traveller":{"email":"jane@wso2.com","name":null},"city":null,"country":null,"startDate":"2026-11-10","endDate":"2026-11-12","agency":null}],"tripVisas":[]}` + "\n"
 	if rec.Body.String() != want {
 		t.Errorf("body = %s\nwant   %s", rec.Body, want)
+	}
+}
+
+var dashboardFinanceRoles = map[domain.App]map[string][]int{
+	domain.AppAllocations: {"wso2-employees": {1}},
+	domain.AppTravel: {
+		"wso2-employees":              {19, 20, 21, 22, 23, 24, 36, 37, 38, 47, 48, 49},
+		"app-travel-approver-finance": {39, 41},
+	},
+}
+
+func TestDashboardRoutes_TravelCosts(t *testing.T) {
+	costPaths := []string{"/dashboard/travel-costs", "/dashboard/travel-costs/transactions"}
+	// An employee is not allowed: 403 on both.
+	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardFinanceRoles)
+	for _, path := range costPaths {
+		if rec := get(h, path, "valid"); rec.Code != http.StatusForbidden {
+			t.Errorf("employee %s: status = %d, want 403", path, rec.Code)
+		}
+		if rec := get(h, path, ""); rec.Code != http.StatusUnauthorized {
+			t.Errorf("no token %s: status = %d, want 401", path, rec.Code)
+		}
+	}
+	h, _ = newDashboardRouter([]string{"wso2-employees", "app-travel-approver-finance"}, dashboardFinanceRoles)
+	for _, path := range costPaths {
+		if rec := get(h, path+"?from=2026-01-01&to=2026-11-05", "valid"); rec.Code != http.StatusOK {
+			t.Errorf("finance %s: status = %d, body %s", path, rec.Code, rec.Body)
+		}
+	}
+	// Parameter validation.
+	for _, q := range []string{
+		"?from=2026-01-01", "?from=x&to=2026-01-02", "?from=2026-02-01&to=2026-01-01", "?from=2024-01-01&to=2026-11-05",
+		"?compare=maybe", "?source=cash", "?paid=maybe", "?travelAgent=x", "?travelAgent=-1", "?unlinked=2", "?format=xml",
+	} {
+		if rec := get(h, "/dashboard/travel-costs"+q, "valid"); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 (%s)", q, rec.Code, rec.Body)
+		}
+	}
+	for _, q := range []string{"?groupBy=colour", "?sort=size", "?limit=0", "?limit=101", "?offset=-1"} {
+		if rec := get(h, "/dashboard/travel-costs/transactions"+q, "valid"); rec.Code != http.StatusBadRequest {
+			t.Errorf("transactions %s: status = %d, want 400", q, rec.Code)
+		}
+	}
+	if rec := get(h, "/dashboard/travel-costs?section=nope&format=csv", "valid"); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad csv section: status = %d", rec.Code)
+	}
+}
+
+// The CSV total equals the JSON total, and a cell that starts like a formula is neutralised.
+func TestDashboardRoutes_TravelCostsCSV(t *testing.T) {
+	h, _ := newDashboardRouter([]string{"wso2-employees", "app-travel-approver-finance"}, dashboardFinanceRoles)
+	rec := get(h, "/dashboard/travel-costs/transactions?from=2026-01-01&to=2026-11-05&format=csv", "valid")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/csv") ||
+		!strings.Contains(rec.Header().Get("Content-Disposition"), "Travel_Costs_Transactions_2026-01-01_2026-11-05.csv") {
+		t.Fatalf("csv: %d %v", rec.Code, rec.Header())
+	}
+	body := rec.Body.String()
+	// UTF-8 byte order mark first, then the header row of a plain table.
+	if !strings.HasPrefix(body, "\xEF\xBB\xBFDate,Source,Reference,") || !strings.Contains(body, ",12.50,USD,12.50,1,,Recorded in USD") ||
+		!strings.Contains(body, "'=SUM(A1)") || strings.Contains(body, ",=SUM(A1)") {
+		t.Errorf("csv body:\n%s", body)
+	}
+	rec = get(h, "/dashboard/travel-costs/transactions?from=2026-01-01&to=2026-11-05", "valid")
+	var page struct {
+		TotalUSD float64 `json:"totalUsd"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&page); err != nil || page.TotalUSD != 12.5 {
+		t.Errorf("json total = %v %v", page.TotalUSD, err)
+	}
+	rec = get(h, "/dashboard/travel-costs?from=2026-01-01&to=2026-11-05&format=csv&section=kpis", "valid")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "\xEF\xBB\xBFReport,") || !strings.Contains(rec.Body.String(), "Total Spend (USD),12.50") {
+		t.Errorf("summary csv: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDashboardRoutes_Sections(t *testing.T) {
+	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardEmployeeRoles)
+	if rec := get(h, "/dashboard?sections=myWork,nope", "valid"); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown section: status = %d", rec.Code)
+	}
+	if rec := get(h, "/dashboard?sections=myWork", "valid"); rec.Code != http.StatusBadRequest {
+		t.Errorf("myWork is no longer a section: status = %d", rec.Code)
+	}
+	rec := get(h, "/dashboard?sections=waitingOnYou&sections=travelTeam", "valid")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"widgets":[{"id":"allocations-today","defaultOn":false}]`) || strings.Contains(rec.Body.String(), "travelTeam") {
+		t.Errorf("sections: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// An explicit empty `sections=` is the widget catalogue alone: the date and the
+// widgets the caller may see, with no section computed and no entity call (the
+// embedded entity client is nil here, so any call would panic).
+func TestDashboardRoutes_EmptySectionsIsTheCatalogue(t *testing.T) {
+	h, _ := newDashboardRouter([]string{"wso2-employees"}, dashboardEmployeeRoles)
+	rec := get(h, "/dashboard?sections=", "valid")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `"date":"2026-11-05"`) || !strings.Contains(body, `"widgets":[{"id":"allocations-today","defaultOn":false}]`) {
+		t.Fatalf("catalogue: %d %s", rec.Code, body)
+	}
+	for _, section := range []string{"waitingOnYou", "travelTeam", "engagements", "allocationsOverTime"} {
+		if strings.Contains(body, `"`+section+`"`) {
+			t.Errorf("catalogue carries section %s: %s", section, body)
+		}
+	}
+}
+
+// The cost summary of a travel request is audited as a View of travel_cost
+// with the job number, only when the caller may see it.
+func TestDashboardRoutes_JobCostSummaryAudit(t *testing.T) {
+	roles := map[domain.App]map[string][]int{
+		domain.AppAllocations: {"wso2-employees": {1}},
+		domain.AppTravel:      {"wso2-travel": {2}, "wso2-agents": {18}, "wso2-employees": {49}},
+	}
+	h, e := newDashboardRouter([]string{"wso2-travel"}, roles)
+	if rec := get(h, "/travel-requests/TRV-2026-10-0001/cost-summary", "valid"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := get(h, "/travel-requests/TRV-2026-10-0009/cost-summary", "valid"); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown job: status = %d, want 404", rec.Code)
+	}
+	// An agent of another agency is refused, and nothing is audited for it.
+	e.agency = &domain.TravelAgency{ID: 9, Name: "Other"}
+	ha, ea := newDashboardRouter([]string{"wso2-agents"}, roles)
+	ea.agency = &domain.TravelAgency{ID: 9, Name: "Other"}
+	if rec := get(ha, "/travel-requests/TRV-2026-10-0001/cost-summary", "valid"); rec.Code != http.StatusForbidden {
+		t.Errorf("other agency: status = %d, want 403", rec.Code)
+	}
+	if err := middleware.WaitAudits(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.audits) != 1 {
+		t.Fatalf("audit events = %+v, want exactly one", e.audits)
+	}
+	if a := e.audits[0]; a.Action != domain.AuditView || a.EntityType != "travel_cost" || a.EntityID != "TRV-2026-10-0001" {
+		t.Errorf("audit event = %+v", a)
+	}
+	ea.mu.Lock()
+	defer ea.mu.Unlock()
+	if len(ea.audits) != 0 {
+		t.Errorf("the refused request was audited: %+v", ea.audits)
 	}
 }

@@ -46,6 +46,11 @@ func registerAllocationRoutes(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("PATCH /allocations/{id}", h.Update)
 	mux.HandleFunc("DELETE /allocations/{id}", h.Delete)
 
+	// Allocation emails log (allocation_db.email_auditlog).
+	emailAudit := handler.NewEmailAuditHandler(service.NewAllocationEmailAuditService(
+		repository.NewAllocationEmailAuditRepository(pools.Allocation)))
+	mux.HandleFunc("POST /allocation-email-audit-logs", emailAudit.InsertAllocationEmailAudit)
+
 	mux.HandleFunc("GET /consultant-allocations", h.ConsultantAllocations)
 	mux.HandleFunc("GET /consultant-allocations/non-allocated", h.NonAllocatedEmployees)
 	mux.HandleFunc("GET /consultant-allocations/team-defaults", h.TeamDefaults)

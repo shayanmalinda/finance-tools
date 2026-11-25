@@ -48,17 +48,8 @@ type FinanceService struct {
 	// batchReserve is the time kept back at the end of a request: a bulk
 	// push starts no new record once less than this is left.
 	batchReserve time.Duration
-	// audit writes the legacy email_auditlog row of a sent email; nil skips it.
-	audit func(ctx context.Context, m email.Message)
 	// Campaigns resolves campaign names; nil leaves them unset.
 	Campaigns *CampaignNames
-}
-
-// WithEmailAudit makes every sent finance email also write its legacy
-// email_auditlog row (the Travel app did for every email it generated).
-func (s *FinanceService) WithEmailAudit(audit func(ctx context.Context, m email.Message)) *FinanceService {
-	s.audit = audit
-	return s
 }
 
 // NewFinanceService constructs a FinanceService. currency nil means the
@@ -244,10 +235,6 @@ func (s *FinanceService) notify(ctx context.Context, kind, jobNumber, traveller,
 	ctx = context.WithoutCancel(ctx)
 	if err := s.mail.Send(ctx, m); err != nil {
 		slog.ErrorContext(ctx, "finance email not sent", "kind", kind, "job", jobNumber, "err", err)
-		return
-	}
-	if s.audit != nil {
-		s.audit(ctx, m)
 	}
 }
 

@@ -37,6 +37,16 @@ func TestDashboardRoutes_Validation(t *testing.T) {
 		"/dashboard/engagements?engagementType=-1",
 		"/dashboard/agency",
 		"/dashboard/agency?agencyId=0",
+		"/dashboard/cost-lines",
+		"/dashboard/cost-lines?from=2026-01-01",
+		"/dashboard/cost-lines?from=2026-01-01&to=2026-02-01&limit=0",
+		"/dashboard/cost-lines?from=2026-01-01&to=2026-02-01&source=cash",
+		"/dashboard/cost-lines?from=2026-03-01&to=2026-02-01",
+		"/dashboard/travel-team?today=yesterday",
+		"/dashboard/manager?engagementType=x",
+		"/dashboard/account-manager",
+		"/dashboard/events?today=x",
+		"/dashboard/my-visas?email=nobody",
 	} {
 		if rec := serve(h, http.MethodGet, target); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400 (%s)", target, rec.Code, rec.Body)
@@ -59,7 +69,7 @@ func TestDashboardRoutes_AllocationsTodayReadsAllocationDB(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
 	}
-	want := `{"byEngagementType":[{"engagementTypeId":5,"engagementType":"Marketing Event","count":2}],` +
+	want := `{"date":"2026-10-01","byEngagementType":[{"engagementTypeId":5,"engagementType":"Marketing Event","count":2}],` +
 		`"paidByAllocationType":[],"nonPaidByAllocationType":[{"allocationType":"Event","color":"#fff","count":2}],"consultants":2}`
 	if strings.TrimSpace(rec.Body.String()) != want {
 		t.Errorf("body = %s\nwant   %s", rec.Body, want)

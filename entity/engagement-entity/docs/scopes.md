@@ -89,6 +89,7 @@ The routes are listed from `internal/server/routes*.go`. `GET /health` needs no 
 | GET /finance/travel-requests/{jobNumber}/payment-basis | travel-requests:read | engagement:read |
 | PATCH /travel-requests/{jobNumber} | travel-requests:write | engagement:write |
 | POST /travel-email-audit-logs | travel-requests:write | engagement:write |
+| POST /allocation-email-audit-logs | allocations:write | engagement:write |
 | GET /visas | visas:read | engagement:read |
 | GET /visas/{id} | visas:read | engagement:read |
 | POST /visas | visas:write | engagement:write |
@@ -125,6 +126,12 @@ The routes are listed from `internal/server/routes*.go`. `GET /health` needs no 
 | GET /dashboard/travel | dashboard:read | engagement:read |
 | GET /dashboard/engagements | dashboard:read | engagement:read |
 | GET /dashboard/agency | dashboard:read | engagement:read |
+| GET /dashboard/cost-lines | dashboard:read | engagement:read |
+| GET /dashboard/travel-team | dashboard:read | engagement:read |
+| GET /dashboard/manager | dashboard:read | engagement:read |
+| GET /dashboard/account-manager | dashboard:read | engagement:read |
+| GET /dashboard/events | dashboard:read | engagement:read |
+| GET /dashboard/my-visas | dashboard:read | engagement:read |
 | GET /role-settings/{app} | role-settings:read | engagement:admin |
 | PUT /role-settings/{app}/roles/{roleId}/privileges | role-settings:write | engagement:admin |
 | POST /settings/allocation-types | settings:write | engagement:write |

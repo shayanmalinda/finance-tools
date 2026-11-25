@@ -293,3 +293,28 @@ func TestTravelDocumentService_Validation(t *testing.T) {
 		t.Errorf("doc duplicate: %v", err)
 	}
 }
+
+func TestNormalizeEmailAudit(t *testing.T) {
+	ok := domain.EmailAuditInput{Subject: "s", TemplateID: "t"}
+	got, err := normalizeEmailAudit(ok)
+	if err != nil || got.Status != domain.EmailAuditSent {
+		t.Errorf("empty status = %q err %v, want Sent", got.Status, err)
+	}
+	got, err = normalizeEmailAudit(domain.EmailAuditInput{Subject: "s", TemplateID: "t", Status: "Sent", ErrorMessage: "x"})
+	if err != nil || got.ErrorMessage != "" {
+		t.Errorf("a Sent row keeps no error: %+v err %v", got, err)
+	}
+	got, err = normalizeEmailAudit(domain.EmailAuditInput{Subject: "s", TemplateID: "t", Status: "Failed", ErrorMessage: "x"})
+	if err != nil || got.Status != "Failed" || got.ErrorMessage != "x" {
+		t.Errorf("Failed row: %+v err %v", got, err)
+	}
+	for _, bad := range []domain.EmailAuditInput{
+		{Subject: "s", TemplateID: "t", Status: "sent"},
+		{Subject: "s", TemplateID: "t", Status: "Pending"},
+		{Subject: " ", TemplateID: "t"},
+	} {
+		if _, err := normalizeEmailAudit(bad); !travelIsValidation(err) {
+			t.Errorf("%+v: err = %v, want validation", bad, err)
+		}
+	}
+}

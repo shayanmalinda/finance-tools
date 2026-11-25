@@ -68,22 +68,6 @@ type DashboardAllocationSummary struct {
 	CanOpen bool `json:"canOpen"`
 }
 
-// DashboardTeamAllocation is today's team allocation (openapi TimelineItem,
-// kind default).
-type DashboardTeamAllocation struct {
-	ID              string  `json:"id"`
-	Kind            string  `json:"kind"`
-	EngagementID    *string `json:"engagementId"`
-	Label           string  `json:"label"`
-	AllocationType  string  `json:"allocationType"`
-	EngagementCode  string  `json:"engagementCode"`
-	Color           *string `json:"color"`
-	StartDate       string  `json:"startDate"`
-	EndDate         string  `json:"endDate"`
-	ClearanceStatus string  `json:"clearanceStatus"`
-	Comment         *string `json:"comment"`
-}
-
 // DashboardTrip is a travel request row (a subset of openapi
 // TravelRequestSummary).
 type DashboardTrip struct {
@@ -106,15 +90,6 @@ type DashboardAgentTrip struct {
 	Country   *string `json:"country"`
 	StartDate string  `json:"startDate"`
 	EndDate   string  `json:"endDate"`
-}
-
-// DashboardMyWork is the caller's own work.
-type DashboardMyWork struct {
-	CurrentAllocation   *DashboardAllocationSummary `json:"currentAllocation"`
-	TodayTeamAllocation *DashboardTeamAllocation    `json:"todayTeamAllocation"`
-	NextAllocation      *DashboardAllocationSummary `json:"nextAllocation"`
-	NextTrips           []DashboardTrip             `json:"nextTrips"`
-	UpcomingTripCount   int                         `json:"upcomingTripCount"`
 }
 
 // DashboardTravel is the Travel section.
@@ -199,43 +174,39 @@ type DashboardAllocationsOverTime struct {
 	ByBusinessUnit []DashboardBucket      `json:"byBusinessUnit"`
 }
 
-// DashboardAgentPerDiem is a per diem on an open trip of the agency.
-type DashboardAgentPerDiem struct {
-	JobNumber string   `json:"jobNumber"`
-	Traveller Person   `json:"traveller"`
-	StartDate *string  `json:"startDate"`
-	EndDate   *string  `json:"endDate"`
-	Days      *int     `json:"days"`
-	Currency  *string  `json:"currency"`
-	Total     *float64 `json:"total"`
-}
-
 // DashboardAgent is the travel agent dashboard.
 type DashboardAgent struct {
-	Agency                  string                  `json:"agency"`
-	InProgress              int                     `json:"inProgress"`
-	StartingIn7Days         int                     `json:"startingIn7Days"`
-	CompletedWithoutInvoice int                     `json:"completedWithoutInvoice"`
-	InvoicesRejected        int                     `json:"invoicesRejected"`
-	Upcoming                []DashboardAgentTrip    `json:"upcoming"`
-	UpcomingTotal           int                     `json:"upcomingTotal"`
-	InvoicesByStatus        []DashboardBucket       `json:"invoicesByStatus"`
-	TripsByMonth            []DashboardSeriesPoint  `json:"tripsByMonth"`
-	PerDiemsOnOpenTrips     []DashboardAgentPerDiem `json:"perDiemsOnOpenTrips"`
+	Agency                  string                 `json:"agency"`
+	InProgress              int                    `json:"inProgress"`
+	StartingIn7Days         int                    `json:"startingIn7Days"`
+	CompletedWithoutInvoice int                    `json:"completedWithoutInvoice"`
+	InvoicesRejected        int                    `json:"invoicesRejected"`
+	Upcoming                []DashboardAgentTrip   `json:"upcoming"`
+	UpcomingTotal           int                    `json:"upcomingTotal"`
+	InvoicesByStatus        []DashboardBucket      `json:"invoicesByStatus"`
+	TripsByMonth            []DashboardSeriesPoint `json:"tripsByMonth"`
 }
 
 // Dashboard is GET /dashboard. Absent sections are not shown.
 type Dashboard struct {
+	// Date is the business date (UTC) the figures and the page header are for.
+	Date string `json:"date"`
 	// FailedSections are the sections that could not be loaded (show an error there).
-	FailedSections       []string                       `json:"failedSections"`
-	MyWork               *DashboardMyWork               `json:"myWork,omitempty"`
-	WaitingOnYou         []DashboardCountCard           `json:"waitingOnYou,omitempty"`
+	FailedSections []string `json:"failedSections"`
+	// Widgets are the widgets the caller may see, in catalogue order, with
+	// their default (always present; empty for the agent dashboard).
+	Widgets              []DashboardWidget              `json:"widgets"`
+	WaitingOnYou         []DashboardCountCard           `json:"waitingOnYou,omitzero"`
 	TravelCost           *DashboardTravelCost           `json:"travelCost,omitempty"`
 	Travel               *DashboardTravel               `json:"travel,omitempty"`
 	Engagements          *DashboardEngagements          `json:"engagements,omitempty"`
 	AvailableConsultants *DashboardAvailableConsultants `json:"availableConsultants,omitempty"`
 	AllocationsOverTime  *DashboardAllocationsOverTime  `json:"allocationsOverTime,omitempty"`
 	Agent                *DashboardAgent                `json:"agent,omitempty"`
+	TravelTeam           *DashboardTravelTeam           `json:"travelTeam,omitempty"`
+	EngagementManager    *DashboardEngagementManager    `json:"engagementManager,omitempty"`
+	AccountManager       *DashboardAccountManager       `json:"accountManager,omitempty"`
+	MarketingEvents      *DashboardMarketingEvents      `json:"marketingEvents,omitempty"`
 }
 
 // DashboardAllocationsToday is GET /dashboard/allocations-today.
@@ -255,4 +226,6 @@ type DashboardAllocationsToday struct {
 type MeOverview struct {
 	UpcomingAllocations []DashboardAllocationSummary `json:"upcomingAllocations"`
 	UpcomingTrips       []DashboardTrip              `json:"upcomingTrips"`
+	// TripVisas is present when the caller has own trips access (Travel 49 or 36).
+	TripVisas []TripVisa `json:"tripVisas,omitzero"`
 }

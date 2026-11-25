@@ -458,34 +458,6 @@ func TestFinanceRecipients(t *testing.T) {
 	}
 }
 
-// Every sent finance email writes its email_auditlog row when an audit hook
-// is set (the Travel app did for every email).
-func TestFinanceEmailAudit(t *testing.T) {
-	e := &finEntity{trip: openTrip()}
-	s := NewFinanceService(e, finHR{}, email.LogSender{}, email.FinanceRecipients{TravelLogisticsGroup: "logistics@wso2.com"}, nil, nil)
-	var audited []email.Message
-	s.WithEmailAudit(func(_ context.Context, m email.Message) { audited = append(audited, m) })
-	if _, err := s.AddPerDiem(context.Background(), perms("po@wso2.com", 26), job, domain.PerDiemCreate{
-		StartDate: "2026-11-06", StartTime: "09:00", EndDate: "2026-11-07", EndTime: "18:00", Currency: "GBP", Rate: 70}); err != nil {
-		t.Fatal(err)
-	}
-	if len(audited) != 1 || audited[0].Subject != "[Engagement App] Travel Request (#"+job+")" {
-		t.Errorf("audited = %+v", audited)
-	}
-}
-
-// A failed send writes no audit row.
-func TestFinanceEmailAuditSkippedWhenSendFails(t *testing.T) {
-	s, _ := newFin(&finEntity{trip: openTrip()}, nil)
-	called := false
-	s.WithEmailAudit(func(context.Context, email.Message) { called = true })
-	_, _ = s.AddPerDiem(context.Background(), perms("po@wso2.com", 26), job, domain.PerDiemCreate{
-		StartDate: "2026-11-06", StartTime: "09:00", EndDate: "2026-11-07", EndTime: "18:00", Currency: "GBP", Rate: 70})
-	if called {
-		t.Error("audited an email that was not sent")
-	}
-}
-
 func TestFinancePushingState(t *testing.T) {
 	s, _ := newFin(&finEntity{}, nil)
 	p := perms("f@wso2.com", 34, 40)

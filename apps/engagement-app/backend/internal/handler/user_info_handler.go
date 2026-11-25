@@ -25,11 +25,14 @@ import (
 )
 
 // UserInfoHandler serves GET /user-info.
-type UserInfoHandler struct{ svc service.AccessService }
+type UserInfoHandler struct {
+	svc                service.AccessService
+	accessRequestEmail string
+}
 
 // NewUserInfoHandler constructs a UserInfoHandler.
-func NewUserInfoHandler(svc service.AccessService) *UserInfoHandler {
-	return &UserInfoHandler{svc: svc}
+func NewUserInfoHandler(svc service.AccessService, accessRequestEmail string) *UserInfoHandler {
+	return &UserInfoHandler{svc: svc, accessRequestEmail: accessRequestEmail}
 }
 
 // Get handles GET /user-info: the caller's email and, separately for each
@@ -47,5 +50,6 @@ func (h *UserInfoHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, r, err)
 		return
 	}
+	resp.AccessRequestEmail = h.accessRequestEmail
 	writeJSON(w, resp)
 }

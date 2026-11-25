@@ -132,3 +132,48 @@ func TestAudit_SkipsHEAD(t *testing.T) {
 		t.Errorf("HEAD recorded %d audit events", n)
 	}
 }
+
+// The audit write is detached from the request: a request context that is
+// already cancelled (client gone, request timeout) still records the event,
+// and the write's own context carries a deadline.
+func TestAudit_CancelledRequestContextStillRecords(t *testing.T) {
+	type result struct {
+		ctxErr      error
+		hasDeadline bool
+		email       string
+	}
+	got := make(chan result, 1)
+	rec := auditRecorderFunc(func(ctx context.Context, e domain.AuditEvent) error {
+		c, _ := reqcontext.CallerFrom(ctx)
+		_, dl := ctx.Deadline()
+		got <- result{ctxErr: ctx.Err(), hasDeadline: dl, email: c.Email}
+		return nil
+	})
+	event := func(r *http.Request) (domain.AuditEvent, bool) {
+		return domain.AuditEvent{Action: domain.AuditView, EntityType: "travel_cost"}, true
+	}
+	reqCtx, cancelReq := context.WithCancel(reqcontext.WithCaller(context.Background(), reqcontext.Caller{Email: "jane@wso2.com"}))
+	h := Audit(rec, event)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancelReq() // the request ends before the audit is sent
+		_, _ = w.Write([]byte("ok"))
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil).WithContext(reqCtx))
+
+	select {
+	case r := <-got:
+		if r.ctxErr != nil {
+			t.Errorf("audit context was cancelled: %v", r.ctxErr)
+		}
+		if !r.hasDeadline {
+			t.Error("audit context has no timeout")
+		}
+		if r.email != "jane@wso2.com" {
+			t.Errorf("caller lost: %q", r.email)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event recorded after the request context was cancelled")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = WaitAudits(ctx)
+}

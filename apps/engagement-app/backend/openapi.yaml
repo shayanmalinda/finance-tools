@@ -292,15 +292,11 @@ paths:
         by every employee) or Travel 18 (a travel agent) opens the page.
         Allocations Today has its own endpoint (it takes a date and a
         business unit); show it to holders of Allocations 1. Suggested order
-        (prototype) - My Work, Waiting on You, Travel Cost first when
+        (prototype) - Waiting on You, Travel Cost first when
         `travelCost.creditCardExpenses` is present, Travel, Travel Cost
         otherwise, Engagements and Available Consultants, Allocations Today,
         Allocations Over Time.
 
-
-        - `myWork` (own data): own current and next active engagement
-          allocation and today's team allocation (Allocations 1), next trips
-          (Travel 49 or 36). Absent when all are empty.
 
         - `waitingOnYou`: counts from the caller's own privileges (super
           admin groups never create a queue);
@@ -337,8 +333,34 @@ paths:
         Passports and visas are never on the dashboard. A section whose data
         could not be loaded is absent and named in `failedSections`; 503 only
         when every section fails.
+
+        Widgets (Release 2). `widgets` lists every widget the caller may see, in
+        catalogue order, with `defaultOn`. Visibility uses effective
+        privileges and roles (super admin grants counted, the union across
+        both apps); `defaultOn` follows the working roles (own privileges;
+        the Travel Super Admin counts as the Travel Team). `sections` asks
+        for exactly those sections; absent means every section behind a
+        widget that is on by default for the caller; an explicit empty
+        `sections=` computes no section and returns only `date` and `widgets`
+        (the catalogue, cheap enough to call first so the page can draw every
+        widget's frame at once). An unknown key is 400; a section the caller
+        may not see is left out without error, so section data is only ever
+        returned for a widget the caller may see. Sections that share one
+        entity call (`engagements`, `availableConsultants` and
+        `allocationsOverTime`) are best asked for together, in one request.
+        `travelCost` is deprecated: use `GET /dashboard/travel-costs` (it is
+        removed one release after the webapp stops reading it).
       operationId: getDashboard
       x-privileges: { allocations: [1], travel: [18] }
+      parameters:
+        - name: sections
+          in: query
+          description: Comma-joined or repeated section keys.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/DashboardSectionKey' }
       responses:
         '200':
           description: Dashboard sections
@@ -348,21 +370,133 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /dashboard/travel-costs:
+    get:
+      tags: [Dashboard]
+      summary: Travel costs in USD for a date range, with year-on-year comparison and breakdowns
+      description: >-
+        One summary for the Travel Costs widgets: KPIs, breakdowns by source,
+        month, destination country, paid customer, travel agent, cost type and
+        paid / non-paid, and filters. Every line
+        is in USD: amounts recorded in USD, and card charges billed in USD,
+        are used as they are; other currencies are converted at NetSuite's
+        rate on the last day of the line's month (today's rate for the
+        current month). Amounts with no rate are in `notConverted` and in no
+        USD figure. Allowed for finance groups (own Travel 39 or 41 with a
+        travel finance group) and the Travel Super Admin; everyone else 403.
+        A finance caller who is not a Travel Super Admin sees invoices with
+        own Travel 39 or 30, per diems with 41 or 42, and always cards and
+        claims. A Travel Super Admin sees all four sources, employee-level
+        data included. `format=csv` returns the same figures as a UTF-8 CSV (with a byte order mark)
+        for a spreadsheet: a two-column header block (Report, Date range, Compared with, Filters, Amounts in,
+        How USD is calculated, an `Incomplete data` row only when a source could not be read or hit the cap, Data as of),
+        a blank row, then titled sections, each with a header row that names every column (for example
+        `Source, This Period (USD), Same Period Last Year (USD), Change vs Last Year (%)`). There is no long text in column A. The Same Period Last Year and
+        Change vs Last Year columns are left out when the comparison is off or not available. Numbers are plain (money 2 decimals,
+        percentages 1 decimal, no separators or symbols), dates YYYY-MM-DD, months YYYY-MM. It is audited. File name
+        `Travel_Costs_<Summary|Key_Figures|By_Source|By_Month|By_Country|By_Customer|By_Travel_Agent|By_Cost_Type|Paid_vs_Non_Paid>_{from}_{to}.csv`.
+      operationId: getTravelCosts
+      x-privileges: { travel: [39, 41] }
+      parameters:
+        - { name: from, in: query, description: 'Inclusive. Both or neither. Default 1 Jan of this UTC year.', schema: { type: string, format: date } }
+        - { name: to, in: query, description: 'Inclusive, at most 731 days after from. Default today (UTC).', schema: { type: string, format: date } }
+        - { name: compare, in: query, description: 'Same period one year earlier (29 Feb becomes 28 Feb).', schema: { type: boolean, default: true } }
+        - { name: source, in: query, description: 'A source the caller may not see is ignored.', schema: { type: array, maxItems: 4, items: { $ref: '#/components/schemas/CostSource' } } }
+        - { name: employee, in: query, description: 'Traveller or cardholder emails.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: jobNumber, in: query, description: 'Exact match after trim, case-insensitive.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: country, in: query, description: 'Exact, case-insensitive. `Unknown` matches blank.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: travelAgent, in: query, description: '`0` matches no travel agent.', schema: { type: array, maxItems: 50, items: { type: integer } } }
+        - { name: paid, in: query, schema: { type: array, items: { type: string, enum: [paid, nonPaid, unknown] } } }
+        - { name: customer, in: query, schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: costType, in: query, description: 'Used by drill-down only.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: unlinked, in: query, description: 'Only lines with no job number.', schema: { type: boolean } }
+        - $ref: '#/components/parameters/Format'
+        - name: section
+          in: query
+          description: 'With format=csv: `summary` (default, everything) or one section.'
+          schema: { type: string, enum: [summary, kpis, bySource, byMonth, byCountry, byCustomer, byTravelAgent, byCostType, byPaid], default: summary }
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TravelCostSummary' }
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /dashboard/travel-costs/transactions:
+    get:
+      tags: [Dashboard]
+      summary: The cost lines behind the Travel Costs summary, optionally grouped
+      description: >-
+        Same gate and filters as `GET /dashboard/travel-costs`. Without
+        `groupBy`, one row per cost line (invoice, per diem payment, card
+        transaction, expense claim) with its original amount, USD amount, rate
+        and rate source. With `groupBy`, one row per group. `format=csv`
+        ignores paging and `groupBy` and returns every filtered line as a plain UTF-8 table (byte order mark, then the header row, no
+        preamble, no total row) with the columns Date, Source, Reference, Travel Job Number, Employee, Email,
+        Destination Country, Customer, Paid / Non-Paid, Cost Type, Amount, Currency, Amount (USD), Rate Used, Rate Date,
+        How Converted (Recorded in USD, Billed in USD or NetSuite month-end rate); newest first. The file name
+        `Travel_Costs_Transactions_{from}_{to}.csv` carries the range. It is audited. Computed from the
+        same cached line set as the summary, so totals agree.
+      operationId: listTravelCostTransactions
+      x-privileges: { travel: [39, 41] }
+      parameters:
+        - { name: from, in: query, description: 'Inclusive. Both or neither. Default 1 Jan of this UTC year.', schema: { type: string, format: date } }
+        - { name: to, in: query, description: 'Inclusive, at most 731 days after from. Default today (UTC).', schema: { type: string, format: date } }
+        - { name: compare, in: query, description: 'Same period one year earlier (29 Feb becomes 28 Feb).', schema: { type: boolean, default: true } }
+        - { name: source, in: query, description: 'A source the caller may not see is ignored.', schema: { type: array, maxItems: 4, items: { $ref: '#/components/schemas/CostSource' } } }
+        - { name: employee, in: query, description: 'Traveller or cardholder emails.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: jobNumber, in: query, description: 'Exact match after trim, case-insensitive.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: country, in: query, description: 'Exact, case-insensitive. `Unknown` matches blank.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: travelAgent, in: query, description: '`0` matches no travel agent.', schema: { type: array, maxItems: 50, items: { type: integer } } }
+        - { name: paid, in: query, schema: { type: array, items: { type: string, enum: [paid, nonPaid, unknown] } } }
+        - { name: customer, in: query, schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: costType, in: query, description: 'Used by drill-down only.', schema: { type: array, maxItems: 50, items: { type: string } } }
+        - { name: unlinked, in: query, description: 'Only lines with no job number.', schema: { type: boolean } }
+        - { name: groupBy, in: query, schema: { type: string, enum: [employee, jobNumber, country, customer, travelAgent, source, costType, month] } }
+        - { name: sort, in: query, description: 'Default -date (groups: -amount).', schema: { type: string, enum: [date, -date, amount, -amount] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Format'
+      responses:
+        '200':
+          description: Lines, or groups when groupBy is set
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CostLinePage'
+                  - $ref: '#/components/schemas/CostGroupPage'
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /dashboard/allocations-today:
     get:
       tags: [Dashboard]
       summary: Allocations active on a date (the legacy Allocations dashboard)
       description: >-
-        The legacy Allocations dashboard queries, unchanged. Today (no date,
-        or today's date) uses the legacy "today" predicates (engagement
-        status Confirmed / In Progress or request status New / In Progress;
-        allocation status Active and allocation_status Active or Confirmed);
-        a past date uses the "past date" predicates (engagement and request
-        status not Cancelled, allocation not Deleted). Team (default)
-        allocations are not counted. As in legacy, allocations are counted
-        once per funding source of their engagement, engagements without
-        funding sources are left out, and the business unit filter matches a
-        funding source's business unit id. Paid = engagement types named
+        The legacy Allocations dashboard queries. Every date, today included,
+        uses the same rule, the legacy "today" predicates (engagement status
+        Confirmed / In Progress or request status New / In Progress;
+        allocation status Active and allocation_status Active or Confirmed),
+        so the same day gives the same answer with or without `date`. The
+        legacy looser "past date" variant is not used: it counted Inactive
+        (removed) allocations. Statuses are the current ones, so a past date
+        shows the present view of who was allocated then. Team (default)
+        allocations are not counted. Allocations are counted once each (a
+        multi-funded engagement is not counted once per funding source),
+        engagements without funding sources are left out, and the business
+        unit filter matches a funding source's business unit id. The
+        response `date` is the day the figures are for (the business date,
+        UTC, when none was asked for); show that date, do not compute one in
+        the browser. Paid = engagement types named
         Paid, Paid Pre Sale, Paid Post Sale. `consultants` counts distinct
         consultants under the same predicates (the one addition). Charts are
         top 8 plus Other; percentages are rounded to 2 decimals.
@@ -392,6 +526,11 @@ paths:
         Allocations 1) and own trips not Cancelled that end today or later
         (at most 3; with Travel 49 or 36). Both lists empty - the card is
         hidden. Any signed-in employee (Travel 49 or Allocations 1).
+        `tripVisas` (own trips access, Travel 49 or 36; at most 20 trips not
+        Cancelled that end today or later) pairs each trip with the visa
+        picked on it and the caller's own Active visa that covers it;
+        `waiting` is true when no own visa covers the trip and the trip's
+        visa is "No Valid Visa Available" or ends before the trip does.
       operationId: getMyOverview
       x-privileges: { allocations: [1], travel: [49] }
       responses:
@@ -1281,9 +1420,10 @@ paths:
         agency's requests, not the agent. The fields are written in one
         update with last_updated_by = the caller. Sends the legacy emails
         (assigned, on hold, cancelled, in progress, completed with the per
-        diems, agent changed, visa changed) and an email_auditlog row per
-        email; an email failure never fails the update. Answers the
-        updated request, as GET.
+        diems, agent changed, visa changed) and logs every send attempt in
+        email_auditlog (status Sent, or Failed with the error). An email or
+        log failure never fails the update. Answers the updated request, as
+        GET.
       operationId: updateTravelRequest
       x-privileges: { travel: [1, 4, 5, 6] }
       parameters:
@@ -1326,6 +1466,36 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/VisaOption' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /travel-requests/{jobNumber}/cost-summary:
+    get:
+      tags: [Travel Requests]
+      summary: Total cost so far of a travel request
+      description: >-
+        What the trip has cost so far, from the same lines, NetSuite rates and
+        per-line cent rounding as Travel Costs, so the figures equal Travel
+        Costs filtered to this job over all its dates. Anyone who may open the
+        request may ask (scope full, the assigned agency's agents, or the
+        traveller) and everyone gets the total. Below the total, each source
+        (split, unconverted amounts, failed source names) follows the caller's
+        right to view that section of the trip. The answer for another agency's trip is 403, as on the
+        request itself. A travel agent gets `totalUsd` (with `notConverted`
+        and `incomplete`) and never `bySource`. Audited as a View of
+        `travel_cost` with the job number.
+      operationId: getTravelRequestCostSummary
+      x-privileges: { travel: [1, 2, 5, 18, 36] }
+      parameters:
+        - $ref: '#/components/parameters/JobNumber'
+      responses:
+        '200':
+          description: The cost so far
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobCostSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -2493,6 +2663,14 @@ components:
           $ref: '#/components/schemas/TravelAccess'
         workQueues:
           $ref: '#/components/schemas/WorkQueues'
+        accessRequestEmail:
+          type: string
+          format: email
+          description: >-
+            Where a person with no Finance-side access should write to ask for
+            it (the `ACCESS_REQUEST_EMAIL` setting, which defaults to
+            wso2-digital-team@wso2.com).
+          example: wso2-digital-team@wso2.com
       example:
         email: jane@wso2.com
         allocations:
@@ -2508,6 +2686,7 @@ components:
           invoices: [approve, push, all]
           perDiemPayments: []
           netsuiteSyncFailures: true
+        accessRequestEmail: wso2-digital-team@wso2.com
 
     # ── Vocabularies (legacy values) ──
     EngagementKind:
@@ -2816,20 +2995,24 @@ components:
     Dashboard:
       type: object
       description: Absent sections are not shown.
-      required: [failedSections]
+      required: [failedSections, date]
       properties:
+        date:
+          type: string
+          format: date
+          description: The business date (UTC) the dashboard is for. Show this date, do not compute one in the browser.
+        widgets:
+          type: array
+          description: Every widget the caller may see, in catalogue order. Always present; empty for the agent dashboard.
+          items: { $ref: '#/components/schemas/DashboardWidget' }
+        travelTeam: { $ref: '#/components/schemas/DashboardTravelTeam' }
+        engagementManager: { $ref: '#/components/schemas/DashboardEngagementManager' }
+        accountManager: { $ref: '#/components/schemas/DashboardAccountManager' }
+        marketingEvents: { $ref: '#/components/schemas/DashboardMarketingEvents' }
         failedSections:
           type: array
           description: Sections that could not be loaded; show an error there.
-          items: { type: string, enum: [myWork, waitingOnYou, travel, travelCost, engagements, availableConsultants, allocationsOverTime] }
-        myWork:
-          type: object
-          properties:
-            currentAllocation: { $ref: '#/components/schemas/AllocationSummary' }
-            todayTeamAllocation: { type: object, allOf: [{ $ref: '#/components/schemas/TimelineItem' }], nullable: true, description: 'Not Engagement Overhead.' }
-            nextAllocation: { $ref: '#/components/schemas/AllocationSummary' }
-            nextTrips: { type: array, items: { $ref: '#/components/schemas/DashboardTrip' }, description: 'At most 3.' }
-            upcomingTripCount: { type: integer, description: 'All own upcoming trips ("N more upcoming").' }
+          items: { type: string, enum: [waitingOnYou, travel, travelCost, travelTeam, engagementManager, accountManager, marketingEvents, engagements, availableConsultants, allocationsOverTime] }
         waitingOnYou: { type: array, items: { $ref: '#/components/schemas/CountCard' } }
         travel:
           type: object
@@ -2918,18 +3101,6 @@ components:
             upcomingTotal: { type: integer }
             invoicesByStatus: { type: array, items: { $ref: '#/components/schemas/Bucket' }, description: 'Legacy invoice status values.' }
             tripsByMonth: { type: array, items: { $ref: '#/components/schemas/SeriesPoint' }, description: 'values.Trips per start month.' }
-            perDiemsOnOpenTrips:
-              type: array
-              items:
-                type: object
-                properties:
-                  jobNumber: { type: string }
-                  traveller: { $ref: '#/components/schemas/Person' }
-                  startDate: { type: string, format: date, nullable: true }
-                  endDate: { type: string, format: date, nullable: true }
-                  days: { type: integer, nullable: true }
-                  currency: { type: string, nullable: true }
-                  total: { type: number, nullable: true }
     AllocationsToday:
       type: object
       required: [date, allocations, consultants, paid, nonPaid, byEngagementType, paidByAllocationType, nonPaidByAllocationType]
@@ -2949,6 +3120,308 @@ components:
       properties:
         upcomingAllocations: { type: array, items: { $ref: '#/components/schemas/AllocationSummary' } }
         upcomingTrips: { type: array, items: { $ref: '#/components/schemas/DashboardTrip' } }
+        tripVisas: { type: array, maxItems: 20, items: { $ref: '#/components/schemas/TripVisa' }, description: 'Present when the caller has own trips access (Travel 49 or 36).' }
+
+    DashboardSectionKey:
+      type: string
+      enum: [waitingOnYou, travel, travelTeam, engagementManager, accountManager, marketingEvents, engagements, availableConsultants, allocationsOverTime]
+    DashboardWidget:
+      type: object
+      required: [id, defaultOn]
+      properties:
+        id:
+          type: string
+          description: Widget id (waiting-on-you, tc-kpis, tc-source, tc-month, tc-cost-type, tc-country, tc-paid, tc-customers, tc-agents, tc-lines, travel, tt-glance, tt-po-age, tt-frequent, tt-agent-workload, em-no-consultants, em-starting-14, em-most-allocated, em-top-customers, am-started-no-consultants, am-by-status, am-by-month, ev-by-month, ev-by-region, ev-funding-bu, ev-campaign, engagements, available-consultants, allocations-today, allocations-over-time).
+        defaultOn: { type: boolean, description: 'Shown by default (working roles); the person may still turn it on or off.' }
+    DashboardCountItem:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer }
+    DashboardTravelTeam:
+      type: object
+      description: >-
+        Every part is optional: a part is present only when the caller may see the widget it feeds
+        (awayThisWeek, endedNotCompleted and poQueue count and oldestDays: tt-glance; poQueue.byAge:
+        tt-po-age; frequentTravellers: tt-frequent; agentWorkload: tt-agent-workload). The array parts
+        (frequentTravellers, agentWorkload, byAge) are present as `[]` when the widget is visible and
+        there is nothing to show, and absent only when the widget is not visible to the caller.
+      properties:
+        awayThisWeek:
+          type: object
+          properties:
+            travellers: { type: integer }
+            countries: { type: integer }
+        endedNotCompleted:
+          type: object
+          description: Trips New, In Progress, Extended or On Hold that ended 3 to 90 days ago.
+          properties:
+            count: { type: integer }
+        poQueue:
+          type: object
+          properties:
+            count: { type: integer }
+            oldestDays: { type: integer }
+            byAge: { type: array, description: 'Only with tt-po-age. Always 4 buckets: Under 7 days, 7 to 30 days, 31 to 90 days, Over 90 days.', items: { $ref: '#/components/schemas/Bucket' } }
+        frequentTravellers:
+          type: array
+          description: Top 8, 12-month window.
+          items:
+            type: object
+            properties:
+              traveller: { $ref: '#/components/schemas/Person' }
+              trips: { type: integer }
+        agentWorkload: { type: array, description: 'Top 5; trips under way or starting within 60 days.', items: { $ref: '#/components/schemas/Bucket' } }
+    DashboardStartingAllocation:
+      type: object
+      properties:
+        allocationId: { type: string }
+        consultant: { $ref: '#/components/schemas/Person' }
+        engagementId: { type: string }
+        engagementTitle: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        travelRequired: { type: boolean }
+    DashboardEngagementList:
+      type: object
+      properties:
+        total: { type: integer }
+        items: { type: array, items: { $ref: '#/components/schemas/DashboardEngagement' } }
+    DashboardEngagementManager:
+      type: object
+      description: 'Every part is optional: present only when the caller may see its widget (em-no-consultants, em-starting-14, em-most-allocated, em-top-customers).'
+      properties:
+        withoutConsultants: { allOf: [{ $ref: '#/components/schemas/DashboardEngagementList' }], description: 'First 6.' }
+        startingIn14Days:
+          type: object
+          properties:
+            total: { type: integer }
+            items: { type: array, items: { $ref: '#/components/schemas/DashboardStartingAllocation' } }
+        mostAllocated:
+          type: array
+          description: Top 8, calendar days of each allocation that fall inside the last 90 days.
+          items:
+            type: object
+            properties:
+              consultant: { $ref: '#/components/schemas/Person' }
+              days: { type: integer }
+        topCustomers:
+          type: object
+          properties:
+            by: { type: string, enum: [customer, country], description: '`country` when the caller allocates no customer type.' }
+            items: { type: array, description: 'Top 8; value = calendar days of each allocation that fall inside the last 12 months.', items: { $ref: '#/components/schemas/Bucket' } }
+    DashboardAccountManager:
+      type: object
+      description: 'Engagements the caller created (engagement.username). Every part is optional: present only when the caller may see its widget (am-started-no-consultants, am-by-status, am-by-month).'
+      properties:
+        startedWithoutConsultants: { allOf: [{ $ref: '#/components/schemas/DashboardEngagementList' }], description: 'First 6.' }
+        byStatus: { type: array, items: { $ref: '#/components/schemas/Bucket' } }
+        byMonth: { type: array, description: 'values.Engagements, current month and the next 5.', items: { $ref: '#/components/schemas/SeriesPoint' } }
+    DashboardMarketingEvents:
+      type: object
+      description: 'Every part is optional: present only when the caller may see its widget (ev-by-month, ev-by-region, ev-funding-bu, ev-campaign).'
+      properties:
+        byMonth: { type: array, description: 'values.Events, 12-month window.', items: { $ref: '#/components/schemas/SeriesPoint' } }
+        byRegion: { type: array, description: Top 8., items: { $ref: '#/components/schemas/Bucket' } }
+        fundingByBusinessUnit: { type: array, description: Top 6., items: { $ref: '#/components/schemas/Bucket' } }
+        campaignCoverage:
+          type: object
+          nullable: true
+          description: Events starting on or after today minus 90 days. Null when the campaign_id column is absent.
+          properties:
+            total: { type: integer }
+            withCampaign: { type: integer }
+            percent: { type: number }
+            byCreator:
+              type: array
+              items:
+                type: object
+                properties:
+                  creator: { $ref: '#/components/schemas/Person' }
+                  total: { type: integer }
+                  withCampaign: { type: integer }
+                  percent: { type: number }
+    TripVisa:
+      type: object
+      required: [jobNumber, country, startDate, endDate, waiting]
+      properties:
+        jobNumber: { type: string }
+        country: { type: string }
+        city: { type: string, nullable: true }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        tripVisa: { type: string, nullable: true, example: 'B1/B2, ends 2027-03-01', description: 'The visa picked on the trip; null when none picked.' }
+        myVisa:
+          type: object
+          nullable: true
+          description: The caller's own Active visa for that country covering the trip.
+          properties:
+            type: { type: string }
+            endDate: { type: string, format: date }
+        waiting: { type: boolean }
+    CostSource:
+      type: string
+      enum: [invoice, perDiem, card, claim]
+    CostKpi:
+      type: object
+      properties:
+        value: { type: number }
+        previous: { type: number, nullable: true, description: 'Null when compare=false.' }
+        changePercent: { type: number, nullable: true, description: '(value - previous) / previous * 100, 1 decimal. Null when thin or compare=false.' }
+        thin: { type: boolean, description: 'previous == 0 or value > 5 * previous: no meaningful comparison.' }
+    CostBucket:
+      type: object
+      properties:
+        key: { type: string, description: 'The value to send back as a filter when the bar is clicked. Blank for Other.' }
+        label: { type: string }
+        value: { type: number }
+        percent: { type: number }
+        previous: { type: number, nullable: true }
+        changePercent: { type: number, nullable: true }
+        thin: { type: boolean }
+        trips: { type: integer, description: 'Only where stated (customer, travel agent).' }
+        averagePerTrip: { type: number, description: 'Only for travel agents.' }
+        categorised: { type: boolean, description: 'False for Card and Claim cost types.' }
+    CostNotConverted:
+      type: object
+      properties:
+        source: { $ref: '#/components/schemas/CostSource' }
+        currency: { type: string, description: Blank when the line has none. }
+        amount: { type: number }
+        lines: { type: integer }
+    JobCostSummary:
+      type: object
+      required: [totalUsd, notConverted, hasUnconvertedHidden, incomplete, failedSources, dataAsOf]
+      properties:
+        totalUsd: { type: number, description: 'Sum of the per-line cent amounts of every converted line of the job.' }
+        bySource:
+          type: array
+          description: Never sent to a travel agent. Only the sources whose section of the trip the caller may view (Per Diems, Travel Invoices, and Expenses for card spend and claims), in screen order, even at zero.
+          items:
+            type: object
+            required: [key, label, usd, lines]
+            properties:
+              key: { type: string, enum: [invoice, perDiem, card, claim] }
+              label: { type: string, description: 'Travel Invoices, Per Diems, Credit Card Expenses or Expense Claims.' }
+              usd: { type: number }
+              lines: { type: integer }
+        notConverted: { type: array, description: 'Left out of totalUsd. Only sources the caller may view are listed.', items: { $ref: '#/components/schemas/CostNotConverted' } }
+        hasUnconvertedHidden: { type: boolean, description: 'An amount in a source the caller may not view could not be converted. No detail is given.' }
+        incomplete: { type: boolean, description: 'Any source could not be read or the line cap was reached, so the total may be too low.' }
+        failedSources: { type: array, description: 'Only sources the caller may view are named.', items: { type: string, enum: [invoice, perDiem, card, claim] } }
+        dataAsOf: { type: string, format: date-time }
+    TravelCostSummary:
+      type: object
+      required: [currency, rateRule, from, to, kpis]
+      properties:
+        currency: { type: string, example: USD }
+        rateRule: { type: string, enum: [monthEnd] }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        compare:
+          type: object
+          nullable: true
+          description: Same period one year earlier. Null when compare=false.
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        dataAsOf: { type: string, format: date-time }
+        kpis:
+          type: object
+          properties:
+            total: { $ref: '#/components/schemas/CostKpi' }
+            trips: { allOf: [{ $ref: '#/components/schemas/CostKpi' }], description: 'Distinct non-blank job numbers (trimmed, upper-cased).' }
+            averagePerTrip: { allOf: [{ $ref: '#/components/schemas/CostKpi' }], description: 'Total of lines with a job number / trips; 0 when no trips.' }
+            travellers: { allOf: [{ $ref: '#/components/schemas/CostKpi' }], description: 'Distinct traveller emails.' }
+            unlinkedSpend: { allOf: [{ $ref: '#/components/schemas/CostKpi' }], description: 'USD total of lines with no job number; part of total.' }
+        bySource: { type: array, description: 'Keys invoice, perDiem, card, claim; only the allowed sources.', items: { $ref: '#/components/schemas/CostBucket' } }
+        byMonth: { type: array, description: 'Every month of the range; values keyed Travel Invoices, Per Diems, Credit Card Expenses, Expense Claims.', items: { $ref: '#/components/schemas/SeriesPoint' } }
+        byCountry: { type: array, description: 'Top 10 plus Other (key blank).', items: { $ref: '#/components/schemas/CostBucket' } }
+        byCustomer: { type: array, description: 'Paid lines only, top 10, with trips.', items: { $ref: '#/components/schemas/CostBucket' } }
+        byTravelAgent: { type: array, description: 'Lines with a trip; with trips and averagePerTrip.', items: { $ref: '#/components/schemas/CostBucket' } }
+        byCostType: { type: array, description: 'Invoice cost types, Per Diem, then Card and Claim with categorised=false.', items: { $ref: '#/components/schemas/CostBucket' } }
+        byPaid: { type: array, description: 'Keys paid, nonPaid, unknown.', items: { $ref: '#/components/schemas/CostBucket' } }
+        paidSharePercent: { type: number, nullable: true, description: 'paid / (paid + nonPaid); null when both are 0.' }
+        notConverted: { type: array, description: 'Left out of every USD figure; counted in trips and travellers.', items: { $ref: '#/components/schemas/CostNotConverted' } }
+        failedSources: { type: array, description: 'Sources that could not be read (for example card and claim when expense_app is down); totals leave them out.', items: { $ref: '#/components/schemas/CostSource' } }
+        truncated: { type: boolean, description: 'A source hit the 20,000-line cap.' }
+        comparisonFailedSources: { type: array, description: 'Sources that could not be read for the comparison period. When any is listed, or comparisonTruncated is true, last year is incomplete and no change against it is given (previous and changePercent are null).', items: { $ref: '#/components/schemas/CostSource' } }
+        comparisonTruncated: { type: boolean, description: 'The comparison period hit the 20,000-line cap.' }
+        facets:
+          type: object
+          description: Built from the range's lines before the filters, so a filter list never empties itself.
+          properties:
+            countries: { type: array, items: { type: string } }
+            travelAgents:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  name: { type: string }
+            customers: { type: array, items: { type: string } }
+            costTypes: { type: array, items: { type: string } }
+    CostLine:
+      type: object
+      required: [id, source, date, originalAmount, originalCurrency, costType, paid]
+      properties:
+        id: { type: string, example: INV-10764, description: 'INV-, PD-, CC-, EC- plus the row id.' }
+        source: { $ref: '#/components/schemas/CostSource' }
+        reference: { type: string, nullable: true, description: "The source's own number." }
+        jobNumber: { type: string, nullable: true, description: Null when unlinked. }
+        traveller:
+          type: object
+          nullable: true
+          properties:
+            email: { type: string }
+            name: { type: string }
+        date: { type: string, format: date }
+        originalAmount: { type: number }
+        originalCurrency: { type: string }
+        usdAmount: { type: number, nullable: true, description: Null when not converted. }
+        rate: { type: number, nullable: true, description: 'Units of the original currency for 1 USD; 1 for USD and card-billed-in-USD lines; null when not converted.' }
+        rateDate: { type: string, format: date, nullable: true, description: Null when no rate was used. }
+        rateSource: { type: string, nullable: true, enum: [recorded, card, month-end, today], description: Null when not converted. }
+        costType: { type: string, description: 'Invoice cost type, Per Diem, Card or Claim.' }
+        sourceType: { type: string, nullable: true, description: 'Card and claim expense type text as stored; not a category.' }
+        country: { type: string, nullable: true }
+        travelAgent:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        customer: { type: string, nullable: true }
+        paid: { type: string, enum: [paid, nonPaid, unknown] }
+        engagementId: { type: string, nullable: true }
+        allocationType: { type: string, nullable: true }
+    CostLinePage:
+      type: object
+      required: [items, total, totalUsd]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CostLine' } }
+        total: { type: integer }
+        totalUsd: { type: number }
+        dataAsOf: { type: string, format: date-time }
+    CostGroup:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        lines: { type: integer }
+        trips: { type: integer }
+        travellers: { type: integer }
+        total: { type: number }
+        previous: { type: number, nullable: true }
+        changePercent: { type: number, nullable: true }
+        thin: { type: boolean }
+    CostGroupPage:
+      type: object
+      required: [groups, total]
+      properties:
+        groups: { type: array, items: { $ref: '#/components/schemas/CostGroup' } }
+        total: { type: integer }
+        dataAsOf: { type: string, format: date-time }
 
     # ── Engagements ──
     FundingSource:

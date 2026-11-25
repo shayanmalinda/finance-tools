@@ -263,44 +263,6 @@ func (r *dashboardRepo) AgencyTripsByMonth(ctx context.Context, agencyID int, w 
 	return dashboardCountRows(rows, "dashboard.AgencyTripsByMonth")
 }
 
-// AgencyPerDiems lists the active per diem rows on the agency's open (In
-// Progress or Extended) trips. perdiem_allocation.status holds 'Active' /
-// 'Deleted'; the comparison is case-insensitive as in legacy.
-func (r *dashboardRepo) AgencyPerDiems(ctx context.Context, agencyID, limit int) ([]domain.DashboardAgencyPerDiem, error) {
-	q := `SELECT pa.job_number, t.traveller_email,
-			DATE_FORMAT(pa.start_date, '%Y-%m-%d'), DATE_FORMAT(pa.end_date, '%Y-%m-%d'),
-			pa.no_of_days, pa.currency, pa.total
-		FROM perdiem_allocation AS pa
-		INNER JOIN travel AS t ON pa.job_number = t.job_number
-		WHERE t.travel_agent_id = ? AND t.status IN ('In Progress', 'Extended') AND pa.status = 'Active'
-		ORDER BY t.start_date, pa.start_date, pa.id
-		LIMIT ?`
-	rows, err := r.travel.QueryContext(ctx, q, agencyID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("dashboard.AgencyPerDiems: %w", err)
-	}
-	defer rows.Close()
-	out := []domain.DashboardAgencyPerDiem{}
-	for rows.Next() {
-		var p domain.DashboardAgencyPerDiem
-		var days sql.NullInt64
-		var total sql.NullFloat64
-		if err := rows.Scan(&p.JobNumber, &p.TravellerEmail, &p.StartDate, &p.EndDate, &days, &p.Currency, &total); err != nil {
-			return nil, fmt.Errorf("dashboard.AgencyPerDiems scan: %w", err)
-		}
-		if days.Valid {
-			v := int(days.Int64)
-			p.Days = &v
-		}
-		if total.Valid {
-			v := total.Float64
-			p.Total = &v
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
-}
-
 // ── expense_app ─────────────────────────────────────────────────────────────
 
 // CardCost sums the card transactions (expense_app.cc_txn) tagged with a

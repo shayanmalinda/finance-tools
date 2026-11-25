@@ -29,8 +29,9 @@ import (
 // Every call returns aggregates; the backend asks only for what the caller
 // may see.
 type DashboardAPI interface {
-	// DashboardAllocationsToday runs the legacy Allocations dashboard queries.
-	// date "" is today (the legacy curdate() variant); businessUnitID 0 is all.
+	// DashboardAllocationsToday runs the legacy Allocations dashboard queries
+	// for date (the entity defaults "" to its UTC today; the backend always
+	// sends one); businessUnitID 0 is all.
 	DashboardAllocationsToday(ctx context.Context, date string, businessUnitID int) (*DashboardAllocationsToday, error)
 	// DashboardMyWork returns the person's own allocations and (with trips)
 	// upcoming trips.
@@ -44,6 +45,21 @@ type DashboardAPI interface {
 	DashboardEngagements(ctx context.Context, f DashboardEngagementsFilter) (*DashboardEngagements, error)
 	// DashboardAgency returns the travel agent dashboard of one agency.
 	DashboardAgency(ctx context.Context, agencyID int, today string) (*DashboardAgency, error)
+	// GetTravelRequest is the travel request the per-trip cost summary is for;
+	// an unknown job number is a 404 UpstreamError.
+	GetTravelRequest(ctx context.Context, jobNumber string) (TravelRequestRecord, error)
+	// DashboardCostLines returns the travel cost lines in their original
+	// amounts (GET /dashboard/cost-lines).
+	DashboardCostLines(ctx context.Context, f DashboardCostLinesFilter) (*DashboardCostLines, error)
+	// DashboardTravelTeam, DashboardManager, DashboardAccountManager and
+	// DashboardEvents return the figures behind the role widgets.
+	DashboardTravelTeam(ctx context.Context, today string) (*DashboardTravelTeam, error)
+	DashboardManager(ctx context.Context, today string, engagementTypes []int) (*DashboardManager, error)
+	DashboardAccountManager(ctx context.Context, email, today string) (*DashboardAccountManager, error)
+	DashboardEvents(ctx context.Context, today string) (*DashboardEvents, error)
+	// DashboardMyVisas returns the person's upcoming trips with the visa
+	// picked on each, and their Active visas.
+	DashboardMyVisas(ctx context.Context, email, today string) (*DashboardMyVisas, error)
 }
 
 // DashboardEngagementTypeCount is a legacy "allocations by engagement type" row.
@@ -247,28 +263,16 @@ type DashboardEngagements struct {
 	Trend             *DashboardTrend       `json:"trend"`
 }
 
-// DashboardAgencyPerDiem is a per diem row on an open trip of the agency.
-type DashboardAgencyPerDiem struct {
-	JobNumber      string   `json:"jobNumber"`
-	TravellerEmail string   `json:"travellerEmail"`
-	StartDate      *string  `json:"startDate"`
-	EndDate        *string  `json:"endDate"`
-	Days           *int     `json:"days"`
-	Currency       *string  `json:"currency"`
-	Total          *float64 `json:"total"`
-}
-
 // DashboardAgency is GET /dashboard/agency.
 type DashboardAgency struct {
-	InProgress              int                      `json:"inProgress"`
-	StartingIn7Days         int                      `json:"startingIn7Days"`
-	StartingIn30Days        int                      `json:"startingIn30Days"`
-	CompletedWithoutInvoice int                      `json:"completedWithoutInvoice"`
-	UpcomingTotal           int                      `json:"upcomingTotal"`
-	Upcoming                []DashboardTrip          `json:"upcoming"`
-	InvoicesByStatus        []DashboardCount         `json:"invoicesByStatus"`
-	TripsByMonth            []DashboardCount         `json:"tripsByMonth"`
-	PerDiemsOnOpenTrips     []DashboardAgencyPerDiem `json:"perDiemsOnOpenTrips"`
+	InProgress              int              `json:"inProgress"`
+	StartingIn7Days         int              `json:"startingIn7Days"`
+	StartingIn30Days        int              `json:"startingIn30Days"`
+	CompletedWithoutInvoice int              `json:"completedWithoutInvoice"`
+	UpcomingTotal           int              `json:"upcomingTotal"`
+	Upcoming                []DashboardTrip  `json:"upcoming"`
+	InvoicesByStatus        []DashboardCount `json:"invoicesByStatus"`
+	TripsByMonth            []DashboardCount `json:"tripsByMonth"`
 }
 
 func dashboardSetBool(q url.Values, key string, v bool) {

@@ -231,7 +231,8 @@ func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) 
 	return v, true
 }
 
-// dashboardUSD is one amount in USD with how it was got.
+// dashboardUSD is one amount in USD with how it was got. USD is already
+// rounded to cents (see usd), so sums of it are sums of cents.
 type dashboardUSD struct {
 	USD      float64
 	Rate     float64 // units of the original currency for 1 USD; 1 when recorded
@@ -254,9 +255,9 @@ func (rs rateSet) usd(currency string, amount float64, ccCurrency string, ccAmou
 	currency = strings.ToUpper(strings.TrimSpace(currency))
 	switch {
 	case currency == "USD":
-		return dashboardUSD{USD: amount, Rate: 1, Source: rateSourceRecorded}, true
+		return dashboardUSD{USD: dashboardRound(amount), Rate: 1, Source: rateSourceRecorded}, true
 	case strings.ToUpper(strings.TrimSpace(ccCurrency)) == "USD":
-		return dashboardUSD{USD: ccAmount, Rate: 1, Source: rateSourceCard}, true
+		return dashboardUSD{USD: dashboardRound(ccAmount), Rate: 1, Source: rateSourceCard}, true
 	case currency == "":
 		return dashboardUSD{}, false
 	}
@@ -265,7 +266,10 @@ func (rs rateSet) usd(currency string, amount float64, ccCurrency string, ccAmou
 	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 		return dashboardUSD{}, false
 	}
-	v := amount / rate
+	// Round each line to cents once, here, so every total (KPIs, breakdowns,
+	// transactions header, CSVs) is the sum of the cent amounts shown on the
+	// lines and never differs from them by accumulated rounding.
+	v := dashboardRound(amount / rate)
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return dashboardUSD{}, false
 	}

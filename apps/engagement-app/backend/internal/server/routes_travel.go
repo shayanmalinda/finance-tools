@@ -33,9 +33,8 @@ func travelOptions(a *area) service.TravelOptions {
 			LogisticsGroup: r.TravelLogisticsGroup, FinanceGroup: r.FinanceGroup, AppBaseURL: r.AppBaseURL,
 			CCTraveller: r.CCTraveller, CompanyRecipients: r.CompanyRecipients,
 		},
-		AuditEmails: r.Enabled(),
-		Campaigns:   a.Campaigns,
-		Now:         a.Now,
+		Campaigns: a.Campaigns,
+		Now:       a.Now,
 	}
 }
 

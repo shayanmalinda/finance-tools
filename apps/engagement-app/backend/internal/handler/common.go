@@ -103,6 +103,21 @@ func queryList(r *http.Request, key string) []string {
 	return out
 }
 
+// queryMulti is queryList that also splits comma-joined values, for
+// parameters whose values never contain a comma (enums, ids, emails, job
+// numbers).
+func queryMulti(r *http.Request, key string) []string {
+	var out []string
+	for _, v := range r.URL.Query()[key] {
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
 // queryInts is queryList parsed as integers; a malformed value is a 400.
 func queryInts(r *http.Request, key string) ([]int, error) {
 	var out []int
@@ -162,10 +177,23 @@ func reportCSV(r *http.Request) (bool, error) {
 
 // writeCSV writes an RFC 4180 CSV attachment.
 func writeCSV(w http.ResponseWriter, filename string, header []string, rows [][]string) {
+	writeCSVFile(w, filename, header, rows, false)
+}
+
+// utf8BOM makes Excel and Numbers read a CSV as UTF-8 (names with accents).
+const utf8BOM = "\xEF\xBB\xBF"
+
+// writeCSVFile is writeCSV, optionally starting with a UTF-8 byte order mark.
+func writeCSVFile(w http.ResponseWriter, filename string, header []string, rows [][]string, bom bool) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+	if bom {
+		_, _ = w.Write([]byte(utf8BOM))
+	}
 	cw := csv.NewWriter(w)
-	_ = cw.Write(header)
+	if header != nil {
+		_ = cw.Write(header)
+	}
 	for _, row := range rows {
 		_ = cw.Write(neutraliseFormulas(row))
 	}

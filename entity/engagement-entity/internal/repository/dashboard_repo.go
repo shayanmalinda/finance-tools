@@ -41,6 +41,32 @@ type DashboardRepository interface {
 	AllocationsByStartMonth(ctx context.Context, from, to string) ([]domain.DashboardCount, error)
 	AllocationsByBusinessUnit(ctx context.Context, from, to string) ([]domain.DashboardCount, error)
 
+	// allocation_db: Release 2 role widgets
+	EngagementsStartingWithout(ctx context.Context, engagementTypes []int, from, to string, limit int) ([]domain.DashboardEngagement, int, error)
+	AllocationsStarting(ctx context.Context, engagementTypes []int, from, to string, limit int) ([]domain.DashboardStartingAllocation, int, error)
+	MostAllocated(ctx context.Context, engagementTypes []int, from, to string, limit int) ([]domain.DashboardCount, error)
+	TopCustomers(ctx context.Context, engagementTypes []int, from, to string, limit int) (string, []domain.DashboardCount, error)
+	OwnEngagementsRunningWithout(ctx context.Context, email, today string, limit int) ([]domain.DashboardEngagement, int, error)
+	OwnEngagementsByStatus(ctx context.Context, email, yearStart string) ([]domain.DashboardCount, error)
+	OwnEngagementsByMonth(ctx context.Context, email, from, to string) ([]domain.DashboardCount, error)
+	EventsByMonth(ctx context.Context, from, to string) ([]domain.DashboardCount, error)
+	EventsByRegion(ctx context.Context, from, to string, limit int) ([]domain.DashboardCount, error)
+	EventsByBusinessUnit(ctx context.Context, from, to string, limit int) ([]domain.DashboardCount, error)
+	EventCampaignCoverage(ctx context.Context, from string) ([]domain.DashboardCampaignCreator, bool, error)
+	CostEngagements(ctx context.Context, allocationIDs []string) (map[string]DashboardCostEngagement, error)
+
+	// travelapp: Release 2 role widgets
+	TravelTeamAway(ctx context.Context, w DashboardWindow) (travellers, countries int, err error)
+	TravelEndedNotCompleted(ctx context.Context, w DashboardWindow) (int, error)
+	POQueueByAge(ctx context.Context, today string) (byAge [4]int, total, oldest int, err error)
+	FrequentTravellers(ctx context.Context, w DashboardWindow) ([]domain.DashboardCount, error)
+	AgentWorkload(ctx context.Context, w DashboardWindow) ([]domain.DashboardCount, error)
+	OwnTripVisas(ctx context.Context, email, today string, limit int) ([]domain.DashboardMyVisaTrip, error)
+	OwnActiveVisas(ctx context.Context, email, today string) ([]domain.DashboardOwnVisa, error)
+	InvoiceLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error)
+	PaymentLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error)
+	TripsByJob(ctx context.Context, jobNumbers []string) (map[string]DashboardTripRef, error)
+
 	// travelapp
 	UpcomingTrips(ctx context.Context, f DashboardTripFilter) ([]domain.DashboardTrip, int, error)
 	NewTravelRequestCount(ctx context.Context) (int, error)
@@ -53,9 +79,10 @@ type DashboardRepository interface {
 	AgencyKPIs(ctx context.Context, agencyID int, w DashboardWindow) (DashboardAgencyKPIs, error)
 	AgencyInvoicesByStatus(ctx context.Context, agencyID int) ([]domain.DashboardCount, error)
 	AgencyTripsByMonth(ctx context.Context, agencyID int, w DashboardWindow) ([]domain.DashboardCount, error)
-	AgencyPerDiems(ctx context.Context, agencyID, limit int) ([]domain.DashboardAgencyPerDiem, error)
 
 	// expense_app
+	CardLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error)
+	ClaimLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error)
 	CardCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error)
 	ClaimCost(ctx context.Context, w DashboardWindow) ([]domain.DashboardCostLine, error)
 }
@@ -70,6 +97,12 @@ type DashboardWindow struct {
 	NextMonth   string // first day of the next month
 	YearStart   string // first day of the month 11 months back (12-month window)
 	BenchEndDay string // today + 13 (Available Consultants window end, inclusive)
+	In6Days     string // today + 7 (exclusive bound for "start <= today + 6")
+	In14Days    string // today + 15 (exclusive bound for "start <= today + 14")
+	In60Days    string // today + 61 (exclusive bound for "start <= today + 60")
+	Minus3      string // today - 2 (exclusive bound for "end <= today - 3")
+	Minus90     string // today - 90
+	MonthPlus6  string // first day of the month 6 months ahead (exclusive)
 }
 
 // DashboardTripFilter narrows UpcomingTrips. At most one of Email and AgencyID.

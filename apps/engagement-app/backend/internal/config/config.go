@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -39,6 +40,9 @@ const (
 	DefaultJWKSURL     = "https://api.asgardeo.io/t/wso2/oauth2/jwks"
 	DefaultUserinfoURL = "https://api.asgardeo.io/t/wso2/oauth2/userinfo"
 	DefaultTokenURL    = "https://api.asgardeo.io/t/wso2/oauth2/token"
+
+	// DefaultAccessRequestEmail is used when ACCESS_REQUEST_EMAIL is not set.
+	DefaultAccessRequestEmail = "wso2-digital-team@wso2.com"
 )
 
 // Config holds all environment-driven settings for the Engagement App Backend.
@@ -78,6 +82,11 @@ type Config struct {
 	// once (REPORT_MAX_CONCURRENT, default 2); each holds a whole report in
 	// memory.
 	ReportMaxConcurrent int
+
+	// AccessRequestEmail (ACCESS_REQUEST_EMAIL) is where people without
+	// Finance-side access are told to write. Defaults to
+	// DefaultAccessRequestEmail.
+	AccessRequestEmail string
 }
 
 // JWTConfig is how the caller's token is verified. There is no switch that
@@ -295,6 +304,7 @@ func Load() (*Config, error) {
 		Currency:            currency,
 		CORSAllowedOrigins:  getList("CORS_ALLOWED_ORIGINS"),
 		ReportMaxConcurrent: reportMax,
+		AccessRequestEmail:  strings.TrimSpace(getEnvOrDefault("ACCESS_REQUEST_EMAIL", DefaultAccessRequestEmail)),
 	}, nil
 }
 
@@ -379,6 +389,11 @@ func (c *Config) Validate() error {
 		}
 		if err := requireHTTPS(u.key, u.val); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	if c.AccessRequestEmail != "" {
+		if a, err := mail.ParseAddress(c.AccessRequestEmail); err != nil || a.Address != c.AccessRequestEmail {
+			errs = append(errs, errors.New("ACCESS_REQUEST_EMAIL must be a plain email address such as team@wso2.com"))
 		}
 	}
 	if c.Files.Enabled() && c.Files.AccessKey == "" {

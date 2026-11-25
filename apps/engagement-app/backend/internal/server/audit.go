@@ -41,6 +41,25 @@ func (a *area) handleReport(pattern string, gate domain.Gate, event auditEventFu
 	a.mux.Handle(pattern, middleware.Require(a.Access, gate)(a.Reports(middleware.Audit(a.Entity, event)(h))))
 }
 
+// handleCSVReport is handleReport where only the CSV download is unpaged. The
+// JSON view is a dashboard read that several widgets make at once, so the
+// per-pod report cap applies to format=csv only.
+func (a *area) handleCSVReport(pattern string, gate domain.Gate, event auditEventFunc, h http.HandlerFunc) {
+	audited := middleware.Audit(a.Entity, event)(h)
+	a.mux.Handle(pattern, middleware.Require(a.Access, gate)(csvOnly(a.Reports(audited), audited)))
+}
+
+// csvOnly sends a format=csv request to limited and every other request to plain.
+func csvOnly(limited, plain http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.URL.Query().Get("format"), "csv") {
+			limited.ServeHTTP(w, r)
+			return
+		}
+		plain.ServeHTTP(w, r)
+	})
+}
+
 // auditOne is a view or download of the record named by path value param.
 func auditOne(action, entityType, param string) auditEventFunc {
 	return func(r *http.Request) (domain.AuditEvent, bool) {

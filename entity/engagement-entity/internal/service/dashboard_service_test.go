@@ -36,6 +36,13 @@ type fakeDashboardRepo struct {
 	window  repository.DashboardWindow
 	trips   repository.DashboardTripFilter
 	cardErr error
+	// todayFilter is the last AllocationsToday filter.
+	todayFilter domain.DashboardAllocationsTodayFilter
+}
+
+func (f *fakeDashboardRepo) AllocationsToday(_ context.Context, tf domain.DashboardAllocationsTodayFilter) (domain.DashboardAllocationsToday, error) {
+	f.todayFilter = tf
+	return domain.DashboardAllocationsToday{}, nil
 }
 
 func (f *fakeDashboardRepo) call(name string) { f.calls = append(f.calls, name) }
@@ -107,6 +114,8 @@ func TestDashboardWindowFor(t *testing.T) {
 	want := repository.DashboardWindow{
 		Today: "2026-01-31", Tomorrow: "2026-02-01", In7Days: "2026-02-08", In30Days: "2026-03-03",
 		MonthStart: "2026-01-01", NextMonth: "2026-02-01", YearStart: "2025-02-01", BenchEndDay: "2026-02-13",
+		In6Days: "2026-02-07", In14Days: "2026-02-15", In60Days: "2026-04-02", Minus3: "2026-01-29", Minus90: "2025-11-02",
+		MonthPlus6: "2026-07-01",
 	}
 	if w != want {
 		t.Errorf("window = %+v\nwant     %+v", w, want)
@@ -204,6 +213,24 @@ func TestDashboardTravel(t *testing.T) {
 	var sue *apierror.ServiceUnavailableError
 	if !errors.As(err, &sue) {
 		t.Errorf("err = %v, want ServiceUnavailableError", err)
+	}
+}
+
+// AllocationsToday with no date is the same query as with today's date (the
+// UTC business date), and the response says which day it is for.
+func TestDashboardAllocationsToday_NoDateIsTheUTCBusinessDate(t *testing.T) {
+	repo := &fakeDashboardRepo{}
+	svc := NewDashboardService(repo, dashboardTestNow)
+	ctx := context.Background()
+	today := dashboardTestNow().UTC().Format("2006-01-02")
+	a, err := svc.AllocationsToday(ctx, domain.DashboardAllocationsTodayFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := repo.todayFilter
+	b, _ := svc.AllocationsToday(ctx, domain.DashboardAllocationsTodayFilter{Date: today})
+	if first.Date != today || repo.todayFilter != first || a.Date != today || b.Date != today {
+		t.Errorf("no date: filter %+v date %q; with date: filter %+v date %q (want %s)", first, a.Date, repo.todayFilter, b.Date, today)
 	}
 }
 

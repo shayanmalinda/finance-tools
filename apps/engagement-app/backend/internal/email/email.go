@@ -91,11 +91,16 @@ var (
 	signatures = map[App]string{AppAllocations: digitalTeamSignature, AppTravel: digitalTeamSignature}
 )
 
+// AuditFunc records one send attempt: err is nil when the email went out. It
+// has no result: a failure to record never changes the send's outcome.
+type AuditFunc func(ctx context.Context, m Message, err error)
+
 // HTTPSender sends through the Email Service.
 type HTTPSender struct {
-	cfg  Config
-	rest *rest.Client
-	now  func() time.Time
+	cfg   Config
+	rest  *rest.Client
+	now   func() time.Time
+	audit AuditFunc
 }
 
 // New returns an HTTPSender. client authenticates to the email service
@@ -112,6 +117,20 @@ type payload struct {
 	From     string   `json:"from"`
 	Subject  string   `json:"subject"`
 	Template string   `json:"template"`
+}
+
+// WithAudit records every send attempt (Sent or Failed) with f. An email
+// skipped for want of a recipient is not an attempt. The LogSender, used when
+// emails are disabled, never records.
+func (s *HTTPSender) WithAudit(f AuditFunc) *HTTPSender {
+	s.audit = f
+	return s
+}
+
+func (s *HTTPSender) record(ctx context.Context, m Message, err error) {
+	if s.audit != nil {
+		s.audit(ctx, m, err)
+	}
 }
 
 // Send applies the recipient rules and posts the email.
@@ -142,13 +161,16 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	page, err := Render(m.TemplateID, content, banner)
 	if err != nil {
 		slog.ErrorContext(ctx, "email not rendered", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
+		s.record(ctx, m, err)
 		return err
 	}
 	p.Template = base64.StdEncoding.EncodeToString([]byte(page))
 	if err := s.rest.Post(ctx, "/send-email", p, nil); err != nil {
 		slog.ErrorContext(ctx, "email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
+		s.record(ctx, m, err)
 		return err
 	}
+	s.record(ctx, m, nil)
 	// Counts, not addresses: type and ref already identify the email.
 	slog.InfoContext(ctx, "email sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID,
 		"toCount", len(to), "ccCount", len(cc), "testingRedirect", testing)

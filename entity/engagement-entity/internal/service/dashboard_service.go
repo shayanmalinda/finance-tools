@@ -37,6 +37,14 @@ type DashboardService interface {
 	Travel(ctx context.Context, f domain.DashboardTravelFilter) (domain.DashboardTravel, error)
 	Engagements(ctx context.Context, f domain.DashboardEngagementsFilter) (domain.DashboardEngagements, error)
 	Agency(ctx context.Context, agencyID int, today string) (domain.DashboardAgency, error)
+
+	// Release 2 widgets.
+	CostLines(ctx context.Context, f domain.DashboardCostLinesFilter) (domain.DashboardCostEntries, error)
+	TravelTeam(ctx context.Context, today string) (domain.DashboardTravelTeam, error)
+	Manager(ctx context.Context, f domain.DashboardManagerFilter) (domain.DashboardManager, error)
+	AccountManager(ctx context.Context, email, today string) (domain.DashboardAccountManager, error)
+	Events(ctx context.Context, today string) (domain.DashboardEvents, error)
+	MyVisas(ctx context.Context, email, today string) (domain.DashboardMyVisas, error)
 }
 
 const (
@@ -45,8 +53,6 @@ const (
 	dashboardUpcomingLimit = 5
 	// dashboardStartingSoonLimit is the length of "Starting in the Next 30 Days".
 	dashboardStartingSoonLimit = 6
-	// dashboardPerDiemLimit is the length of "Per Diems on Open Trips".
-	dashboardPerDiemLimit = 5
 )
 
 type dashboardService struct {
@@ -89,6 +95,12 @@ func DashboardWindowFor(today time.Time) repository.DashboardWindow {
 		NextMonth:   f(month.AddDate(0, 1, 0)),
 		YearStart:   f(month.AddDate(0, -11, 0)),
 		BenchEndDay: f(today.AddDate(0, 0, 13)),
+		In6Days:     f(today.AddDate(0, 0, 7)),
+		In14Days:    f(today.AddDate(0, 0, 15)),
+		In60Days:    f(today.AddDate(0, 0, 61)),
+		Minus3:      f(today.AddDate(0, 0, -2)),
+		Minus90:     f(today.AddDate(0, 0, -90)),
+		MonthPlus6:  f(month.AddDate(0, 6, 0)),
 	}
 }
 
@@ -101,7 +113,14 @@ func (s *dashboardService) AllocationsToday(ctx context.Context, f domain.Dashbo
 	if f.BusinessUnitID < 0 {
 		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "businessUnitId must be a positive integer"}
 	}
-	return s.repo.AllocationsToday(ctx, f)
+	if f.Date == "" {
+		// One rule and one clock for every day: the UTC business date.
+		d, _ := s.day("", "date")
+		f.Date = d.Format(dashboardDateLayout)
+	}
+	resp, err := s.repo.AllocationsToday(ctx, f)
+	resp.Date = f.Date
+	return resp, err
 }
 
 func (s *dashboardService) MyWork(ctx context.Context, f domain.DashboardMyWorkFilter) (domain.DashboardMyWork, error) {
@@ -289,9 +308,6 @@ func (s *dashboardService) Agency(ctx context.Context, agencyID int, todayStr st
 		return domain.DashboardAgency{}, err
 	}
 	if out.TripsByMonth, err = s.repo.AgencyTripsByMonth(ctx, agencyID, w); err != nil {
-		return domain.DashboardAgency{}, err
-	}
-	if out.PerDiemsOnOpenTrips, err = s.repo.AgencyPerDiems(ctx, agencyID, dashboardPerDiemLimit); err != nil {
 		return domain.DashboardAgency{}, err
 	}
 	return out, nil

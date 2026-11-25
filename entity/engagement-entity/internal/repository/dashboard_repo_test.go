@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -59,66 +60,71 @@ var dashboardTestWindow = DashboardWindow{
 	MonthStart: "2026-11-01", NextMonth: "2026-12-01", YearStart: "2025-12-01", BenchEndDay: "2026-11-18",
 }
 
-// The "today" variant is the legacy query verbatim: curdate(), the today
-// predicates, no date arguments.
-func TestDashboardAllocationsToday_TodayVariantIsLegacy(t *testing.T) {
-	m := newDashboardMocks(t)
-	m.alloc.ExpectQuery(re(`allocation.start_date <= curdate() AND allocation.end_date >= curdate()
+// Every day, today included, is counted by the one legacy "today" predicate
+// with the day bound twice; no curdate(), no looser past-date variant. The
+// counts are distinct allocations, so a multi-funded engagement (one row per
+// funding source in the join) is counted once.
+func TestDashboardAllocationsToday_OneRuleForEveryDay(t *testing.T) {
+	rule := `AND allocation.start_date <= ? AND allocation.end_date >= ?
 			AND (engagement.engagement_status in ('Confirmed', 'In Progress') OR engagement.status in ('New', 'In Progress'))
-			AND allocation.status = 'Active' AND allocation.allocation_status in ('Active', 'Confirmed') GROUP BY engagement_type.id`)).
-		WithArgs().
-		WillReturnRows(sqlmock.NewRows([]string{"allocationCount", "engagementType", "engagementTypeId"}).
+			AND allocation.status = 'Active' AND allocation.allocation_status in ('Active', 'Confirmed')`
+	for _, day := range []string{"2026-11-24", "2025-06-15"} {
+		m := newDashboardMocks(t)
+		m.alloc.ExpectQuery(re(`SELECT count(DISTINCT allocation.id) AS allocationCount, engagement_type.name`)).
+			WithArgs(day, day).WillReturnRows(sqlmock.NewRows([]string{"allocationCount", "engagementType", "engagementTypeId"}).
 			AddRow(12, "Internal Engagement", 1).AddRow(4, "Paid Post Sale", 6))
-	m.alloc.ExpectQuery(re(`AND engagement_type.name IN ('Paid', 'Paid Pre Sale', 'Paid Post Sale') GROUP BY allocation_type.allocation_type, allocation_type.color`)).
-		WithArgs().
-		WillReturnRows(sqlmock.NewRows([]string{"allocationCount", "allocationTypeName", "allocationTypeColor"}).
+		m.alloc.ExpectQuery(re(`SELECT count(DISTINCT allocation.id) AS allocationCount, allocation_type.allocation_type`)).
+			WithArgs(day, day).WillReturnRows(sqlmock.NewRows([]string{"allocationCount", "allocationTypeName", "allocationTypeColor"}).
 			AddRow(4, "Implementation", "#123456"))
-	m.alloc.ExpectQuery(re(`AND engagement_type.name NOT IN ('Paid', 'Paid Pre Sale', 'Paid Post Sale') GROUP BY allocation_type.allocation_type, allocation_type.color`)).
-		WithArgs().
-		WillReturnRows(sqlmock.NewRows([]string{"allocationCount", "allocationTypeName", "allocationTypeColor"}).
+		m.alloc.ExpectQuery(re(`SELECT count(DISTINCT allocation.id) AS allocationCount, allocation_type.allocation_type`)).
+			WithArgs(day, day).WillReturnRows(sqlmock.NewRows([]string{"allocationCount", "allocationTypeName", "allocationTypeColor"}).
 			AddRow(12, "R&D", nil))
-	m.alloc.ExpectQuery(re(`SELECT count(DISTINCT allocation.email) AS consultantCount`)).
-		WithArgs().
-		WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(14))
+		m.alloc.ExpectQuery(re(`SELECT count(DISTINCT allocation.email) AS consultantCount`)).
+			WithArgs(day, day).WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(14))
 
-	got, err := m.repo.AllocationsToday(context.Background(), domain.DashboardAllocationsTodayFilter{})
-	if err != nil {
-		t.Fatalf("AllocationsToday: %v", err)
+		got, err := m.repo.AllocationsToday(context.Background(), domain.DashboardAllocationsTodayFilter{Date: day})
+		if err != nil {
+			t.Fatalf("%s: %v", day, err)
+		}
+		if len(got.ByEngagementType) != 2 || got.ByEngagementType[1].EngagementTypeID != 6 || got.ByEngagementType[0].Count != 12 {
+			t.Errorf("byEngagementType = %+v", got.ByEngagementType)
+		}
+		if len(got.PaidByAllocationType) != 1 || *got.PaidByAllocationType[0].Color != "#123456" || got.NonPaidByAllocationType[0].Color != nil {
+			t.Errorf("paid = %+v nonPaid = %+v", got.PaidByAllocationType, got.NonPaidByAllocationType)
+		}
+		if got.Consultants != 14 {
+			t.Errorf("consultants = %d", got.Consultants)
+		}
+		m.verify(t)
 	}
-	if len(got.ByEngagementType) != 2 || got.ByEngagementType[1].EngagementTypeID != 6 || got.ByEngagementType[0].Count != 12 {
-		t.Errorf("byEngagementType = %+v", got.ByEngagementType)
+
+	// The SQL text itself: one rule, same for any date.
+	q, args := dashboardTodayQuery(domain.DashboardAllocationsTodayFilter{Date: "2025-06-15"}, "x", "", "")
+	q2, _ := dashboardTodayQuery(domain.DashboardAllocationsTodayFilter{Date: "2026-11-24"}, "x", "", "")
+	flat := func(x string) string { return strings.Join(strings.Fields(x), " ") }
+	if q != q2 || !strings.Contains(flat(q), flat(rule)) {
+		t.Errorf("query is not the single day rule:\n%s", q)
 	}
-	if len(got.PaidByAllocationType) != 1 || *got.PaidByAllocationType[0].Color != "#123456" {
-		t.Errorf("paid = %+v", got.PaidByAllocationType)
+	if strings.Contains(q, "curdate") || strings.Contains(q, "!= 'Cancelled'") || strings.Contains(q, "!= 'Deleted'") || len(args) != 2 {
+		t.Errorf("legacy variants leaked into the query: %s %v", q, args)
 	}
-	if len(got.NonPaidByAllocationType) != 1 || got.NonPaidByAllocationType[0].Color != nil {
-		t.Errorf("nonPaid = %+v", got.NonPaidByAllocationType)
-	}
-	if got.Consultants != 14 {
-		t.Errorf("consultants = %d", got.Consultants)
-	}
-	m.verify(t)
 }
 
-// The past-date variant binds the date twice and the business unit id.
-func TestDashboardAllocationsToday_PastDateAndBusinessUnit(t *testing.T) {
+// The business unit id is bound after the day.
+func TestDashboardAllocationsToday_BusinessUnit(t *testing.T) {
 	m := newDashboardMocks(t)
-	past := `AND allocation.start_date <= ? AND allocation.end_date >= ?
-			AND engagement.engagement_status != 'Cancelled' AND engagement.status != 'Cancelled'
-			AND allocation.status != 'Deleted'`
-	m.alloc.ExpectQuery(re(past+` AND engagement_funding_source.business_unit_id = ? GROUP BY engagement_type.id`)).
-		WithArgs("2026-10-01", "2026-10-01", 7).
-		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}))
-	m.alloc.ExpectQuery(re(past+dashboardPaidTypes+dashboardBUFilter)).
-		WithArgs("2026-10-01", "2026-10-01", 7).
-		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}))
-	m.alloc.ExpectQuery(re(past+dashboardNonPaidTypes+dashboardBUFilter)).
-		WithArgs("2026-10-01", "2026-10-01", 7).
-		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}))
-	m.alloc.ExpectQuery(re(past+dashboardBUFilter)).
-		WithArgs("2026-10-01", "2026-10-01", 7).
-		WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(0))
-
+	for _, re_ := range []string{
+		`AND engagement_funding_source.business_unit_id = ? GROUP BY engagement_type.id`,
+		dashboardPaidTypes + dashboardBUFilter,
+		dashboardNonPaidTypes + dashboardBUFilter,
+		`SELECT count(DISTINCT allocation.email) AS consultantCount`,
+	} {
+		rows := sqlmock.NewRows([]string{"a", "b", "c"})
+		if strings.HasPrefix(re_, "SELECT count") {
+			rows = sqlmock.NewRows([]string{"c"}).AddRow(0)
+		}
+		m.alloc.ExpectQuery(re(re_)).WithArgs("2026-10-01", "2026-10-01", 7).WillReturnRows(rows)
+	}
 	got, err := m.repo.AllocationsToday(context.Background(), domain.DashboardAllocationsTodayFilter{Date: "2026-10-01", BusinessUnitID: 7})
 	if err != nil {
 		t.Fatalf("AllocationsToday: %v", err)
@@ -374,11 +380,6 @@ func TestDashboardAgency(t *testing.T) {
 	m.travel.ExpectQuery(re(`WHERE t.travel_agent_id = ? AND COALESCE(t.status, '') != 'Cancelled' AND t.start_date >= ? AND t.start_date < ?`)).
 		WithArgs(2, w.YearStart, w.Tomorrow).
 		WillReturnRows(sqlmock.NewRows([]string{"m", "n"}).AddRow("2026-10", 4))
-	m.travel.ExpectQuery(re(`WHERE t.travel_agent_id = ? AND t.status IN ('In Progress', 'Extended') AND pa.status = 'Active'`)).
-		WithArgs(2, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"j", "e", "s", "en", "d", "c", "t"}).
-			AddRow("TRV-2026-10-1246", "jane@example.com", "2026-10-06", "2026-10-16", 11, "GBP", 770.0).
-			AddRow("TRV-2026-10-1247", "member@example.com", nil, nil, nil, nil, nil))
 
 	k, err := m.repo.AgencyKPIs(context.Background(), 2, w)
 	if err != nil || k != (DashboardAgencyKPIs{3, 1, 2, 1, 6}) {
@@ -391,10 +392,6 @@ func TestDashboardAgency(t *testing.T) {
 	bm, err := m.repo.AgencyTripsByMonth(context.Background(), 2, w)
 	if err != nil || len(bm) != 1 {
 		t.Fatalf("AgencyTripsByMonth = %+v, %v", bm, err)
-	}
-	pd, err := m.repo.AgencyPerDiems(context.Background(), 2, 5)
-	if err != nil || len(pd) != 2 || *pd[0].Days != 11 || *pd[0].Total != 770 || pd[1].Total != nil {
-		t.Fatalf("AgencyPerDiems = %+v, %v", pd, err)
 	}
 	m.verify(t)
 }

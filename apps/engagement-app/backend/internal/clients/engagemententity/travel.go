@@ -38,8 +38,6 @@ type TravelAPI interface {
 	TravelActivePerDiems(ctx context.Context, jobNumber string) ([]TravelActivePerDiem, error)
 	// TravelAgencies calls GET /travel-agencies; status "" lists all.
 	TravelAgencies(ctx context.Context, status string) ([]TravelAgentRecord, error)
-	// InsertTravelEmailAudit calls POST /travel-email-audit-logs.
-	InsertTravelEmailAudit(ctx context.Context, in TravelEmailAudit) error
 
 	// SearchVisas calls GET /visas.
 	SearchVisas(ctx context.Context, f TravelVisaFilter) (TravelVisaPage, error)
@@ -177,14 +175,28 @@ type TravelActivePerDiem struct {
 	Total        *float64 `json:"total"`
 }
 
-// TravelEmailAudit is one email_auditlog row.
-type TravelEmailAudit struct {
+// Email audit statuses.
+const (
+	EmailAuditSent   = "Sent"
+	EmailAuditFailed = "Failed"
+)
+
+// EmailAudit is one email_auditlog row (travelapp or allocation_db), one per
+// send attempt.
+type EmailAudit struct {
 	Subject            string `json:"subject"`
 	TemplateID         string `json:"templateId"`
 	ContentKeyValPairs string `json:"contentKeyValPairs"`
 	Recipients         string `json:"recipients"`
 	CCRecipients       string `json:"ccRecipients"`
+	// Status is EmailAuditSent or EmailAuditFailed.
+	Status string `json:"status"`
+	// ErrorMessage is why the send failed; empty for Sent.
+	ErrorMessage string `json:"errorMessage,omitempty"`
 }
+
+// TravelEmailAudit is one travelapp email_auditlog row.
+type TravelEmailAudit = EmailAudit
 
 // TravelPassportRef is the passport a visa is tagged with.
 type TravelPassportRef struct {
@@ -384,6 +396,11 @@ func (c *HTTPClient) TravelAgencies(ctx context.Context, status string) ([]Trave
 // InsertTravelEmailAudit calls POST /travel-email-audit-logs.
 func (c *HTTPClient) InsertTravelEmailAudit(ctx context.Context, in TravelEmailAudit) error {
 	return c.rest.Post(ctx, "/travel-email-audit-logs", in, nil)
+}
+
+// InsertAllocationEmailAudit calls POST /allocation-email-audit-logs.
+func (c *HTTPClient) InsertAllocationEmailAudit(ctx context.Context, in EmailAudit) error {
+	return c.rest.Post(ctx, "/allocation-email-audit-logs", in, nil)
 }
 
 func travelAddList(q url.Values, key string, vals []string) {

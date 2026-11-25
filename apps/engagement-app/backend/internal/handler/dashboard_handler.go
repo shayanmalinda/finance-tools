@@ -40,7 +40,15 @@ func (h *DashboardHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	resp, err := h.svc.Dashboard(r.Context(), p)
+	// sections: nil when absent (every section behind a default-on widget).
+	var sections []string
+	if _, asked := r.URL.Query()["sections"]; asked {
+		sections = queryMulti(r, "sections")
+		if sections == nil {
+			sections = []string{}
+		}
+	}
+	resp, err := h.svc.Dashboard(r.Context(), p, sections)
 	if err != nil {
 		writeServiceError(w, r, err)
 		return

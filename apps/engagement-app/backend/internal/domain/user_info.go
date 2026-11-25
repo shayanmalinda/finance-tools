@@ -72,4 +72,7 @@ type UserInfoResponse struct {
 	Allocations AppAccess    `json:"allocations"`
 	Travel      TravelAccess `json:"travel"`
 	WorkQueues  WorkQueues   `json:"workQueues"`
+	// AccessRequestEmail is where to ask for access (ACCESS_REQUEST_EMAIL);
+	// omitted when not configured.
+	AccessRequestEmail string `json:"accessRequestEmail,omitempty"`
 }

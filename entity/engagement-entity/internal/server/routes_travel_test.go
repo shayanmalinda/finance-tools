@@ -102,6 +102,9 @@ func TestTravelRoutes_Validation(t *testing.T) {
 		{http.MethodGet, "/travel-documents?limit=x", "", http.StatusBadRequest},
 		{http.MethodGet, "/travel-agencies?status=Deleted", "", http.StatusBadRequest},
 		{http.MethodPost, "/travel-email-audit-logs", `{}`, http.StatusBadRequest},
+		{http.MethodPost, "/travel-email-audit-logs", `{"subject":"s","templateId":"t","status":"Pending"}`, http.StatusBadRequest},
+		{http.MethodPost, "/allocation-email-audit-logs", `{}`, http.StatusBadRequest},
+		{http.MethodPost, "/allocation-email-audit-logs", `{"subject":"s","templateId":"t","status":"Pending"}`, http.StatusBadRequest},
 	}
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.target, func(t *testing.T) {
@@ -122,6 +125,42 @@ func TestTravelEmailAudit_NoContent(t *testing.T) {
 	}
 	if err := travelMock.ExpectationsWereMet(); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestTravelEmailAudit_FailedRowWithError(t *testing.T) {
+	h, _, travelMock := newTestRouter(t)
+	travelMock.ExpectExec(`INSERT INTO email_auditlog`).
+		WithArgs("s", "t", "", "a@example.com", "", "Failed", "email: status 502: Bad Gateway").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	rec := travelServe(h, http.MethodPost, "/travel-email-audit-logs",
+		`{"subject":"s","templateId":"t","recipients":"a@example.com","status":"Failed","errorMessage":"email: status 502: Bad Gateway"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body)
+	}
+}
+
+func TestAllocationEmailAudit_NoContent(t *testing.T) {
+	h, allocMock, _ := newTestRouter(t)
+	allocMock.ExpectExec(`INSERT INTO email_auditlog`).
+		WithArgs("s", "t", "", "a@example.com", "", "Sent", nil).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	rec := travelServe(h, http.MethodPost, "/allocation-email-audit-logs",
+		`{"subject":"s","templateId":"t","recipients":"a@example.com"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body)
+	}
+}
+
+func TestAllocationEmailAudit_FailedRowWithError(t *testing.T) {
+	h, allocMock, _ := newTestRouter(t)
+	allocMock.ExpectExec(`INSERT INTO email_auditlog`).
+		WithArgs("s", "t", "", "a@example.com", "", "Failed", "email: unreachable").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	rec := travelServe(h, http.MethodPost, "/allocation-email-audit-logs",
+		`{"subject":"s","templateId":"t","recipients":"a@example.com","status":"Failed","errorMessage":"email: unreachable"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body)
 	}
 }
 

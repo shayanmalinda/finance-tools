@@ -26,7 +26,7 @@ import (
 // owns this file: its dependency graph (service → handler) and its routes
 // live here, each behind a.handle / a.handleIdem with its legacy gate.
 func registerDashboardRoutes(a *area) {
-	h := handler.NewDashboardHandler(service.NewDashboardService(a.Entity, a.HR, a.Converter, a.Now))
+	h := handler.NewDashboardHandler(service.NewDashboardService(a.Entity, a.HR, a.Converter, a.Now, service.WithNoValidVisaID(a.Travel.NoValidVisaID)))
 
 	// Dashboard: Allocations "Dashboard Page" (1, every employee) or a travel
 	// agent (Travel 18). Each section is then gated on the caller's own
@@ -36,4 +36,15 @@ func registerDashboardRoutes(a *area) {
 	a.handle("GET /dashboard/allocations-today", domain.Gate{domain.AppAllocations: {1}}, h.AllocationsToday)
 	// Me overview card: any employee (Allocations 1 or My Travel Requests 49).
 	a.handle("GET /me/overview", domain.Gate{domain.AppAllocations: {1}, domain.AppTravel: {49}}, h.MeOverview)
+
+	// Travel Costs (Release 2): finance groups and the Travel Super Admin. The
+	// route gate is the effective Travel 1, 39 or 41 (a Travel Super Admin may not hold 39 or 41); the service then checks the
+	// finance group or the Travel Super Admin and answers 403 otherwise.
+	costGate := domain.Gate{domain.AppTravel: {1, 39, 41}}
+	// Total cost so far of one travel request: the same gate as the request
+	// itself, and the service applies its full / agency / own scope.
+	a.handleAudited("GET /travel-requests/{jobNumber}/cost-summary", domain.Gate{domain.AppTravel: {1, 2, 5, 18, 36}},
+		auditOne(domain.AuditView, "travel_cost", "jobNumber"), h.JobCostSummary)
+	a.handleCSVReport("GET /dashboard/travel-costs", costGate, auditExport("travel_cost", "travel-costs"), h.TravelCosts)
+	a.handleCSVReport("GET /dashboard/travel-costs/transactions", costGate, auditExport("travel_cost", "travel-cost-transactions"), h.CostTransactions)
 }

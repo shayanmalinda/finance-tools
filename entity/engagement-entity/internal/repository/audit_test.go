@@ -94,10 +94,13 @@ func TestAuditRepository_PicksTheSchemaOfTheEntity(t *testing.T) {
 		nil, nil, nil, "engagement-app", nil, nil).WillReturnResult(sqlmock.NewResult(1, 1))
 	m.alloc.ExpectExec(re("INSERT INTO audit_event")).WithArgs(sqlmock.AnyArg(), "system", "Export", "allocation", nil,
 		nil, nil, nil, "engagement-app", nil, nil).WillReturnResult(sqlmock.NewResult(1, 1))
+	m.travel.ExpectExec(re("INSERT INTO audit_event")).WithArgs(sqlmock.AnyArg(), "system", "Export", "travel_cost", nil,
+		nil, nil, nil, "engagement-app", nil, nil).WillReturnResult(sqlmock.NewResult(1, 1))
 	ctx := context.Background()
 	for _, e := range []audit.Event{
 		{Action: audit.Download, EntityType: "visa", EntityID: "5"},
 		{Action: audit.Export, EntityType: "allocation"},
+		{Action: audit.Export, EntityType: "travel_cost"},
 	} {
 		if ok, err := repo.Record(ctx, e); err != nil || !ok {
 			t.Fatalf("%s: ok %v err %v", e.EntityType, ok, err)

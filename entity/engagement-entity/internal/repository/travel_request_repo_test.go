@@ -20,6 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -233,14 +234,38 @@ func TestTravelInsertEmailAudit_CutsToColumnSizes(t *testing.T) {
 	db, mock := travelNewDB(t)
 	long := strings.Repeat("a", 300)
 	mock.ExpectExec(travelRe(`INSERT INTO email_auditlog`)).
-		WithArgs("subj", "noContent", "{}", strings.Repeat("a", 255), "").
+		WithArgs("subj", "noContent", "{}", strings.Repeat("a", 255), "", "Sent", nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	if err := NewTravelRequestRepository(db).InsertEmailAudit(context.Background(), domain.TravelEmailAuditInput{
-		Subject: "subj", TemplateID: "noContent", ContentKeyValPairs: "{}", Recipients: long,
+		Subject: "subj", TemplateID: "noContent", ContentKeyValPairs: "{}", Recipients: long, Status: "Sent",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	travelCheck(t, mock)
+}
+
+func TestTravelInsertEmailAudit_FailedKeepsTheCutError(t *testing.T) {
+	db, mock := travelNewDB(t)
+	mock.ExpectExec(travelRe(`(subject, templateId, contentKeyValPairs, recipients, cc_recipients, datetime, status, error_message)`)).
+		WithArgs("subj", "noContent", "{}", "a@example.com", "", "Failed", strings.Repeat("e", 500)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	if err := NewTravelRequestRepository(db).InsertEmailAudit(context.Background(), domain.TravelEmailAuditInput{
+		Subject: "subj", TemplateID: "noContent", ContentKeyValPairs: "{}", Recipients: "a@example.com",
+		Status: "Failed", ErrorMessage: strings.Repeat("e", 600),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	travelCheck(t, mock)
+}
+
+func TestTravelInsertEmailAudit_MissingColumnIsAnError(t *testing.T) {
+	db, mock := travelNewDB(t)
+	mock.ExpectExec(travelRe(`INSERT INTO email_auditlog`)).WillReturnError(errors.New("Unknown column 'status'"))
+	if err := NewTravelRequestRepository(db).InsertEmailAudit(context.Background(), domain.TravelEmailAuditInput{
+		Subject: "s", TemplateID: "t", Status: "Sent",
+	}); err == nil {
+		t.Fatal("want the insert error returned for the caller to log")
+	}
 }
 
 func TestTravelEngagements(t *testing.T) {

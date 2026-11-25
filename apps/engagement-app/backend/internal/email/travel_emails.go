@@ -286,9 +286,9 @@ func TravelFormatNumber(f float64) string {
 	return s
 }
 
-// TravelAuditContent is the email_auditlog contentKeyValPairs: the final
+// AuditContent is the email_auditlog contentKeyValPairs (both apps): the final
 // content map as JSON, with the three keys the sender adds.
-func TravelAuditContent(m Message, year int) string {
+func AuditContent(m Message, year int) string {
 	content := make(map[string]string, len(m.Content)+3)
 	for k, v := range m.Content {
 		content[k] = v
