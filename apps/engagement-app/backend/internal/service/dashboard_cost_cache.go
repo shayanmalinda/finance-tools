@@ -133,12 +133,14 @@ func (c *loadCache[V]) evict(key string) {
 }
 
 // clear drops everything kept and makes loads already running not keep their
-// result, so data read before a write is never kept after it.
+// result, so data read before a write is never kept after it. Later gets start
+// their own load instead of joining one that began before the clear.
 func (c *loadCache[V]) clear() {
 	c.mu.Lock()
 	c.items = map[string]*cacheEntry[V]{}
 	c.order, c.total = nil, 0
 	c.gen++
+	c.inflight = map[string]*cacheCall[V]{}
 	c.mu.Unlock()
 }
 
@@ -195,7 +197,9 @@ func (c *loadCache[V]) get(ctx context.Context, key string, load func() (V, erro
 			// No slot in time: nothing is cached and joiners start over.
 			call.abandoned = true
 			c.mu.Lock()
-			delete(c.inflight, key)
+			if c.inflight[key] == call {
+				delete(c.inflight, key)
+			}
 			c.mu.Unlock()
 			close(call.done)
 			return zero, err
@@ -204,7 +208,9 @@ func (c *loadCache[V]) get(ctx context.Context, key string, load func() (V, erro
 		c.release()
 
 		c.mu.Lock()
-		delete(c.inflight, key)
+		if c.inflight[key] == call {
+			delete(c.inflight, key)
+		}
 		if call.err == nil {
 			c.store(key, call.val, gen)
 		}
