@@ -75,11 +75,11 @@ func (r *dashboardRepo) POQueueByAge(ctx context.Context, today string) (byAge [
 }
 
 // FrequentTravellers lists the 8 travellers with the most trips (not
-// Cancelled) that started in the 12-month window.
+// Cancelled, Deleted or without a status) that started in the 12-month window.
 func (r *dashboardRepo) FrequentTravellers(ctx context.Context, w DashboardWindow) ([]domain.DashboardCount, error) {
 	rows, err := r.travel.QueryContext(ctx, `SELECT t.traveller_email, COUNT(*)
 		FROM travel AS t
-		WHERE `+dashboardNotCancelled+` AND t.start_date >= ? AND t.start_date < ?
+		WHERE `+dashboardNotCancelled+` AND t.status NOT IN ('Deleted', '') AND t.start_date >= ? AND t.start_date < ?
 		GROUP BY t.traveller_email
 		ORDER BY COUNT(*) DESC, t.traveller_email
 		LIMIT 8`, w.YearStart, w.Tomorrow)
@@ -90,12 +90,12 @@ func (r *dashboardRepo) FrequentTravellers(ctx context.Context, w DashboardWindo
 }
 
 // AgentWorkload counts, per travel agent (or "No travel agent yet"), the trips
-// not Cancelled under way or starting within 60 days; the top 5.
+// not Cancelled, Deleted or without a status, under way or starting within 60 days; the top 5.
 func (r *dashboardRepo) AgentWorkload(ctx context.Context, w DashboardWindow) ([]domain.DashboardCount, error) {
 	rows, err := r.travel.QueryContext(ctx, `SELECT COALESCE(ta.name_of_travel_agent, 'No travel agent yet') AS d_agent, COUNT(*)
 		FROM travel AS t
 		LEFT JOIN travel_agents AS ta ON t.travel_agent_id = ta.id
-		WHERE `+dashboardNotCancelled+` AND t.end_date >= ? AND t.start_date < ?
+		WHERE `+dashboardNotCancelled+` AND t.status NOT IN ('Deleted', '') AND t.end_date >= ? AND t.start_date < ?
 		GROUP BY d_agent
 		ORDER BY COUNT(*) DESC, d_agent
 		LIMIT 5`, w.Today, w.In60Days)

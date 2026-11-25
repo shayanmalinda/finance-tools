@@ -193,7 +193,7 @@ func TestDashboardTravelTeam(t *testing.T) {
 	m.travel.ExpectQuery(re(`FROM (SELECT DATEDIFF(?, i.added_date) AS d FROM invoice AS i WHERE i.status = 'Pending') AS x`)).
 		WithArgs("2026-11-05").
 		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f"}).AddRow(2, 3, 3, 1, 120, 9))
-	m.travel.ExpectQuery(re(`GROUP BY t.traveller_email ORDER BY COUNT(*) DESC, t.traveller_email LIMIT 8`)).
+	m.travel.ExpectQuery(re(`t.status NOT IN ('Deleted', '') AND t.start_date >= ? AND t.start_date < ? GROUP BY t.traveller_email ORDER BY COUNT(*) DESC, t.traveller_email LIMIT 8`)).
 		WithArgs(w.YearStart, w.Tomorrow).
 		WillReturnRows(sqlmock.NewRows([]string{"e", "n"}).AddRow("jane@example.com", 7))
 	m.travel.ExpectQuery(re(`COALESCE(ta.name_of_travel_agent, 'No travel agent yet') AS d_agent`)).
