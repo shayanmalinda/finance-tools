@@ -172,6 +172,15 @@ func (s *searchService) Search(ctx context.Context, p domain.Perms, q string, li
 			received = len(defs)
 		}
 	}
+	// A group that finished just as the deadline fired is still buffered.
+	for drained := false; !drained; {
+		select {
+		case o := <-out:
+			done[o.idx] = &o
+		default:
+			drained = true
+		}
+	}
 
 	resp := domain.SearchResponse{Query: q, Groups: []domain.SearchGroup{}, Failed: []string{}}
 	for i, d := range defs {
