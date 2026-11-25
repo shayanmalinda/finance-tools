@@ -126,6 +126,12 @@ The routes are listed from `internal/server/routes*.go`. `GET /health` needs no 
 | GET /dashboard/travel | dashboard:read | engagement:read |
 | GET /dashboard/engagements | dashboard:read | engagement:read |
 | GET /dashboard/agency | dashboard:read | engagement:read |
+| GET /dashboard/cost-lines | dashboard:read | engagement:read |
+| GET /dashboard/travel-team | dashboard:read | engagement:read |
+| GET /dashboard/manager | dashboard:read | engagement:read |
+| GET /dashboard/account-manager | dashboard:read | engagement:read |
+| GET /dashboard/events | dashboard:read | engagement:read |
+| GET /dashboard/my-visas | dashboard:read | engagement:read |
 | GET /role-settings/{app} | role-settings:read | engagement:admin |
 | PUT /role-settings/{app}/roles/{roleId}/privileges | role-settings:write | engagement:admin |
 | POST /settings/allocation-types | settings:write | engagement:write |
