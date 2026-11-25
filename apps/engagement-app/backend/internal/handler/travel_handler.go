@@ -57,8 +57,9 @@ func travelSearch(r *http.Request) (string, error) {
 
 func travelListQuery(r *http.Request) (domain.TravelListQuery, error) {
 	q := domain.TravelListQuery{
-		Segment: strings.TrimSpace(r.URL.Query().Get("segment")), Travellers: queryList(r, "traveller"),
-		Countries: queryList(r, "country"), Agencies: queryList(r, "agency"), Statuses: queryList(r, "status"),
+		Segment: strings.TrimSpace(r.URL.Query().Get("segment")), Sort: strings.TrimSpace(r.URL.Query().Get("sort")),
+		Travellers: queryList(r, "traveller"),
+		Countries:  queryList(r, "country"), Agencies: queryList(r, "agency"), Statuses: queryList(r, "status"),
 	}
 	var err error
 	if q.Search, err = travelSearch(r); err != nil {

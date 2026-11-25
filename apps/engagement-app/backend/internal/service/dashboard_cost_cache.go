@@ -22,56 +22,94 @@ import (
 	"time"
 )
 
-// Cost line sets are shared by every caller and request for one minute: the
-// summary, the transactions and both CSVs of the same range
-// read the same set, so their totals agree.
+// Dashboard data is cached in this pod and shared by every caller. What is
+// cached is only data that is identical for everyone for the same query (cost
+// line sets per date range, entity aggregates per filter); each caller's
+// privilege filtering and scope are applied after the read, on every request.
+// Personal work queues and anything "mine" are never cached.
 const (
-	costSetCacheSize = 8
-	costSetCacheTTL  = 60 * time.Second
+	// costSetCacheSize and costSetMaxLines bound the cost sets one pod keeps.
+	// A set holds every line of a date range (up to about 80,000 lines, a few
+	// hundred bytes each), so the budget is by lines: 200,000 lines is roughly
+	// 100 MB at worst. The least recently used sets go first, and a set larger
+	// than the budget is served but not kept.
+	costSetCacheSize = 16
+	costSetMaxLines  = 200_000
 	// costSetMaxLoads bounds how many different cost sets one pod reads at
 	// once, whatever the output format; each holds up to a whole year of
 	// lines. A request over the bound waits for a slot until its ctx ends.
 	costSetMaxLoads = 3
+	// dashboardAggCacheSize bounds the entity aggregates (small, a few KB each).
+	dashboardAggCacheSize = 256
+	dashboardAggMaxLoads  = 8
+	// cacheIncompleteTTL is how long a result that is partial (a failed source
+	// or truncated lines) is kept: briefly, so the gap is retried soon.
+	cacheIncompleteTTL = time.Minute
 )
 
-// costSetCache is a small LRU with a TTL. cache.Cache has no size bound, and
-// a set can hold 80,000 lines, so it is not used here. It also shares one
-// load between requests that ask for the same key at the same time.
-type costSetCache struct {
-	mu       sync.Mutex
-	size     int
-	ttl      time.Duration
+// loadCache is an LRU with a TTL and a line/weight budget. It shares one load
+// between requests that ask for the same key at the same time (singleflight),
+// bounds how many different keys load at once, never keeps a failed load, and
+// can be cleared when data changes. cache.Cache has no size bound, so it is
+// not used here.
+type loadCache[V any] struct {
+	mu        sync.Mutex
+	size      int
+	ttl       time.Duration // zero or negative: nothing is kept
+	maxWeight int           // zero: no weight budget
+	weight    func(V) int
+	// ttlFor shortens the TTL of one value (nil: ttl for all).
+	ttlFor   func(V) time.Duration
 	now      func() time.Time
-	items    map[string]*costSetEntry
+	items    map[string]*cacheEntry[V]
 	order    []string // least recently used first
-	inflight map[string]*costSetCall
+	total    int      // weight of the items
+	gen      uint64   // bumped by clear; a load that started before it is not kept
+	inflight map[string]*cacheCall[V]
 	loads    chan struct{}
 }
 
-type costSetEntry struct {
-	set     *costSet
+type cacheEntry[V any] struct {
+	val     V
+	weight  int
 	expires time.Time
 }
 
-type costSetCall struct {
+type cacheCall[V any] struct {
 	done      chan struct{}
-	set       *costSet
+	val       V
 	err       error
 	abandoned bool // the caller that queued it left before a slot opened; set before done closes
 }
 
+// costSetCache holds the cost line sets.
+type costSetCache = loadCache[*costSet]
+
 func newCostSetCache(size int, ttl time.Duration, now func() time.Time) *costSetCache {
+	c := newLoadCache[*costSet](size, ttl, costSetMaxLoads, now)
+	c.maxWeight = costSetMaxLines
+	c.weight = func(s *costSet) int { return len(s.lines) }
+	c.ttlFor = func(s *costSet) time.Duration {
+		if s.truncated || len(s.failed) > 0 {
+			return min(ttl, cacheIncompleteTTL)
+		}
+		return ttl
+	}
+	return c
+}
+
+func newLoadCache[V any](size int, ttl time.Duration, maxLoads int, now func() time.Time) *loadCache[V] {
 	if now == nil {
 		now = time.Now
 	}
-	return &costSetCache{
+	return &loadCache[V]{
 		size: size, ttl: ttl, now: now,
-		items: map[string]*costSetEntry{}, inflight: map[string]*costSetCall{},
-		loads: make(chan struct{}, costSetMaxLoads),
+		items: map[string]*cacheEntry[V]{}, inflight: map[string]*cacheCall[V]{},
+		loads: make(chan struct{}, maxLoads),
 	}
 }
 
-func (c *costSetCache) touch(key string) {
+func (c *loadCache[V]) touch(key string) {
 	for i, k := range c.order {
 		if k == key {
 			c.order = append(c.order[:i], c.order[i+1:]...)
@@ -81,9 +119,34 @@ func (c *costSetCache) touch(key string) {
 	c.order = append(c.order, key)
 }
 
-// acquire waits for one of the costSetMaxLoads read slots until ctx ends.
-// Every read of cost lines from the entity takes one, and gives it back with release.
-func (c *costSetCache) acquire(ctx context.Context) error {
+func (c *loadCache[V]) evict(key string) {
+	if e, ok := c.items[key]; ok {
+		c.total -= e.weight
+		delete(c.items, key)
+	}
+	for i, k := range c.order {
+		if k == key {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			break
+		}
+	}
+}
+
+// clear drops everything kept and makes loads already running not keep their
+// result, so data read before a write is never kept after it. Later gets start
+// their own load instead of joining one that began before the clear.
+func (c *loadCache[V]) clear() {
+	c.mu.Lock()
+	c.items = map[string]*cacheEntry[V]{}
+	c.order, c.total = nil, 0
+	c.gen++
+	c.inflight = map[string]*cacheCall[V]{}
+	c.mu.Unlock()
+}
+
+// acquire waits for one of the read slots until ctx ends. Every read from the
+// entity takes one, and gives it back with release.
+func (c *loadCache[V]) acquire(ctx context.Context) error {
 	select {
 	case c.loads <- struct{}{}:
 		return nil
@@ -92,22 +155,26 @@ func (c *costSetCache) acquire(ctx context.Context) error {
 	}
 }
 
-func (c *costSetCache) release() { <-c.loads }
+func (c *loadCache[V]) release() { <-c.loads }
 
-// get returns the cached set for key, or runs load once for all callers that
+// get returns the cached value for key, or runs load once for all callers that
 // ask at the same time and caches its result (a failure is not cached). A
 // caller that joins a load in flight stops waiting when its own ctx ends;
-// the load goes on for the others. At most costSetMaxLoads different keys
-// load at once; a new key waits for a slot while its ctx lasts. If the
+// the load goes on for the others. Only the cache's load bound of different
+// keys load at once; a new key waits for a slot while its ctx lasts. If the
 // caller that queued the key gives up before it gets a slot, the callers
 // that joined it try again on their own contexts.
-func (c *costSetCache) get(ctx context.Context, key string, load func() (*costSet, error)) (*costSet, error) {
+func (c *loadCache[V]) get(ctx context.Context, key string, load func() (V, error)) (V, error) {
+	var zero V
 	for {
 		c.mu.Lock()
-		if e, ok := c.items[key]; ok && c.now().Before(e.expires) {
-			c.touch(key)
-			c.mu.Unlock()
-			return e.set, nil
+		if e, ok := c.items[key]; ok {
+			if c.now().Before(e.expires) {
+				c.touch(key)
+				c.mu.Unlock()
+				return e.val, nil
+			}
+			c.evict(key)
 		}
 		if call, busy := c.inflight[key]; busy {
 			c.mu.Unlock()
@@ -116,39 +183,62 @@ func (c *costSetCache) get(ctx context.Context, key string, load func() (*costSe
 				if call.abandoned {
 					continue
 				}
-				return call.set, call.err
+				return call.val, call.err
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return zero, ctx.Err()
 			}
 		}
-		call := &costSetCall{done: make(chan struct{})}
+		call := &cacheCall[V]{done: make(chan struct{})}
 		c.inflight[key] = call
+		gen := c.gen
 		c.mu.Unlock()
 
 		if err := c.acquire(ctx); err != nil {
 			// No slot in time: nothing is cached and joiners start over.
 			call.abandoned = true
 			c.mu.Lock()
-			delete(c.inflight, key)
+			if c.inflight[key] == call {
+				delete(c.inflight, key)
+			}
 			c.mu.Unlock()
 			close(call.done)
-			return nil, err
+			return zero, err
 		}
-		call.set, call.err = load()
+		call.val, call.err = load()
 		c.release()
 
 		c.mu.Lock()
-		delete(c.inflight, key)
+		if c.inflight[key] == call {
+			delete(c.inflight, key)
+		}
 		if call.err == nil {
-			c.items[key] = &costSetEntry{set: call.set, expires: c.now().Add(c.ttl)}
-			c.touch(key)
-			for len(c.order) > c.size {
-				delete(c.items, c.order[0])
-				c.order = c.order[1:]
-			}
+			c.store(key, call.val, gen)
 		}
 		c.mu.Unlock()
 		close(call.done)
-		return call.set, call.err
+		return call.val, call.err
+	}
+}
+
+// store keeps v unless caching is off, a clear happened since the load began,
+// or v alone is over the weight budget. The caller holds mu.
+func (c *loadCache[V]) store(key string, v V, gen uint64) {
+	ttl := c.ttl
+	if c.ttlFor != nil {
+		ttl = c.ttlFor(v)
+	}
+	w := 0
+	if c.weight != nil {
+		w = c.weight(v)
+	}
+	if ttl <= 0 || gen != c.gen || (c.maxWeight > 0 && w > c.maxWeight) {
+		return
+	}
+	c.evict(key)
+	c.items[key] = &cacheEntry[V]{val: v, weight: w, expires: c.now().Add(ttl)}
+	c.total += w
+	c.touch(key)
+	for len(c.order) > 1 && (len(c.order) > c.size || (c.maxWeight > 0 && c.total > c.maxWeight)) {
+		c.evict(c.order[0])
 	}
 }

@@ -26,7 +26,12 @@ import (
 // owns this file: its dependency graph (service → handler) and its routes
 // live here, each behind a.handle / a.handleIdem with its legacy gate.
 func registerDashboardRoutes(a *area) {
-	h := handler.NewDashboardHandler(service.NewDashboardService(a.Entity, a.HR, a.Converter, a.Now, service.WithNoValidVisaID(a.Travel.NoValidVisaID)))
+	svc := service.NewDashboardService(a.Entity, a.HR, a.Converter, a.Now, service.WithNoValidVisaID(a.Travel.NoValidVisaID),
+		service.WithCacheTTL(a.DashboardCacheTTL))
+	if inv, ok := svc.(service.CacheInvalidator); ok {
+		a.invalidateDashboard = inv.InvalidateCache
+	}
+	h := handler.NewDashboardHandler(svc)
 
 	// Dashboard: Allocations "Dashboard Page" (1, every employee) or a travel
 	// agent (Travel 18). Each section is then gated on the caller's own

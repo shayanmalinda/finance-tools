@@ -43,6 +43,10 @@ const (
 
 	// DefaultAccessRequestEmail is used when ACCESS_REQUEST_EMAIL is not set.
 	DefaultAccessRequestEmail = "wso2-digital-team@wso2.com"
+
+	// DefaultDashboardCacheTTL is how long a pod keeps the shared dashboard
+	// data when DASHBOARD_CACHE_TTL is not set.
+	DefaultDashboardCacheTTL = time.Hour
 )
 
 // Config holds all environment-driven settings for the Engagement App Backend.
@@ -87,6 +91,11 @@ type Config struct {
 	// Finance-side access are told to write. Defaults to
 	// DefaultAccessRequestEmail.
 	AccessRequestEmail string
+
+	// DashboardCacheTTL (DASHBOARD_CACHE_TTL, a Go duration such as 1h or 30m;
+	// 0 turns the cache off) is how long each pod keeps the dashboard data that
+	// is the same for every user. Defaults to DefaultDashboardCacheTTL.
+	DashboardCacheTTL time.Duration
 }
 
 // JWTConfig is how the caller's token is verified. There is no switch that
@@ -221,6 +230,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cacheTTL, err := getDuration("DASHBOARD_CACHE_TTL", DefaultDashboardCacheTTL)
+	if err != nil {
+		return nil, err
+	}
 	emailDisabled := false
 	if v := strings.TrimSpace(os.Getenv("EMAIL_DISABLED")); v != "" {
 		if emailDisabled, err = strconv.ParseBool(v); err != nil {
@@ -305,6 +318,7 @@ func Load() (*Config, error) {
 		CORSAllowedOrigins:  getList("CORS_ALLOWED_ORIGINS"),
 		ReportMaxConcurrent: reportMax,
 		AccessRequestEmail:  strings.TrimSpace(getEnvOrDefault("ACCESS_REQUEST_EMAIL", DefaultAccessRequestEmail)),
+		DashboardCacheTTL:   cacheTTL,
 	}, nil
 }
 
@@ -469,6 +483,23 @@ func getSeconds(key string, def int) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a non-negative whole number of seconds", key)
 	}
 	return time.Duration(n) * time.Second, nil
+}
+
+// getDuration reads a Go duration (1h, 30m, 90s); a bare 0 is allowed and
+// means off. Negative or unparsable values are errors.
+func getDuration(key string, def time.Duration) (time.Duration, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	if v == "0" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative duration such as 1h or 30m (0 turns it off)", key)
+	}
+	return d, nil
 }
 
 func getPositiveInt(key string, def int) (int, error) {

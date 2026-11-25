@@ -29,7 +29,7 @@ var allKeys = []string{
 	"GATEWAY_JWT_AUDIENCES", "EMAIL_DISABLED", "IS_LIVE_EMAILS", "EMAIL_TEST_RECIPIENTS",
 	"JWT_AUDIENCES", "JWT_CLOCK_SKEW_SECONDS", "ENGAGEMENT_ENTITY_BASE_URL", "SALES_ENTITY_BASE_URL", "HR_ENTITY_URL",
 	"OUTBOUND_TOKEN_URL", "OUTBOUND_CLIENT_ID", "OUTBOUND_CLIENT_SECRET", "EMAIL_SERVICE_URL", "APP_BASE_URL",
-	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS",
+	"FILE_STORAGE_ACCOUNT", "FILE_STORAGE_ACCESS_KEY", "CORS_ALLOWED_ORIGINS", "DASHBOARD_CACHE_TTL",
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
 	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
 	"REPORT_MAX_CONCURRENT", "OUTBOUND_SCOPES", "ACCESS_REQUEST_EMAIL",
@@ -402,6 +402,29 @@ func TestAccessRequestEmail(t *testing.T) {
 		c, _ = Load()
 		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ACCESS_REQUEST_EMAIL") {
 			t.Errorf("%q: Validate() = %v, want an ACCESS_REQUEST_EMAIL error", bad, err)
+		}
+	}
+}
+
+// DASHBOARD_CACHE_TTL defaults to one hour, takes a Go duration, 0 turns the
+// cache off, and a negative or unparsable value stops startup.
+func TestLoadDashboardCacheTTL(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil || c.DashboardCacheTTL != time.Hour || DefaultDashboardCacheTTL != time.Hour {
+		t.Fatalf("default = %v, %v; want 1h", c.DashboardCacheTTL, err)
+	}
+	for in, want := range map[string]time.Duration{"30m": 30 * time.Minute, "6h": 6 * time.Hour, "90s": 90 * time.Second, "0": 0, "0s": 0} {
+		t.Setenv("DASHBOARD_CACHE_TTL", in)
+		c, err := Load()
+		if err != nil || c.DashboardCacheTTL != want {
+			t.Errorf("DASHBOARD_CACHE_TTL=%q: got %v, %v; want %v", in, c.DashboardCacheTTL, err, want)
+		}
+	}
+	for _, bad := range []string{"-1h", "soon", "5", "1d"} {
+		t.Setenv("DASHBOARD_CACHE_TTL", bad)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "DASHBOARD_CACHE_TTL") {
+			t.Errorf("DASHBOARD_CACHE_TTL=%q: err = %v, want a startup error", bad, err)
 		}
 	}
 }

@@ -138,9 +138,11 @@ func (s *travelRequestService) Search(ctx context.Context, f domain.TravelReques
 	switch f.Sort {
 	case "":
 		f.Sort = domain.TravelSortCurrentFirst
-	case domain.TravelSortCurrentFirst, domain.TravelSortStartDesc:
 	default:
-		return domain.TravelRequestPage{}, &apierror.ValidationError{Msg: "sort must be current or startDesc"}
+		if !slices.Contains(domain.TravelSorts, f.Sort) {
+			return domain.TravelRequestPage{}, &apierror.ValidationError{
+				Msg: "sort must be one of " + strings.Join(domain.TravelSorts, ", ")}
+		}
 	}
 	f.Today = travelToday(f.Today)
 	f.Search = strings.TrimSpace(f.Search)

@@ -151,3 +151,33 @@ func TestCostSetCache_JoinerRetriesWhenTheQueuedCallerLeaves(t *testing.T) {
 		t.Fatal("joiner never finished")
 	}
 }
+
+// A get after a clear starts its own load instead of joining one that began before the clear, and the old load finishing later does not drop the new one.
+func TestLoadCache_ClearStopsLaterGetsJoiningOlderLoads(t *testing.T) {
+	c := newLoadCache[string](4, time.Hour, 2, nil)
+	started, release := make(chan struct{}), make(chan struct{})
+	oldDone := make(chan string, 1)
+	go func() {
+		v, _ := c.get(context.Background(), "k", func() (string, error) {
+			close(started)
+			<-release
+			return "before", nil
+		})
+		oldDone <- v
+	}()
+	<-started
+	c.clear()
+
+	got, err := c.get(context.Background(), "k", func() (string, error) { return "after", nil })
+	if err != nil || got != "after" {
+		t.Fatalf("get after clear = %q, %v; want the load that began after the clear", got, err)
+	}
+	close(release)
+	if v := <-oldDone; v != "before" {
+		t.Fatalf("older caller = %q, want its own result", v)
+	}
+	got, _ = c.get(context.Background(), "k", func() (string, error) { return "reloaded", nil })
+	if got != "after" {
+		t.Fatalf("cached value = %q, want %q (older load must not be kept)", got, "after")
+	}
+}

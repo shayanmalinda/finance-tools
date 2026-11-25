@@ -96,6 +96,18 @@ change, render one sample of every template with the real message builders:
 EMAIL_PREVIEW_DIR=/tmp/email-previews go test -count=1 -run TestWritePreviews ./internal/email
 ```
 
+## Dashboard cache
+
+The dashboard keeps what is slow to build in memory, in each pod, so when one user loads it the next users get it at once (`DASHBOARD_CACHE_TTL`, default 1 hour, `0` turns it off).
+
+- **What is cached:** only data that is the same for everyone who asks the same question: the Travel Costs line sets (per date range, all four sources, unfiltered) and the Engagement Entity's aggregates (Travel, Engagements, Travel Team, Engagement Manager, Marketing Events, Allocations Today), each keyed by its query (dates, filters, sections, business date), never by user. The travel agent view is keyed by agency.
+- **Permissions:** privilege filtering and scope (agents see their own agency, finance-only roles see no engagement columns, source rights, widget rights) run on every request after the cache is read, so two users with different rights share one read and still get different answers.
+- **Always live:** Waiting on You (work queues), the Me overview, Account Manager (the caller's own engagements) and trip visas.
+- **Data As Of:** `dataAsOf` is when the cached data was loaded, not the request time. The current month can be up to the TTL old.
+- **Failures:** a failed load is never kept. A cost set with a failed source or truncated lines is kept for 1 minute at most.
+- **Writes:** any non-GET request this pod handles clears its dashboard cache (a failed write may still have changed data). Each replica has its own cache: other replicas keep their data until the TTL ends, so after a write a user on another pod can see numbers up to the TTL old.
+- **Memory:** at most 16 cost sets and 200,000 cost lines (about 100 MB at worst; a set larger than that is served but not kept) plus 256 small aggregates, least recently used first. Concurrent reads are bounded (3 cost sets, 8 aggregates) and identical concurrent reads share one load.
+
 ## Prerequisites
 
 - Go `1.25+`
@@ -142,6 +154,7 @@ committed files.
 | `GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_JWKS_URL` | Only if the gateway's JWT is not issued by Asgardeo | – | Choreo gateway backend JWT issuer and keys (to confirm on staging) |
 | `GATEWAY_JWT_AUDIENCES` | Only if the gateway's JWT names another audience | `JWT_AUDIENCES` | The `aud` of the gateway's JWT (comma-separated list allowed) |
 | `JWT_CLOCK_SKEW_SECONDS` | No | `60` | – |
+| `DASHBOARD_CACHE_TTL` | No | `1h` | How long each pod keeps the dashboard data that is the same for every user (Go duration such as `1h` or `30m`; `0` turns the cache off; negative or unparsable stops startup). See Dashboard cache below |
 | `REPORT_MAX_CONCURRENT` | No | `2` | Unpaged report downloads one pod builds at once (each is held in memory); one more answers 503 with `Retry-After: 10` |
 | `ACCESS_REQUEST_EMAIL` | No | `wso2-digital-team@wso2.com` | Plain email address (for example `wso2-digital-team@wso2.com`) that people with no Engagement App access are told to write to; returned as `accessRequestEmail` by `GET /user-info`. A malformed value stops startup |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |
@@ -214,7 +227,7 @@ the version segment; paths below are relative to it.
 | Dashboard, Me | `GET /dashboard`, `/dashboard/allocations-today`, `/me/overview`, `/me/travel-requests`, `/me/visas`, `/me/travel-documents`, `/me/passports` (+ POST for own visas and documents) |
 | Engagements, Approvals | `GET`/`POST /engagements`, `GET /engagements/facets`, `GET`/`PATCH /engagements/{id}`, `POST /engagements/{id}/request-status`, `/engagement-status`, `/approve`, `GET /approvals` |
 | Allocations | `POST /engagements/{id}/allocations`, `GET /allocation-timeline`, `GET /allocations`, `PATCH /allocations/{id}/status`, `/team-allocations` (+ `/{id}`, `/bulk/validate`, `/bulk`) |
-| Travel Requests | `GET /travel-requests`, `GET`/`PATCH /travel-requests/{jobNumber}`, `/visa-options`, `/per-diems`, `/invoices`, `/travel-cards`, `/per-diem-payments` |
+| Travel Requests | `GET /travel-requests` (`sort=` one of `jobNumber`, `startDate`, `destination`, `agency`, `status`, `-` prefix for descending; unknown is a 400; default is current trips first), `GET`/`PATCH /travel-requests/{jobNumber}`, `/visa-options`, `/per-diems`, `/invoices`, `/travel-cards`, `/per-diem-payments` |
 | Invoices & Payments | `GET /invoices`, `/invoices/{id}`, `POST /invoices/approve`, `/reject`, `/push`, `/resync`; `GET /per-diem-payments`, `GET`/`PATCH /per-diem-payments/{id}`, `POST /per-diem-payments/push`, `/resync`; `GET /netsuite-sync-failures` |
 | Reports | `GET /reports/consultant-allocations`, `/reports/invoices`, `/reports/per-diem-payments` (`format=csv` for the CSV) |
 | Visas & Documents | `/visas`, `/visas/{id}`, `/visas/{id}/image`, `/travel-documents`, `/travel-documents/{id}`, `/travel-documents/{id}/image`, `/travellers/{email}/passports` |
