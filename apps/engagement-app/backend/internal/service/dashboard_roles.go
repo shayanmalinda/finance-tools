@@ -31,7 +31,9 @@ import (
 func (s *dashboardService) roleSections(ctx context.Context, g *dashboardGroup, p domain.Perms, want map[string]bool, vis widgetSet, todayStr string, today time.Time, out *domain.Dashboard) {
 	if want[sectionTravelTeam] {
 		g.Go(ctx, []string{sectionTravelTeam}, func() error {
-			t, err := s.entity.DashboardTravelTeam(ctx, todayStr)
+			t, err := cachedAgg(ctx, s, aggKey("travelTeam", todayStr), func(c context.Context) (*engagemententity.DashboardTravelTeam, error) {
+				return s.entity.DashboardTravelTeam(c, todayStr)
+			})
 			if err != nil {
 				return err
 			}
@@ -42,7 +44,9 @@ func (s *dashboardService) roleSections(ctx context.Context, g *dashboardGroup, 
 	if want[sectionEngagementManager] {
 		types := dashboardAllocateTypes(p)
 		g.Go(ctx, []string{sectionEngagementManager}, func() error {
-			m, err := s.entity.DashboardManager(ctx, todayStr, types)
+			m, err := cachedAgg(ctx, s, aggKey("manager", []any{todayStr, types}), func(c context.Context) (*engagemententity.DashboardManager, error) {
+				return s.entity.DashboardManager(c, todayStr, types)
+			})
 			if err != nil {
 				return err
 			}
@@ -50,6 +54,7 @@ func (s *dashboardService) roleSections(ctx context.Context, g *dashboardGroup, 
 			return nil
 		})
 	}
+	// Account Manager is "mine" (the caller's own engagements), so it stays live.
 	if want[sectionAccountManager] {
 		g.Go(ctx, []string{sectionAccountManager}, func() error {
 			a, err := s.entity.DashboardAccountManager(ctx, p.Email, todayStr)
@@ -62,7 +67,9 @@ func (s *dashboardService) roleSections(ctx context.Context, g *dashboardGroup, 
 	}
 	if want[sectionMarketingEvents] {
 		g.Go(ctx, []string{sectionMarketingEvents}, func() error {
-			e, err := s.entity.DashboardEvents(ctx, todayStr)
+			e, err := cachedAgg(ctx, s, aggKey("events", todayStr), func(c context.Context) (*engagemententity.DashboardEvents, error) {
+				return s.entity.DashboardEvents(c, todayStr)
+			})
 			if err != nil {
 				return err
 			}

@@ -18,6 +18,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/url"
@@ -30,6 +32,7 @@ import (
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/hrentity"
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/config"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/domain"
 )
 
@@ -67,14 +70,63 @@ func WithNoValidVisaID(id int) DashboardOption {
 	return func(s *dashboardService) { s.noValidVisaID = id }
 }
 
+// WithCacheTTL sets how long this pod keeps the shared dashboard data (cost
+// line sets and entity aggregates). Zero or negative keeps nothing. The default
+// is config.DefaultDashboardCacheTTL.
+func WithCacheTTL(ttl time.Duration) DashboardOption {
+	return func(s *dashboardService) { s.cacheTTL = ttl }
+}
+
 type dashboardService struct {
 	entity engagemententity.DashboardAPI
 	people *travelPeople
 	rates  *dashboardRates
 	now    func() time.Time
 
+	cacheTTL time.Duration
+	// costCache holds cost line sets per date range; aggCache the entity
+	// aggregates per query. Both hold only data that is the same for every
+	// caller; privileges and scope are applied after the read.
 	costCache     *costSetCache
+	aggCache      *loadCache[any]
 	noValidVisaID int
+}
+
+// InvalidateCache drops everything this pod has cached for the dashboard. It
+// is called after any write, so the numbers a user just changed are not shown
+// stale in this pod. Other replicas keep theirs until the TTL ends.
+func (s *dashboardService) InvalidateCache() {
+	s.costCache.clear()
+	s.aggCache.clear()
+}
+
+// CacheInvalidator is implemented by the dashboard service.
+type CacheInvalidator interface{ InvalidateCache() }
+
+// cachedAgg reads one entity aggregate through the shared cache. key must name
+// every input of load (the entity call and all its parameters) and nothing
+// about the caller, so one caller's answer is never another's. The value is
+// shared and must be treated as read-only.
+func cachedAgg[T any](ctx context.Context, s *dashboardService, key string, load func(context.Context) (*T, error)) (*T, error) {
+	v, err := s.aggCache.get(ctx, key, func() (any, error) {
+		// The load is shared with every caller that joined this key, so one caller leaving must not cancel it.
+		lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), costEntityBudget)
+		defer cancel()
+		return load(lctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*T), nil
+}
+
+// aggKey is the cache key of an entity call: its name and parameters.
+func aggKey(name string, params any) string {
+	b, err := json.Marshal(params)
+	if err != nil {
+		return name + "|" + fmt.Sprintf("%+v", params)
+	}
+	return name + "|" + string(b)
 }
 
 // NewDashboardService constructs a DashboardService. hr may be nil (no
@@ -85,10 +137,12 @@ func NewDashboardService(entity engagemententity.DashboardAPI, hr hrentity.Clien
 		now = time.Now
 	}
 	s := &dashboardService{entity: entity, now: now, rates: newDashboardRates(currency, now),
-		costCache: newCostSetCache(costSetCacheSize, costSetCacheTTL, nil), noValidVisaID: 333}
+		cacheTTL: config.DefaultDashboardCacheTTL, noValidVisaID: 333}
 	for _, o := range opts {
 		o(s)
 	}
+	s.costCache = newCostSetCache(costSetCacheSize, s.cacheTTL, nil)
+	s.aggCache = newLoadCache[any](dashboardAggCacheSize, s.cacheTTL, dashboardAggMaxLoads, nil)
 	if hr != nil {
 		s.people = newTravelPeople(hr)
 	}
@@ -326,7 +380,9 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 			secs = append(secs, "travelCost")
 		}
 		g.Go(ctx, secs, func() error {
-			t, err := s.entity.DashboardTravel(gctx, tf)
+			t, err := cachedAgg(gctx, s, aggKey("travel", tf), func(c context.Context) (*engagemententity.DashboardTravel, error) {
+				return s.entity.DashboardTravel(c, tf)
+			})
 			if err != nil {
 				return err
 			}
@@ -366,7 +422,9 @@ func (s *dashboardService) Dashboard(ctx context.Context, p domain.Perms, sectio
 			secs = append(secs, sectionAllocationsOverTime)
 		}
 		g.Go(ctx, secs, func() error {
-			e, err := s.entity.DashboardEngagements(gctx, ef)
+			e, err := cachedAgg(gctx, s, aggKey("engagements", ef), func(c context.Context) (*engagemententity.DashboardEngagements, error) {
+				return s.entity.DashboardEngagements(c, ef)
+			})
 			if err != nil {
 				return err
 			}
@@ -840,7 +898,10 @@ func dashboardTrend(t *engagemententity.DashboardTrend, today time.Time) *domain
 // ── Travel agent ────────────────────────────────────────────────────────────
 
 func (s *dashboardService) agent(ctx context.Context, p domain.Perms, todayStr string, today time.Time) (*domain.DashboardAgent, error) {
-	a, err := s.entity.DashboardAgency(ctx, p.Agency.ID, todayStr)
+	// Keyed by the agency: an agent only ever reads their own agency's data.
+	a, err := cachedAgg(ctx, s, aggKey("agency", []any{p.Agency.ID, todayStr}), func(c context.Context) (*engagemententity.DashboardAgency, error) {
+		return s.entity.DashboardAgency(c, p.Agency.ID, todayStr)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -885,7 +946,9 @@ func (s *dashboardService) AllocationsToday(ctx context.Context, _ domain.Perms,
 	if businessUnitID < 0 {
 		return domain.DashboardAllocationsToday{}, &apierror.ValidationError{Msg: "businessUnitId must be a positive whole number."}
 	}
-	r, err := s.entity.DashboardAllocationsToday(ctx, date, businessUnitID)
+	r, err := cachedAgg(ctx, s, aggKey("allocationsToday", []any{date, businessUnitID}), func(c context.Context) (*engagemententity.DashboardAllocationsToday, error) {
+		return s.entity.DashboardAllocationsToday(c, date, businessUnitID)
+	})
 	if err != nil {
 		return domain.DashboardAllocationsToday{}, err
 	}

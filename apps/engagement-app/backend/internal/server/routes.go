@@ -56,6 +56,9 @@ type Deps struct {
 	CORSAllowedOrigins []string
 	// ReportMaxConcurrent caps unpaged report downloads per pod; 0 means 2.
 	ReportMaxConcurrent int
+	// DashboardCacheTTL is how long this pod keeps the shared dashboard data;
+	// 0 keeps nothing (main sets it from DASHBOARD_CACHE_TTL).
+	DashboardCacheTTL time.Duration
 	// AccessRequestEmail is shown to people with no Finance-side access;
 	// empty means none.
 	AccessRequestEmail string
@@ -81,6 +84,9 @@ type area struct {
 	engagements service.EngagementService
 	allocations service.AllocationService
 	mux         *http.ServeMux
+	// invalidateDashboard clears this pod's dashboard cache; set when the
+	// dashboard routes are registered.
+	invalidateDashboard func()
 }
 
 // handle registers pattern behind the legacy privilege gate.
@@ -141,7 +147,11 @@ func NewRouter(d Deps) http.Handler {
 	// ── Root ─────────────────────────────────────────────────────────────────
 	root := http.NewServeMux()
 	root.HandleFunc("GET /health", handler.HealthCheck)
-	root.Handle("/", middleware.Auth(d.Verifier, d.Userinfo)(jsonMuxErrors(api)))
+	root.Handle("/", middleware.Auth(d.Verifier, d.Userinfo)(invalidateOnWrite(jsonMuxErrors(api), func() {
+		if a.invalidateDashboard != nil {
+			a.invalidateDashboard()
+		}
+	})))
 
 	return middleware.CorrelationID(
 		middleware.Recovery(
@@ -208,4 +218,21 @@ func isPushRoute(r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+// invalidateOnWrite clears the dashboard cache after every request that may
+// change data (anything but GET, HEAD and OPTIONS), whatever its outcome: a
+// write that failed part way may still have changed numbers. It clears this
+// pod only; other replicas keep their data until the TTL ends.
+func invalidateOnWrite(next http.Handler, invalidate func()) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+			default:
+				invalidate()
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
