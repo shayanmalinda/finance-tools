@@ -1038,3 +1038,30 @@ func TestTravelImages_ContentTypeAndOwnership(t *testing.T) {
 		t.Errorf("someone else's document image: %v", err)
 	}
 }
+
+func TestTravelList_SortPassesThroughAndIsValidated(t *testing.T) {
+	for _, sort := range append([]string{""}, domain.TravelSorts...) {
+		f := newTravelFixture(travelTrip(domain.TravelStatusInProgress, nil))
+		if _, err := f.svc.List(context.Background(), travelAgent(), domain.TravelListQuery{Sort: sort}); err != nil {
+			t.Fatalf("%q: %v", sort, err)
+		}
+		want := sort
+		if sort == "" {
+			want = engagemententity.TravelSortCurrentFirst
+		}
+		if got := f.entity.searches[0].Sort; got != want {
+			t.Errorf("sort %q sent as %q", sort, got)
+		}
+	}
+	f := newTravelFixture(travelTrip(domain.TravelStatusInProgress, nil))
+	for _, bad := range []string{"traveller", "-visa", "startDesc", "current", "jobNumber; DROP"} {
+		_, err := f.svc.List(context.Background(), travelAgent(), domain.TravelListQuery{Sort: bad})
+		var ve *apierror.ValidationError
+		if !errors.As(err, &ve) {
+			t.Errorf("sort %q err = %v, want validation error", bad, err)
+		}
+	}
+	if len(f.entity.searches) != 0 {
+		t.Errorf("an invalid sort reached the entity: %d searches", len(f.entity.searches))
+	}
+}

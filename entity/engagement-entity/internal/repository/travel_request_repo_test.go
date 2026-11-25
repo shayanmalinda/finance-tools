@@ -312,3 +312,42 @@ func TestTravelEngagements_ChunksLongIDLists(t *testing.T) {
 	}
 	travelCheck(t, mock)
 }
+
+func TestTravelOrder(t *testing.T) {
+	cases := map[string]string{
+		domain.TravelSortStartDesc:       ` ORDER BY t.start_date DESC, t.job_number`,
+		domain.TravelSortJobNumber:       ` ORDER BY t.job_number`,
+		domain.TravelSortJobNumberDesc:   ` ORDER BY t.job_number DESC`,
+		domain.TravelSortStartDate:       ` ORDER BY t.start_date, t.job_number`,
+		domain.TravelSortStartDateDesc:   ` ORDER BY t.start_date DESC, t.job_number`,
+		domain.TravelSortDestination:     ` ORDER BY t.country, t.city, t.job_number`,
+		domain.TravelSortDestinationDesc: ` ORDER BY t.country DESC, t.city DESC, t.job_number`,
+		domain.TravelSortAgency:          ` ORDER BY ta.name_of_travel_agent, t.job_number`,
+		domain.TravelSortAgencyDesc:      ` ORDER BY ta.name_of_travel_agent DESC, t.job_number`,
+		domain.TravelSortStatus:          ` ORDER BY t.status, t.job_number`,
+		domain.TravelSortStatusDesc:      ` ORDER BY t.status DESC, t.job_number`,
+	}
+	for sort, want := range cases {
+		got, args := travelOrder(domain.TravelRequestSearch{Sort: sort})
+		if got != want || args != nil {
+			t.Errorf("%s: got %q %v, want %q", sort, got, args, want)
+		}
+	}
+	// Every accepted sort is mapped here, or is the default.
+	for _, s := range domain.TravelSorts {
+		if _, ok := cases[s]; !ok && s != domain.TravelSortCurrentFirst {
+			t.Errorf("sort %q has no mapping test", s)
+		}
+	}
+}
+
+func TestTravelOrder_DefaultAndUnknownFallBackToCurrentFirst(t *testing.T) {
+	for _, sort := range []string{"", domain.TravelSortCurrentFirst, "1; DROP TABLE travel", "-travellerEmail"} {
+		got, args := travelOrder(domain.TravelRequestSearch{Sort: sort, Today: "2026-10-05"})
+		if !strings.Contains(got, "CASE WHEN DATE(t.end_date) >= ?") || strings.Contains(got, "DROP") ||
+			!strings.HasSuffix(got, "t.start_date DESC, t.job_number") ||
+			len(args) != 2 || args[0] != "2026-10-05" {
+			t.Errorf("sort %q: got %q %v", sort, got, args)
+		}
+	}
+}

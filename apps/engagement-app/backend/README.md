@@ -214,7 +214,7 @@ the version segment; paths below are relative to it.
 | Dashboard, Me | `GET /dashboard`, `/dashboard/allocations-today`, `/me/overview`, `/me/travel-requests`, `/me/visas`, `/me/travel-documents`, `/me/passports` (+ POST for own visas and documents) |
 | Engagements, Approvals | `GET`/`POST /engagements`, `GET /engagements/facets`, `GET`/`PATCH /engagements/{id}`, `POST /engagements/{id}/request-status`, `/engagement-status`, `/approve`, `GET /approvals` |
 | Allocations | `POST /engagements/{id}/allocations`, `GET /allocation-timeline`, `GET /allocations`, `PATCH /allocations/{id}/status`, `/team-allocations` (+ `/{id}`, `/bulk/validate`, `/bulk`) |
-| Travel Requests | `GET /travel-requests`, `GET`/`PATCH /travel-requests/{jobNumber}`, `/visa-options`, `/per-diems`, `/invoices`, `/travel-cards`, `/per-diem-payments` |
+| Travel Requests | `GET /travel-requests` (`sort=` one of `jobNumber`, `startDate`, `destination`, `agency`, `status`, `-` prefix for descending; unknown is a 400; default is current trips first), `GET`/`PATCH /travel-requests/{jobNumber}`, `/visa-options`, `/per-diems`, `/invoices`, `/travel-cards`, `/per-diem-payments` |
 | Invoices & Payments | `GET /invoices`, `/invoices/{id}`, `POST /invoices/approve`, `/reject`, `/push`, `/resync`; `GET /per-diem-payments`, `GET`/`PATCH /per-diem-payments/{id}`, `POST /per-diem-payments/push`, `/resync`; `GET /netsuite-sync-failures` |
 | Reports | `GET /reports/consultant-allocations`, `/reports/invoices`, `/reports/per-diem-payments` (`format=csv` for the CSV) |
 | Visas & Documents | `/visas`, `/visas/{id}`, `/visas/{id}/image`, `/travel-documents`, `/travel-documents/{id}`, `/travel-documents/{id}/image`, `/travellers/{email}/passports` |

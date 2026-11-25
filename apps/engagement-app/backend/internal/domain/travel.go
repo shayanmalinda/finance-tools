@@ -172,9 +172,18 @@ type TravelVisaOptions struct {
 	Items []TravelVisaOption `json:"items"`
 }
 
+// TravelSorts are the column sorts of GET /travel-requests (`sort` query
+// parameter); a leading "-" means descending. Empty keeps the default order
+// (current trips first). Traveller and Visa are not sortable.
+var TravelSorts = []string{
+	"jobNumber", "-jobNumber", "startDate", "-startDate",
+	"destination", "-destination", "agency", "-agency", "status", "-status",
+}
+
 // TravelListQuery is the parsed query of the travel request lists.
 type TravelListQuery struct {
 	Segment     string
+	Sort        string
 	Search      string
 	Travellers  []string
 	Countries   []string

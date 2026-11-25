@@ -158,7 +158,7 @@ func TestTravelService_SearchValidation(t *testing.T) {
 	}{
 		"status":  {domain.TravelRequestSearch{Statuses: []string{"Approved"}}, `invalid travel status "Approved"`},
 		"date":    {domain.TravelRequestSearch{StartFrom: "05/10/2026"}, "startFrom must be a date"},
-		"sort":    {domain.TravelRequestSearch{Sort: "job"}, "sort must be current or startDesc"},
+		"sort":    {domain.TravelRequestSearch{Sort: "job"}, "sort must be one of current, startDesc, jobNumber"},
 		"offset":  {domain.TravelRequestSearch{Offset: -1}, "offset must be 0 or more"},
 		"endTo":   {domain.TravelRequestSearch{EndTo: "2026-13-01"}, "endTo must be a date"},
 		"deleted": {domain.TravelRequestSearch{Statuses: []string{"Deleted"}}, `invalid travel status "Deleted"`},
@@ -316,5 +316,22 @@ func TestNormalizeEmailAudit(t *testing.T) {
 		if _, err := normalizeEmailAudit(bad); !travelIsValidation(err) {
 			t.Errorf("%+v: err = %v, want validation", bad, err)
 		}
+	}
+}
+
+func TestTravelService_SearchSort(t *testing.T) {
+	for _, sort := range domain.TravelSorts {
+		req, _, _, svc := newTravelSvc()
+		if _, err := svc.Search(context.Background(), domain.TravelRequestSearch{Sort: sort}); err != nil {
+			t.Fatalf("%s: %v", sort, err)
+		}
+		if req.lastSearch.Sort != sort {
+			t.Errorf("sort %q passed as %q", sort, req.lastSearch.Sort)
+		}
+	}
+	_, _, _, svc := newTravelSvc()
+	_, err := svc.Search(context.Background(), domain.TravelRequestSearch{Sort: "travellerEmail"})
+	if !travelIsValidation(err) {
+		t.Errorf("unknown sort err = %v", err)
 	}
 }

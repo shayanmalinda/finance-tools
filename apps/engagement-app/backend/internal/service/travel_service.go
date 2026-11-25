@@ -128,6 +128,13 @@ func (s *travelService) List(ctx context.Context, p domain.Perms, q domain.Trave
 	if !ok {
 		return domain.TravelRequestPage{}, travelBadRequest("segment must be new, in-progress, completed or all.")
 	}
+	sort := engagemententity.TravelSortCurrentFirst
+	if q.Sort != "" {
+		if !slices.Contains(domain.TravelSorts, q.Sort) {
+			return domain.TravelRequestPage{}, travelBadRequest("sort must be one of " + strings.Join(domain.TravelSorts, ", ") + ".")
+		}
+		sort = q.Sort
+	}
 	hasNew := p.Travel.Has(travelPrivNewRequests)
 	if segment == domain.TravelSegmentNew && !hasNew {
 		return domain.TravelRequestPage{}, travelForbidden("You do not have permission to view new travel requests.")
@@ -138,7 +145,7 @@ func (s *travelService) List(ctx context.Context, p domain.Perms, q domain.Trave
 
 	f := engagemententity.TravelRequestSearch{
 		TravellerEmails: q.Travellers, Countries: q.Countries, StartFrom: q.StartFrom, EndTo: q.EndTo,
-		Search: q.Search, Sort: engagemententity.TravelSortCurrentFirst, Today: s.today(),
+		Search: q.Search, Sort: sort, Today: s.today(),
 		Limit: q.Limit, Offset: q.Offset, WithStatusCounts: true,
 	}
 	// Travel 1 or 2 see every request; an agent (18 only) sees its agency's
