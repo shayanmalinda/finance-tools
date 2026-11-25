@@ -32,7 +32,8 @@ func registerAllocationRoutes(a *area) {
 		org = hrentity.Unconfigured{}
 	}
 	deps := service.AllocationDeps{Entity: a.Entity, HR: a.HR, Org: org, Email: a.Email, Recipients: a.Recipients, Now: a.Now}
-	h := handler.NewAllocationHandler(service.NewAllocationService(deps), service.NewTeamAllocationService(deps),
+	a.allocations = service.NewAllocationService(deps)
+	h := handler.NewAllocationHandler(a.allocations, service.NewTeamAllocationService(deps),
 		service.NewConsultantReportService(deps))
 	alloc := func(ids ...int) domain.Gate { return domain.Gate{domain.AppAllocations: ids} }
 

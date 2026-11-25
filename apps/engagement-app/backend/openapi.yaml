@@ -70,6 +70,7 @@ security:
 tags:
   - name: Health
   - name: Access
+  - name: Search
   - name: Reference Data
   - name: Dashboard
   - name: Me
@@ -133,6 +134,50 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   # ── Reference data ──────────────────────────────────────────────────────
+  /search:
+    get:
+      tags: [Search]
+      summary: Global search across the list screens
+      description: >-
+        One query over travel requests, invoices, per diem payments,
+        engagements and engagement allocations, for the webapp's search box.
+        Each group runs the same service as its list endpoint with `search`
+        (`GET /travel-requests`, `/invoices`, `/per-diem-payments`,
+        `/engagements` for the customer, internal and marketing segments
+        together, `/allocations`), so a caller only finds what that list
+        would show them (a travel agent only its agency's requests, no
+        engagement columns for finance-only roles). A group the caller may
+        not open is left out, as is a group with no match; groups come in a
+        fixed order (travelRequests, invoices, perDiemPayments, engagements,
+        allocations). `items` holds at most `limit` hits, `total` is the
+        number of matches. A group whose source fails or has not answered
+        within 8 seconds is named in `failed` and the other groups still
+        return.
+
+
+        Invoices and per diem payments are searched on the tab the list
+        itself opens by default: All for a caller who has it, else the first
+        queue they own. Job numbers match with or without the `TRV-` prefix
+        and in any case ("2026-11-0003", "trv2026110003"). Visas, travel
+        documents, passports, reports and travel costs are not searched (they
+        are audited).
+      operationId: globalSearch
+      x-privileges:
+        travel: [1, 2, 18, 32, 33, 34, 39, 40, 41]
+        allocations: [2, 3, 9, 11, 12, 13, 19]
+      parameters:
+        - { name: q, in: query, required: true, description: 'Search text, trimmed; 2 to 200 characters.', schema: { type: string, minLength: 2, maxLength: 200 } }
+        - { name: limit, in: query, description: 'Hits per group; default 5, values above 20 are treated as 20.', schema: { type: integer, minimum: 1, default: 5, maximum: 20 } }
+      responses:
+        '200':
+          description: The groups with hits (possibly none) and the groups that failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /reference-data:
     get:
       tags: [Reference Data]
@@ -2587,6 +2632,43 @@ components:
           schema: { $ref: '#/components/schemas/BatchResult' }
 
   schemas:
+    SearchResponse:
+      type: object
+      required: [query, groups, failed]
+      properties:
+        query: { type: string, description: The trimmed query }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/SearchGroup' }
+        failed:
+          type: array
+          description: Kinds of the groups whose source failed or timed out
+          items: { $ref: '#/components/schemas/SearchKind' }
+    SearchKind:
+      type: string
+      enum: [travelRequests, invoices, perDiemPayments, engagements, allocations]
+    SearchGroup:
+      type: object
+      required: [kind, total, items]
+      properties:
+        kind: { $ref: '#/components/schemas/SearchKind' }
+        total: { type: integer, description: Matches in the whole group }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SearchItem' }
+    SearchItem:
+      type: object
+      required: [id, title, subtitle, status]
+      properties:
+        id: { type: string, description: 'Job number, invoice id, per diem number, engagement id or allocation id' }
+        title: { type: string }
+        subtitle: { type: string }
+        status: { type: string }
+        segment:
+          type: string
+          enum: [customer, internal, marketing]
+          description: Engagement segment, on engagement and allocation hits, for the link
+        jobNumber: { type: string, description: The travel request of an invoice or per diem payment hit }
     Error:
       type: object
       required: [code, message]

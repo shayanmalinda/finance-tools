@@ -74,7 +74,13 @@ type area struct {
 	Converter service.FinanceCurrencyConverter
 	// Reports is the per-pod cap on unpaged report downloads.
 	Reports func(http.Handler) http.Handler
-	mux     *http.ServeMux
+	// Travel, Finance, Engagements and Allocations are the list services each
+	// area builds, kept for global search (nil when the area is not registered).
+	travel      service.TravelService
+	finance     *service.FinanceService
+	engagements service.EngagementService
+	allocations service.AllocationService
+	mux         *http.ServeMux
 }
 
 // handle registers pattern behind the legacy privilege gate.
@@ -130,6 +136,7 @@ func NewRouter(d Deps) http.Handler {
 	registerTravelRoutes(a)
 	registerFinanceRoutes(a)
 	registerDashboardRoutes(a)
+	registerSearchRoutes(a)
 
 	// ── Root ─────────────────────────────────────────────────────────────────
 	root := http.NewServeMux()
