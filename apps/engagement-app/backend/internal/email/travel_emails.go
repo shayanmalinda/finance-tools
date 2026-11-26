@@ -62,9 +62,11 @@ type TravelSettings struct {
 type TravelTrip struct {
 	JobNumber      string
 	TravellerEmail string
-	Customer       string
-	Country        string
-	City           string
+	// TravellerName is the traveller's name from HR ("" when unknown).
+	TravellerName string
+	Customer      string
+	Country       string
+	City          string
 	// StartDate and EndDate are YYYY-MM-DD.
 	StartDate string
 	EndDate   string
@@ -90,14 +92,31 @@ type TravelPerDiem struct {
 	Total     string
 }
 
-func travelSubject(jobNumber string) string {
-	return "[Engagement App] Travel Request (#" + jobNumber + ")"
+// travelSubject is "[Engagement App] <Action>: <Job> <Traveller> to <Country>".
+func travelSubject(action string, t TravelTrip) string {
+	return subjectFor(action, t.JobNumber, tripName(t.TravellerName, t.Country))
 }
 
-// TravelActionLink is the travel request page in One WSO2.
-func TravelActionLink(baseURL, jobNumber string) string {
+// tripName is the record name of a trip: "Jane Doe to Sri Lanka".
+func tripName(traveller, country string) string {
+	if emptyValue(traveller) {
+		if emptyValue(country) {
+			return "Travel request"
+		}
+		return "Trip to " + strings.TrimSpace(country)
+	}
+	return joinNonEmpty(" to ", traveller, country)
+}
+
+// TravelActionLink is a tab of the travel request page in One WSO2 (info,
+// per-diems, invoices).
+func TravelActionLink(baseURL, jobNumber string, tab ...string) string {
+	t := "info"
+	if len(tab) > 0 {
+		t = tab[0]
+	}
 	return strings.TrimRight(baseURL, "/") + "/finance/engagement-app/travel-requests/" +
-		url.PathEscape(jobNumber) + "/info"
+		url.PathEscape(jobNumber) + "/" + t
 }
 
 func travelCC(s TravelSettings, travellerEmail string) []string {
@@ -110,78 +129,56 @@ func travelCC(s TravelSettings, travellerEmail string) []string {
 // travelCCRole is the CC role label of the traveller copy (travelCC).
 const travelCCRole = "the traveller, when traveller copies are on"
 
-func travelNA(v string) string {
-	if strings.TrimSpace(v) == "" {
-		return "N/A"
-	}
-	return html.EscapeString(v)
+// travelDetails is the summary of a trip and its visa (empty rows are left out).
+func travelDetails(t TravelTrip, v TravelVisa, agentName string) string {
+	return detailsSection("Trip",
+		row{"Job Number", t.JobNumber}, row{"Traveller", joinNonEmpty(" ", t.TravellerName)},
+		row{"Dates", dateRange(t.StartDate, t.EndDate)},
+		row{"Destination", joinNonEmpty(", ", t.City, t.Country)},
+		row{"Customer", t.Customer}, row{"Travel Agent", agentName}) +
+		detailsSection("Visa",
+			row{"Visa", joinNonEmpty(" ", v.VisaType, v.EntryType)}, row{"Country", v.Country},
+			row{"Valid", dateRange(v.StartDate, v.EndDate)})
 }
 
-func travelDate10(v string) string {
-	if len(v) >= 10 {
-		return v[:10]
-	}
-	return v
-}
-
-func travelDate16(v string) string {
-	if len(v) >= 16 {
-		return v[:16]
-	}
-	return v
-}
-
-// travelTripContent is the content of the assignRequests and completeTravel
-// templates (legacy sendAssignRequestEmail).
-func travelTripContent(s TravelSettings, title, description, agentName string, t TravelTrip, v TravelVisa) map[string]string {
-	visaStart, visaEnd := "N/A", "N/A"
-	if strings.TrimSpace(v.StartDate) != "" {
-		visaStart = html.EscapeString(travelDate10(v.StartDate))
-	}
-	if strings.TrimSpace(v.EndDate) != "" {
-		visaEnd = html.EscapeString(travelDate10(v.EndDate))
-	}
+// travelContent is the content every travel email shares.
+func travelContent(s TravelSettings, t TravelTrip, action, description, name, label, tab, reason string) map[string]string {
 	return map[string]string{
-		"title":             title,
-		"description":       description,
-		"travel_agent_name": html.EscapeString(agentName),
-		"job_number":        html.EscapeString(t.JobNumber),
-		"traveller_email":   html.EscapeString(t.TravellerEmail),
-		"customer":          html.EscapeString(t.Customer),
-		"country":           html.EscapeString(t.Country),
-		"travel_location":   html.EscapeString(t.City),
-		"start_date":        html.EscapeString(travelDate10(t.StartDate)),
-		"end_date":          html.EscapeString(travelDate10(t.EndDate)),
-		"visa_type":         travelNA(v.VisaType),
-		"visa_country":      travelNA(v.Country),
-		"visa_entry_type":   travelNA(v.EntryType),
-		"visa_start_date":   visaStart,
-		"visa_end_date":     visaEnd,
-		"action_link":       TravelActionLink(s.AppBaseURL, t.JobNumber),
+		"title":         action,
+		"description":   html.EscapeString(description),
+		"greeting_name": name,
+		"reason":        "You are receiving this because " + reason + ", or because you are copied on it.",
+		"action_label":  label,
+		"action_link":   TravelActionLink(s.AppBaseURL, t.JobNumber, tab),
 	}
 }
 
-// TravelAssigned is "New Travel Request Assigned" (legacy
-// sendAssignRequestEmail): on assigning In Progress with an agent and a
-// visa, and to the new agent when the agent changes.
+// TravelAssigned is "Travel Agent Assigned" (legacy sendAssignRequestEmail):
+// on assigning In Progress with an agent and a visa, and to the new agent
+// when the agent changes.
 func TravelAssigned(s TravelSettings, t TravelTrip, v TravelVisa, agentName string) Message {
+	assigned := "This travel request was assigned."
+	if !emptyValue(agentName) {
+		assigned = "This travel request was assigned to " + agentName + "."
+	}
+	c := travelContent(s, t, "Travel Agent Assigned", assigned+" Review it and arrange the trip.", "Travel Logistics Team", "Review Travel Request", "info", "you arrange travel")
+	c["details_html"] = travelDetails(t, v, agentName)
 	return Message{
 		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, t.TravellerEmail),
-		Subject: travelSubject(t.JobNumber), TemplateID: TravelTemplateAssign,
-		Content: travelTripContent(s, "New Travel Request Assigned",
-			"Please take necessary actions for the following Travel Request", agentName, t, v),
+		Subject: travelSubject("Travel Agent Assigned", t), TemplateID: TravelTemplateAssign, Content: c,
 		NotificationType: "travel-assigned", ReferenceID: t.JobNumber,
 		Audience: Audience{To: []string{"the travel logistics team"}, CC: []string{travelCCRole}},
 	}
 }
 
-// TravelVisaChanged is "Visa has been changed" (legacy sendVisaChangeEmail).
+// TravelVisaChanged is "Visa Updated" (legacy sendVisaChangeEmail).
 func TravelVisaChanged(s TravelSettings, t TravelTrip, v TravelVisa, agentName string) Message {
+	c := travelContent(s, t, "Visa Updated", "The visa for this trip was changed. Check the new visa and update the travel plans.",
+		"Travel Logistics Team", "Review Visa Details", "info", "you arrange travel")
+	c["details_html"] = travelDetails(t, v, agentName)
 	return Message{
 		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, t.TravellerEmail),
-		Subject: travelSubject(t.JobNumber), TemplateID: TravelTemplateAssign,
-		Content: travelTripContent(s, "Visa has been changed",
-			"Visa has been changed. Please take necessary actions for the following Travel Request", agentName, t, v),
+		Subject: travelSubject("Visa Updated", t), TemplateID: TravelTemplateAssign, Content: c,
 		NotificationType: "travel-visa-changed", ReferenceID: t.JobNumber,
 		Audience: Audience{To: []string{"the travel logistics team"}, CC: []string{travelCCRole}},
 	}
@@ -189,18 +186,14 @@ func TravelVisaChanged(s TravelSettings, t TravelTrip, v TravelVisa, agentName s
 
 // TravelNotice is the noContent email (legacy sendNoContentTravelEmail
 // without the finance group): On Hold, Cancelled, In Progress, and the
-// "Cancelled for you" notice to a replaced agent.
-func TravelNotice(s TravelSettings, jobNumber, travellerEmail, addressing, title, description string) Message {
+// notice to a replaced agent. title is also the subject's action.
+func TravelNotice(s TravelSettings, t TravelTrip, title, description string) Message {
+	c := travelContent(s, t, title, description, "Travel Logistics Team", "View Travel Request", "info", "you arrange travel")
+	c["details_html"] = travelDetails(t, TravelVisa{}, "")
 	return Message{
-		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, travellerEmail),
-		Subject: travelSubject(jobNumber), TemplateID: TravelTemplateNoContent,
-		Content: map[string]string{
-			"title":             title,
-			"description":       description,
-			"travel_agent_name": html.EscapeString(addressing),
-			"action_link":       TravelActionLink(s.AppBaseURL, jobNumber),
-		},
-		NotificationType: "travel-notice", ReferenceID: jobNumber,
+		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, t.TravellerEmail),
+		Subject: travelSubject(title, t), TemplateID: TravelTemplateNoContent, Content: c,
+		NotificationType: "travel-notice", ReferenceID: t.JobNumber,
 		Audience: Audience{To: []string{"the travel logistics team"}, CC: []string{travelCCRole}},
 	}
 }
@@ -239,51 +232,47 @@ func TravelFinanceRecipients(s TravelSettings, company string) (to, cc []string)
 }
 
 // TravelCompleted is the "Completed" email (legacy sendTravelCompletedEmail):
-// logistics plus the company's finance recipients, with the Active per
-// diems as a table or "No Perdiems".
+// To the traveller company's finance recipients (the finance group when
+// unknown) to pay the per diems, with travel logistics and the traveller
+// copied, and the Active per diems as a table.
 func TravelCompleted(s TravelSettings, t TravelTrip, v TravelVisa, agentName, company string, perDiems []TravelPerDiem) Message {
 	finTo, finCC := TravelFinanceRecipients(s, company)
-	to := append([]string{s.LogisticsGroup}, finTo...)
-	cc := append(append([]string{}, finCC...), travelCC(s, t.TravellerEmail)...)
+	cc := append(append([]string{s.LogisticsGroup}, finCC...), travelCC(s, t.TravellerEmail)...)
 
-	table := "No Perdiems"
+	details := travelDetails(t, v, agentName)
 	if len(perDiems) > 0 {
 		var b strings.Builder
-		b.WriteString(`<tr>
-								<th style="padding: 5px 5px;">Start Date/Time</th>
-								<th style="padding: 5px 5px;">End Date/Time</th>
-								<th style="padding: 5px 5px;">No. of Days	</th>
-								<th style="padding: 5px 5px;">Currency</th>
-								<th style="padding: 5px 5px;">Per Diem Amount</th>
-								<th style="padding: 5px 5px;">Total Amount</th>
-							</tr>
-                            `)
+		b.WriteString(sectionTitle("Per Diems"))
+		fmt.Fprintf(&b, `<div class="ea-scroll" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">`+"\n"+
+			`<table role="presentation" class="ea-table" width="100%%" cellspacing="0" cellpadding="0" border="0" style="%s">`+"\n"+
+			"\t<tr><th style=\"%s\">From</th><th style=\"%s\">To</th><th style=\"%s\">Days</th><th style=\"%s\">Rate</th><th style=\"%s\">Total</th></tr>\n",
+			layTable, layTh, layTh, layTh, layTh, layTh)
 		for _, p := range perDiems {
-			fmt.Fprintf(&b, `<tr>
-                                        <td style="padding: 5px 5px;">%s</td>
-                                        <td style="padding: 5px 5px;">%s</td>
-                                        <td style="padding: 5px 5px;">%s</td>
-                                        <td style="padding: 5px 5px;">%s</td>
-                                        <td style="padding: 5px 5px;">%s</td>
-                                        <td style="padding: 5px 5px;">%s</td>
-                                      </tr>
-                                    `,
-				html.EscapeString(travelDate16(p.StartDate)), html.EscapeString(travelDate16(p.EndDate)),
-				html.EscapeString(p.NoOfDays), html.EscapeString(p.Currency), html.EscapeString(p.Rate),
-				html.EscapeString(p.Total))
+			fmt.Fprintf(&b, "\t<tr><td style=\"%s\">%s</td><td style=\"%s\">%s</td><td style=\"%s\">%s</td><td style=\"%s\">%s</td><td style=\"%s\">%s</td></tr>\n",
+				layTd, html.EscapeString(financeDateTime(p.StartDate)), layTd, html.EscapeString(financeDateTime(p.EndDate)),
+				layTd, html.EscapeString(p.NoOfDays), layTd, html.EscapeString(money(p.Currency, travelAmount(p.Rate))),
+				layTd, html.EscapeString(money(p.Currency, travelAmount(p.Total))))
 		}
-		table = b.String()
+		b.WriteString("</table>\n</div>\n")
+		details += b.String()
 	}
-	content := travelTripContent(s, "Completed", "Please note that this travel request has been completed", agentName, t, v)
-	content["table_data"] = table
+	c := travelContent(s, t, "Completed", "This trip is completed. Review its per diems and pay them.", "Finance Team",
+		"Review Per Diems", "per-diems", "you handle travel payments")
+	c["details_html"] = details
 	return Message{
-		App: AppTravel, To: to, CC: cc, Subject: travelSubject(t.JobNumber), TemplateID: TravelTemplateCompleted,
-		Content: content, NotificationType: "travel-completed", ReferenceID: t.JobNumber,
+		App: AppTravel, To: finTo, CC: cc, Subject: travelSubject("Completed", t), TemplateID: TravelTemplateCompleted,
+		Content: c, NotificationType: "travel-completed", ReferenceID: t.JobNumber,
 		Audience: Audience{
-			To: []string{"the travel logistics team", "the finance contacts for the traveller's company (the finance team if none)"},
-			CC: []string{"the company's finance contacts or finance team", travelCCRole},
+			To: []string{"the finance contacts for the traveller's company (the finance team if none)"},
+			CC: []string{"the travel logistics team", "the company's finance contacts or finance team", travelCCRole},
 		},
 	}
+}
+
+// travelAmount reads a per diem number printed by TravelFormatNumber.
+func travelAmount(v string) float64 {
+	f, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	return f
 }
 
 // TravelFormatNumber prints a per diem number as Ballerina's toString did

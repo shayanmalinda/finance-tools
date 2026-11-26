@@ -36,19 +36,13 @@ const (
 // FinanceTemplate is the template of the finance travel emails.
 const FinanceTemplate = "travelFinanceUpdate"
 
-// financeDetails are the "What changed" line and the button label per kind.
-var financeDetails = map[string][2]string{
-	FinancePerDiemsAdded:    {"Per diems added", "Review Per Diems"},
-	FinanceInvoicesAdded:    {"Travel invoices added", "Review Invoices"},
-	FinanceInvoicesApproved: {"Travel invoices approved", "View Invoices"},
-	FinanceInvoicesRejected: {"Travel invoices rejected", "View Invoices"},
-}
-
-var financeTexts = map[string][2]string{
-	FinancePerDiemsAdded:    {"New per diems have been added", "Please note that there are newly added per diems."},
-	FinanceInvoicesAdded:    {"New travel invoices have been added", "Please note that there are newly added travel invoices."},
-	FinanceInvoicesApproved: {"Travel invoices have been approved", "Please note that there are newly approved travel invoices."},
-	FinanceInvoicesRejected: {"Travel invoices have been rejected", "Please note that there are newly rejected travel invoices."},
+// financeTexts are the title (also the subject's action), what happened and
+// what to do, and the button label per kind.
+var financeTexts = map[string][3]string{
+	FinancePerDiemsAdded:    {"Per Diem Added", "A per diem was added to this trip. Review it.", "Review Per Diems"},
+	FinanceInvoicesAdded:    {"Invoice Added", "A travel invoice was added to this trip. Review and approve it.", "Review Invoices"},
+	FinanceInvoicesApproved: {"Invoice Approved", "Travel invoices for this trip were approved. Check them before they go to NetSuite.", "View Invoices"},
+	FinanceInvoicesRejected: {"Invoice Rejected", "Travel invoices for this trip were rejected. Fix them and add them again.", "View Invoices"},
 }
 
 // FinanceRecipients are the addresses the travel finance emails use (from
@@ -87,56 +81,51 @@ func financeEntityRecipients(r FinanceRecipients, company string) (to, cc []stri
 	return append([]string{}, match[:len(match)-1]...), []string{match[len(match)-1]}
 }
 
-// FinanceTravelMessage builds a travel finance email for jobNumber:
-// subject "[Engagement App] Travel Request (#job)", template travelFinanceUpdate,
-// To the travel logistics group plus the traveller company's finance
-// recipients (the finance group when the company is unknown). tab is the trip
-// page tab the action link opens (per-diems, invoices); items are the records
-// shown below "What Changed".
+// FinanceTravelMessage builds a travel finance email for jobNumber: template
+// travelFinanceUpdate, To the traveller company's finance recipients (the
+// finance group when the company is unknown) who review it, with travel
+// logistics and the rest of finance copied. A rejection goes To travel
+// logistics to fix it, with finance copied. tab is the trip page tab the
+// button opens (per-diems, invoices); items are the records shown below.
 func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany, tab string, items FinanceItems) Message {
 	texts := financeTexts[kind]
-	to := []string{r.TravelLogisticsGroup}
-	var cc []string
-	if travellerCompany == "" {
-		to = append(to, r.FinanceGroup)
-	} else {
-		t, c := financeEntityRecipients(r, travellerCompany)
-		to = append(to, t...)
-		cc = append(cc, c...)
+	finTo, finCC := []string{r.FinanceGroup}, []string(nil)
+	if travellerCompany != "" {
+		finTo, finCC = financeEntityRecipients(r, travellerCompany)
+	}
+	to, cc, name := finTo, append([]string{r.TravelLogisticsGroup}, finCC...), "Finance Team"
+	toRole, reason := "the finance contacts for the traveller's company (the finance team if none)", "you handle travel finance"
+	ccRoles := []string{"the travel logistics team"}
+	if len(finCC) > 0 {
+		ccRoles = append(ccRoles, "the company's finance contacts or finance team")
+	}
+	if kind == FinanceInvoicesRejected {
+		to, cc, name = []string{r.TravelLogisticsGroup}, append(append([]string{}, finTo...), finCC...), "Travel Logistics Team"
+		toRole, reason = "the travel logistics team", "you arrange travel"
+		ccRoles = []string{"the finance contacts for the traveller's company (the finance team if none)"}
 	}
 	link := strings.TrimRight(r.AppBaseURL, "/") + "/finance/engagement-app/travel-requests/" + url.PathEscape(jobNumber) + "/" + tab
+	details := detailsSection("Trip", row{"Job Number", jobNumber}, row{"Traveller", items.TravellerName},
+		row{"Destination", items.Country}, row{"Traveller Company", strings.TrimSpace(strings.Trim(strings.TrimSpace(travellerCompany), `"`))}) + financeItemsHTML(items)
 	return Message{
 		App:        AppTravel,
 		To:         to,
 		CC:         cc,
-		Subject:    "[Engagement App] Travel Request (#" + jobNumber + ")",
+		Subject:    subjectFor(texts[0], jobNumber, tripName(items.TravellerName, items.Country)),
 		TemplateID: FinanceTemplate,
 		Content: map[string]string{
-			"title":             texts[0],
-			"description":       texts[1],
-			"travel_agent_name": "All",
-			"job_number":        html.EscapeString(jobNumber),
-			"traveller_company": html.EscapeString(financeCompanyOrNA(travellerCompany)),
-			"change":            financeDetails[kind][0],
-			"action_label":      financeDetails[kind][1],
-			"action_link":       html.EscapeString(link),
-			"items_html":        financeItemsHTML(items),
+			"title":         texts[0],
+			"description":   texts[1],
+			"greeting_name": name,
+			"reason":        "You are receiving this because " + reason + ", or because you are copied on it.",
+			"action_label":  texts[2],
+			"action_link":   link,
+			"details_html":  details,
 		},
 		NotificationType: kind,
 		ReferenceID:      jobNumber,
-		Audience:         financeAudience(len(cc) > 0),
+		Audience:         Audience{To: []string{toRole}, CC: ccRoles},
 	}
-}
-
-// financeAudience is the role labels of a travel finance email: logistics
-// plus the traveller company's finance contacts (the finance team when the
-// company is unknown), with a CC when the company has several contacts or one.
-func financeAudience(hasCC bool) Audience {
-	a := Audience{To: []string{"the travel logistics team", "the finance contacts for the traveller's company (the finance team if none)"}}
-	if hasCC {
-		a.CC = []string{"the company's finance contacts or finance team"}
-	}
-	return a
 }
 
 // FinanceItems are the records a travel finance email is about: the per
@@ -147,6 +136,8 @@ type FinanceItems struct {
 	Invoices []FinanceInvoiceItem
 	// Reason is the rejection reason (invoices rejected).
 	Reason string
+	// TravellerName and Country name the trip in the subject ("Jane Doe to Sri Lanka").
+	TravellerName, Country string
 }
 
 // FinancePerDiemItem is a per diem. From and To are "YYYY-MM-DD HH:MM:SS".
@@ -169,85 +160,48 @@ type FinanceInvoiceItem struct {
 	PaidAmount   float64
 }
 
-// Inline styles of the details, matching the template's detail list and
-// the completed email's table (brand: Midnight Ink text, Slate labels,
-// hairline #E3E7EF, Paper header row).
-const (
-	finFont       = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;`
-	finSection    = `margin: 28px 0 12px; ` + finFont + ` font-size: 12px; line-height: 16px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #C43300;`
-	finDetails    = `width: 100%; border-collapse: separate; border: 1px solid #E3E7EF; border-radius: 6px; background-color: #F4F6FA;`
-	finLabelStyle = `padding: 11px 16px; ` + finFont + ` font-size: 13px; line-height: 20px; color: #5A6072; vertical-align: top;`
-	finValueStyle = `padding: 11px 16px; ` + finFont + ` font-size: 14px; line-height: 20px; font-weight: 500; color: #0B1633; vertical-align: top; word-break: break-word;`
-	finRule       = ` border-bottom: 1px solid #E3E7EF;`
-	finTable      = `width: 100%; border-collapse: collapse; border: 1px solid #E3E7EF; ` + finFont + ` font-size: 13px; line-height: 18px; color: #0B1633;`
-	finTh         = `padding: 9px 10px; background-color: #F4F6FA; font-size: 12px; font-weight: 600; color: #5A6072; text-align: left; border-bottom: 1px solid #E3E7EF;`
-	finTd         = `padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid #E3E7EF;`
-)
-
-// financeItemsHTML renders the items for the ITEMS_HTML placeholder; every
-// value is HTML-escaped.
+// financeItemsHTML renders the items below the trip; every value is
+// HTML-escaped.
 func financeItemsHTML(items FinanceItems) string {
 	var b strings.Builder
-	type row struct{ label, value string }
-	detail := func(title string, rows []row) {
-		fmt.Fprintf(&b, `<p style="%s">%s</p>`+"\n", finSection, html.EscapeString(title))
-		fmt.Fprintf(&b, `<table role="presentation" class="ea-details" width="100%%" cellspacing="0" cellpadding="0" border="0" style="%s">`+"\n", finDetails)
-		for i, r := range rows {
-			rule := finRule
-			if i == len(rows)-1 {
-				rule = ""
-			}
-			fmt.Fprintf(&b, "\t<tr class=\"ea-row\">\n\t\t<td class=\"ea-label\" width=\"38%%\" style=\"%s%s\">%s</td>\n\t\t<td class=\"ea-value\" style=\"%s%s\">%s</td>\n\t</tr>\n",
-				finLabelStyle, rule, html.EscapeString(r.label), finValueStyle, rule, html.EscapeString(r.value))
-		}
-		b.WriteString("</table>\n")
-	}
 	if pd := items.PerDiem; pd != nil {
-		detail("Per Diem", []row{
-			{"Currency", pd.Currency},
-			{"Daily Rate", TravelFormatNumber(pd.Rate)},
-			{"From", financeDateTime(pd.From)},
-			{"To", financeDateTime(pd.To)},
-			{"Days", fmt.Sprint(pd.Days)},
-			{"Total", strings.TrimSpace(pd.Currency + " " + TravelFormatNumber(pd.Total))},
-		})
+		b.WriteString(detailsSection("Per Diem",
+			row{"Dates", financeDateTime(pd.From) + " to " + financeDateTime(pd.To)},
+			row{"Days", fmt.Sprint(pd.Days)},
+			row{"Daily Rate", money(pd.Currency, pd.Rate)},
+			row{"Total", money(pd.Currency, pd.Total)}))
 	}
 	if len(items.Invoices) == 1 && items.Reason == "" {
 		inv := items.Invoices[0]
 		rows := []row{
 			{"Invoice Number", inv.Number},
-			{"Cost Type", financeOrDash(inv.CostType)},
-			{"Month", financeOrDash(inv.Month)},
-			{"Invoice Amount", financeMoney(inv.Currency, inv.Amount)},
+			{"Cost Type", inv.CostType},
+			{"Month", inv.Month},
+			{"Invoice Amount", money(inv.Currency, inv.Amount)},
 		}
 		if inv.PaidAmount > 0 {
-			rows = append(rows, row{"Paid Amount", financeMoney(inv.PaidCurrency, inv.PaidAmount)})
+			rows = append(rows, row{"Paid Amount", money(inv.PaidCurrency, inv.PaidAmount)})
 		}
-		detail("Invoice", rows)
+		b.WriteString(detailsSection("Invoice", rows...))
 		return b.String()
 	}
 	if items.Reason != "" {
-		detail("Rejection", []row{{"Reason", items.Reason}})
+		b.WriteString(detailsSection("Rejection", row{"Reason", items.Reason}))
 	}
 	if len(items.Invoices) > 0 {
-		fmt.Fprintf(&b, `<p style="%s">Invoices</p>`+"\n", finSection)
+		b.WriteString(sectionTitle("Invoices"))
 		fmt.Fprintf(&b, `<div class="ea-scroll" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">`+"\n"+
 			`<table role="presentation" class="ea-table" width="100%%" cellspacing="0" cellpadding="0" border="0" style="%s">`+"\n"+
 			"\t<tr><th style=\"%s\">Invoice Number</th><th style=\"%s\">Cost Type</th><th style=\"%s\">Amount</th></tr>\n",
-			finTable, finTh, finTh, finTh)
+			layTable, layTh, layTh, layTh)
 		for _, inv := range items.Invoices {
 			fmt.Fprintf(&b, "\t<tr><td style=\"%s\">%s</td><td style=\"%s\">%s</td><td style=\"%s\">%s</td></tr>\n",
-				finTd, html.EscapeString(inv.Number), finTd, html.EscapeString(financeOrDash(inv.CostType)),
-				finTd, html.EscapeString(financeMoney(inv.Currency, inv.Amount)))
+				layTd, html.EscapeString(inv.Number), layTd, html.EscapeString(financeOrDash(inv.CostType)),
+				layTd, html.EscapeString(money(inv.Currency, inv.Amount)))
 		}
 		b.WriteString("</table>\n</div>\n")
 	}
 	return b.String()
-}
-
-// financeMoney is "USD 1250.5" (the completed email's number format).
-func financeMoney(currency string, amount float64) string {
-	return strings.TrimSpace(strings.TrimSpace(currency) + " " + TravelFormatNumber(amount))
 }
 
 // financeDateTime renders "YYYY-MM-DD HH:MM:SS" as "6 Nov 2026, 13:00";
@@ -265,13 +219,4 @@ func financeOrDash(v string) string {
 		return v
 	}
 	return "—"
-}
-
-// financeCompanyOrNA is the traveller's company, or "Not recorded" when the
-// HR entity has none.
-func financeCompanyOrNA(company string) string {
-	if c := strings.TrimSpace(strings.Trim(strings.TrimSpace(company), `"`)); c != "" {
-		return c
-	}
-	return "Not recorded"
 }

@@ -17,102 +17,124 @@
 package email
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
 )
 
 // TestWritePreviews renders one realistic sample of every template, built by
 // the real message builders, into $EMAIL_PREVIEW_DIR (plus subjects.json) to
 // review the design in a browser. Skipped unless EMAIL_PREVIEW_DIR is set.
 // previewSample is one email built by its real builder; staging renders it
-// as a not-live email (banner and subject prefix).
+// as a not-live email (with the staging banner).
 type previewSample struct {
 	name    string
 	m       Message
 	staging bool
 }
 
-// previewSamples are one realistic email per template (and per finance kind).
+// previewSamples are one realistic email per template and notification type,
+// with the data of the staging test: the marketing event EVT00272, the
+// consultant Subavarshana Arumugam and the trip TRV-2026-11-0005 to Sri Lanka.
 func previewSamples() (time.Time, []previewSample) {
-	now := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
 	base := "https://one-stg.wso2.com"
-	eng := EngagementEmailData{
-		ID: "E06405", EngagementTypeID: 3, RequestStatus: "New", CustomerName: "Acme Corp",
-		ProjectName: "Acme ELA Deal - 2026 - Renewal", ProductName: "WSO2 API Manager",
-		AllocationTypeName: "Pre-Sale Engagement", EngagementCode: "CF3rV-PR", Nature: "On-site", Country: "United States of America",
-		Address: "245 Summer Street, Boston, Massachusetts 02210-1133", StartDate: "2027-11-01", EndDate: "2027-11-12",
-		CustomerContact: "Jordan Lee / +1 555 0100", BusinessDomain: "Financial Services", OpportunityOwner: "Alex Morgan",
-		TechnicalOwner: "owner@example.com", ContractsSigned: true, EngagementScope: "API platform health check and upgrade plan.",
-		Comment: "Customer prefers the first week on site.", BusinessUnit: "IAM", ProductUnit: "IAM", SubRegion: "NA - EAST",
-		Requester: "requester@example.com",
+	event := EngagementEmailData{
+		ID: "EVT00272", EngagementTypeID: 5, RequestStatus: "Pending Approval", CustomerName: "Choreo Labs",
+		ProjectName: "[Email test] Marketing event", AllocationTypeName: "Conference", Nature: "Physical",
+		Country: "Sri Lanka", Address: "Colombo", StartDate: "2026-12-10", EndDate: "2026-12-11",
+		Comment: "Email test.", Requester: "requester@example.com",
 	}
-	rec := EngagementRecipients{AppBaseURL: base, InternalApprovers: []string{"approver@example.com"}, MarketingApprovers: []string{"marketing@example.com"}}
-	internal := eng
-	internal.EngagementTypeID, internal.ProjectName, internal.AllocationTypeName, internal.EngagementCode = 1, "Bug Bash - Q4", "Bug Busting", "RND-GEN"
-	internal.CustomerName = "WSO2"
-	event := eng
-	event.EngagementTypeID, event.ProjectName, event.AllocationTypeName, event.EngagementCode = 5, "Choreo Labs Summit 2027", "Conference", "EVT-SUM"
-	event.CustomerName = "Choreo Labs"
+	customer := event
+	customer.ID, customer.EngagementTypeID, customer.CustomerName = "E06405", 3, "Acme Corp"
+	customer.ProjectName, customer.ProductName, customer.AllocationTypeName = "Acme ELA Deal - 2026 - Renewal", "WSO2 API Manager", "Pre-Sale Engagement"
+	customer.EngagementCode, customer.Nature, customer.BusinessDomain = "CF3rV-PR", "On-site", "Financial Services"
+	customer.CustomerContact, customer.OpportunityOwner, customer.TechnicalOwner = "Jordan Lee / +1 555 0100", "Alex Morgan", "owner@example.com"
+	customer.ContractsSigned, customer.EngagementScope, customer.SubRegion, customer.BusinessUnit, customer.ProductUnit = true, "API platform health check.", "NA - EAST", "IAM", "IAM"
+	internal := event
+	internal.ID, internal.EngagementTypeID, internal.ProjectName, internal.AllocationTypeName = "INT00118", 1, "Bug Bash - Q4", "Bug Busting"
+	internal.BusinessUnit, internal.ProductUnit = "IAM", "IAM"
+	rec := EngagementRecipients{AppBaseURL: base, InternalApprovers: []string{"internal-approvers@example.com"},
+		MarketingApprovers: []string{"marketing-approvers@example.com"}, TravelGroup: "travel@example.com",
+		Routing: []string{"allocations@example.com"}, RoutingName: "Allocations Team", ActorName: "Nimal",
+		Consultants: []string{"consultant@example.com"}, ConsultantName: "Subavarshana", TravelAffected: true}
+	approved := event
+	approved.RequestStatus = "Approved"
+	actor := "creator@example.com"
 
 	alloc := AllocationEmailData{
-		EngagementTypeID: 3, EngagementID: "E06405", CustomerName: eng.CustomerName, OpportunityName: eng.ProjectName,
-		ProductName: eng.ProductName, AllocationTypeName: eng.AllocationTypeName, EngagementCode: eng.EngagementCode,
-		EngagementNature: eng.Nature, Country: eng.Country, Address: eng.Address, CustomerContact: eng.CustomerContact,
-		BusinessDomain: eng.BusinessDomain, OpportunityOwner: eng.OpportunityOwner, TechnicalOwner: eng.TechnicalOwner,
-		ContractsSigned: true, EngagementScope: eng.EngagementScope, EngagementComment: eng.Comment,
-		FundingSources:  []AllocationEmailFunding{{BusinessUnit: "IAM", ProductUnit: "IAM", SubRegion: "NA - EAST"}},
-		ConsultantEmail: "consultant@example.com", ClearanceStatus: allocClearanceInProgress, PrevClearanceStatus: allocReadyForClearance,
-		TravelRequired: true, StartDate: "2027-11-01", EndDate: "2027-11-12", AllocationComment: "Lead the API gateway track.",
-		Actor: "allocator@example.com", Now: now,
+		EngagementTypeID: 5, EngagementID: event.ID, CustomerName: event.CustomerName, OpportunityName: event.ProjectName,
+		AllocationTypeName: event.AllocationTypeName, EngagementNature: event.Nature, Country: event.Country, Address: event.Address,
+		EngagementComment: event.Comment, ConsultantEmail: "consultant@example.com", ConsultantName: "Subavarshana",
+		ClearanceStatus: allocClearanceInProgress, PrevClearanceStatus: allocReadyForClearance, TravelRequired: true,
+		StartDate: "2026-12-10", EndDate: "2026-12-11", AllocationComment: "Booth lead.", Actor: "allocator@example.com",
+		Leads: []string{"lead@example.com"}, Now: now,
 	}
-	allocInternal, allocEvent, confirmed := alloc, alloc, alloc
-	allocInternal.EngagementTypeID, allocInternal.OpportunityName = 1, internal.ProjectName
-	allocEvent.EngagementTypeID, allocEvent.OpportunityName = 5, event.ProjectName
-	confirmed.ClearanceStatus, confirmed.PrevClearanceStatus = allocConfirmed, allocClearanceInProgress
-	confirmed.Visas = []AllocationEmailVisa{{Country: "United States of America", VisaType: "Business/Visit", EntryType: "Multiple", Status: "Active", StartDate: "2026-03-01", EndDate: "2027-11-15"}}
-	groups := AllocationEmailGroups{AllocationsGroup: "allocations@example.com", TravelGroup: "travel@example.com", AppBaseURL: base}
+	with := func(c, prev string) AllocationEmailData {
+		d := alloc
+		d.ClearanceStatus, d.PrevClearanceStatus = c, prev
+		return d
+	}
+	custAlloc := with(allocClearanceInProgress, "")
+	custAlloc.EngagementTypeID, custAlloc.EngagementID, custAlloc.OpportunityName, custAlloc.CustomerName = 3, customer.ID, customer.ProjectName, customer.CustomerName
+	intAlloc := with(allocClearanceInProgress, "")
+	intAlloc.EngagementTypeID, intAlloc.EngagementID, intAlloc.OpportunityName = 1, internal.ID, internal.ProjectName
+	confirmed := with(allocConfirmed, allocAcceptedByConsultant)
+	confirmed.Visas = []AllocationEmailVisa{{Country: "Sri Lanka", VisaType: "Business/Visit", EntryType: "Multiple", Status: "Active", StartDate: "2026-03-01", EndDate: "2026-12-15"}}
+	groups := AllocationEmailGroups{AllocationsGroup: "allocations@example.com", PartnerAllocationsGroup: "partner-allocations-group@example.com",
+		TravelGroup: "travel@example.com", AppBaseURL: base}
 
-	ts := TravelSettings{LogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com", AppBaseURL: base}
-	trip := TravelTrip{JobNumber: "TRV-2026-11-0003", TravellerEmail: "traveller@example.com", Customer: "Acme Corp",
-		Country: "United States of America", City: "Boston", StartDate: "2027-11-01", EndDate: "2027-11-12"}
-	visa := TravelVisa{VisaType: "Business/Visit", Country: "United States of America", EntryType: "Multiple", StartDate: "2026-03-01", EndDate: "2027-11-15"}
-	perDiems := []TravelPerDiem{
-		{StartDate: "2027-11-01 09:00:00", EndDate: "2027-11-06 18:00:00", NoOfDays: "6", Currency: "USD", Rate: "75.00", Total: "450.00"},
-		{StartDate: "2027-11-07 09:00:00", EndDate: "2027-11-12 18:00:00", NoOfDays: "6", Currency: "USD", Rate: "75.00", Total: "450.00"},
-	}
+	ts := TravelSettings{LogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com", AppBaseURL: base, CCTraveller: true}
+	trip := TravelTrip{JobNumber: "TRV-2026-11-0005", TravellerEmail: "consultant@example.com", TravellerName: "Subavarshana Arumugam",
+		Customer: "Choreo Labs", Country: "Sri Lanka", City: "Colombo", StartDate: "2026-12-10", EndDate: "2026-12-11"}
+	visa := TravelVisa{VisaType: "Business/Visit", Country: "Sri Lanka", EntryType: "Multiple", StartDate: "2026-03-01", EndDate: "2026-12-15"}
+	perDiems := []TravelPerDiem{{StartDate: "2026-12-10 09:00:00", EndDate: "2026-12-11 18:00:00", NoOfDays: "2", Currency: "USD", Rate: "50.0", Total: "100.0"}}
 
 	fin := FinanceRecipients{TravelLogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com",
-		CompanyRecipients: map[string][]string{"WSO2 - USA": {"finance-usa@example.com"}}, AppBaseURL: base}
+		CompanyRecipients: map[string][]string{"WSO2 - LK": {"finance-lk@example.com"}}, AppBaseURL: base}
+	items := func(f FinanceItems) FinanceItems {
+		f.TravellerName, f.Country = trip.TravellerName, trip.Country
+		return f
+	}
+	inv1 := FinanceInvoiceItem{Number: "EMAILTEST-001", CostType: "Air Ticket", Month: "December", Currency: "USD", Amount: 100}
+	inv2 := FinanceInvoiceItem{Number: "EMAILTEST-002", CostType: "Hotel", Currency: "USD", Amount: 250}
 	samples := []previewSample{
-		{"customerEngagement", EngagementMessage(EngagementCreated, eng, rec, "requester@example.com"), true},
-		{"customerEngagementCancelled", EngagementMessage(EngagementCancelled, eng, rec, "requester@example.com"), false},
-		{"internalEngagement", EngagementMessage(EngagementCreated, internal, rec, "requester@example.com"), false},
-		{"internalEngagementCancelled", EngagementMessage(EngagementCancelled, internal, rec, "requester@example.com"), false},
-		{"marketingEvent", EngagementMessage(EngagementCreated, event, rec, "requester@example.com"), false},
-		{"marketingEventCancelled", EngagementMessage(EngagementCancelled, event, rec, "requester@example.com"), false},
-		{"customerEngagementAllocation", AllocationMessage(alloc, groups), false},
-		{"internalEngagementAllocation", AllocationMessage(allocInternal, groups), false},
-		{"marketingEventAllocation", AllocationMessage(allocEvent, groups), false},
+		{"marketingEvent-approval-needed", EngagementMessage(EngagementCreated, event, rec, actor), true},
+		{"marketingEvent-ready-to-allocate", EngagementMessage(EngagementApproved, approved, rec, "approver@example.com"), false},
+		{"marketingEvent-updated", EngagementMessage(EngagementUpdated, approved, rec, actor), false},
+		{"marketingEventCancelled", EngagementMessage(EngagementCancelled, event, rec, actor), false},
+		{"internalEngagement-approval-needed", EngagementMessage(EngagementCreated, internal, rec, actor), false},
+		{"internalEngagement-ready-to-allocate", EngagementMessage(EngagementApproved, internal, rec, "approver@example.com"), false},
+		{"internalEngagementCancelled", EngagementMessage(EngagementCancelled, internal, rec, actor), false},
+		{"customerEngagement-ready-to-allocate", EngagementMessage(EngagementCreated, customer, rec, actor), false},
+		{"customerEngagementCancelled", EngagementMessage(EngagementCancelled, customer, rec, actor), false},
+		{"marketingEventAllocation-allocated", AllocationMessage(alloc, groups), false},
+		{"marketingEventAllocation-declined", AllocationMessage(with(allocRejectedByConsultant, allocClearanceInProgress), groups), false},
+		{"marketingEventAllocation-accepted", AllocationMessage(with(allocAcceptedByConsultant, allocClearanceInProgress), groups), false},
+		{"marketingEventAllocation-cancelled", AllocationMessage(with(allocAllocationCancelled, allocAcceptedByConsultant), groups), false},
+		{"internalEngagementAllocation-allocated", AllocationMessage(intAlloc, groups), false},
+		{"customerEngagementAllocation-allocated", AllocationMessage(custAlloc, groups), false},
 		{"consultantConfirmed", AllocationMessage(confirmed, groups), false},
-		{"assignRequests", TravelAssigned(ts, trip, visa, "Example Travels"), false},
-		{"completeTravel", TravelCompleted(ts, trip, visa, "Example Travels", "WSO2 - USA", perDiems), false},
-		{"noContent", TravelNotice(ts, trip.JobNumber, trip.TravellerEmail, "Example Travels", "Cancelled", "Please note that this travel request has been cancelled"), false},
-		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - USA", "per-diems", FinanceItems{PerDiem: &FinancePerDiemItem{
-			Currency: "USD", Rate: 70, Total: 735, From: "2026-11-06 13:00:00", To: "2026-11-16 18:00:00", Days: 11}}), false},
-		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - USA", "invoices", FinanceItems{Invoices: []FinanceInvoiceItem{{
-			Number: "CT-INV-20431", CostType: "Air Ticket", Month: "November", Currency: "USD", Amount: 1250.5, PaidCurrency: "USD", PaidAmount: 1250.5}}}), true},
-		{"travelFinanceUpdate-invoices-approved", FinanceTravelMessage(fin, FinanceInvoicesApproved, trip.JobNumber, "", "invoices", FinanceItems{Invoices: []FinanceInvoiceItem{
-			{Number: "CT-INV-20431", CostType: "Air Ticket", Currency: "USD", Amount: 1250.5},
-			{Number: "CT-INV-20432", CostType: "Hotel", Currency: "USD", Amount: 980},
-			{Number: "CT-INV-20433", CostType: "Visa fee", Currency: "LKR", Amount: 45000}}}), false},
-		{"travelFinanceUpdate-invoices-rejected", FinanceTravelMessage(fin, FinanceInvoicesRejected, trip.JobNumber, "WSO2 - USA", "invoices", FinanceItems{
-			Reason:   "The hotel invoice covers two extra nights outside the trip dates.",
-			Invoices: []FinanceInvoiceItem{{Number: "CT-INV-20432", CostType: "Hotel", Currency: "USD", Amount: 980}}}), false},
+		{"assignRequests-assigned", TravelAssigned(ts, trip, visa, "Classic Travels"), false},
+		{"assignRequests-visa-updated", TravelVisaChanged(ts, trip, visa, "Classic Travels"), false},
+		{"completeTravel", TravelCompleted(ts, trip, visa, "Classic Travels", "WSO2 - LK", perDiems), false},
+		{"noContent-on-hold", TravelNotice(ts, trip, "Travel On Hold", "This travel request is on hold."), false},
+		{"noContent-cancelled", TravelNotice(ts, trip, "Travel Cancelled", "This travel request was cancelled."), false},
+		{"noContent-reassigned", TravelNotice(ts, trip, "Travel Reassigned", "This travel request is no longer assigned to Classic Travels."), false},
+		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - LK", "per-diems", items(FinanceItems{PerDiem: &FinancePerDiemItem{
+			Currency: "USD", Rate: 50, Total: 100, From: "2026-12-10 09:00:00", To: "2026-12-11 18:00:00", Days: 2}})), false},
+		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - LK", "invoices", items(FinanceItems{Invoices: []FinanceInvoiceItem{inv1}})), true},
+		{"travelFinanceUpdate-invoices-approved", FinanceTravelMessage(fin, FinanceInvoicesApproved, trip.JobNumber, "", "invoices", items(FinanceItems{Invoices: []FinanceInvoiceItem{inv1, inv2}})), false},
+		{"travelFinanceUpdate-invoices-rejected", FinanceTravelMessage(fin, FinanceInvoicesRejected, trip.JobNumber, "WSO2 - LK", "invoices", items(FinanceItems{
+			Reason: "The hotel invoice covers two extra nights.", Invoices: []FinanceInvoiceItem{inv2}})), false},
 	}
 	return now, samples
 }
@@ -128,7 +150,7 @@ func renderSample(s previewSample, now time.Time) (page, subject string, err err
 	content["CURRENT_YEAR"] = strconv.Itoa(now.Year())
 	banner, subject := "", subjectLine(s.m.Subject)
 	if s.staging {
-		banner, subject = stagingBanner(s.m.Audience), stagingSubjectPrefix+subject
+		banner = stagingBanner(s.m.Audience)
 	}
 	page, err = Render(s.m.TemplateID, content, banner)
 	return page, subject, err
@@ -143,7 +165,7 @@ func TestSamples_EngagementAppNaming(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
 		}
-		if !strings.Contains(subject, "[Engagement App] ") {
+		if !strings.HasPrefix(subject, "[Engagement App] ") || strings.Contains(subject, "[STAGING]") || strings.HasPrefix(subject, "Re:") {
 			t.Errorf("%s: subject %q lacks the Engagement App tag", s.name, subject)
 		}
 		for _, gone := range []string{"Allocations App", "Travel App", "Allocation App", "[Allocations]", "[Travel App]"} {
@@ -186,5 +208,76 @@ func TestWritePreviews(t *testing.T) {
 	b, _ := json.MarshalIndent(subjects, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "subjects.json"), b, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSendSamples sends one sample of every email type to the test recipients
+// through the normal sender, so a change can be checked in a real inbox
+// without clicking through the app. Dev only: skipped unless
+// EMAIL_SEND_SAMPLES=true, and it refuses to run when emails are live.
+//
+//	EMAIL_SEND_SAMPLES=true IS_LIVE_EMAILS=false EMAIL_TEST_RECIPIENTS=me@wso2.com \
+//	EMAIL_SERVICE_URL=... OUTBOUND_TOKEN_URL=... OUTBOUND_CLIENT_ID=... OUTBOUND_CLIENT_SECRET=... \
+//	EMAIL_ALLOCATIONS_FROM=... EMAIL_TRAVEL_FROM=... go test ./internal/email -run TestSendSamples -v
+func TestSendSamples(t *testing.T) {
+	if os.Getenv("EMAIL_SEND_SAMPLES") != "true" {
+		t.Skip("EMAIL_SEND_SAMPLES is not true")
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("IS_LIVE_EMAILS")), "true") {
+		t.Fatal("refusing to send samples: IS_LIVE_EMAILS=true")
+	}
+	var recipients []string
+	for _, a := range strings.Split(os.Getenv("EMAIL_TEST_RECIPIENTS"), ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			recipients = append(recipients, a)
+		}
+	}
+	url := strings.TrimSpace(os.Getenv("EMAIL_SERVICE_URL"))
+	if len(recipients) == 0 || url == "" {
+		t.Fatal("EMAIL_TEST_RECIPIENTS and EMAIL_SERVICE_URL are required")
+	}
+	oauth := rest.NewOAuthHTTPClient(os.Getenv("OUTBOUND_TOKEN_URL"), os.Getenv("OUTBOUND_CLIENT_ID"), os.Getenv("OUTBOUND_CLIENT_SECRET"), strings.Fields(strings.ReplaceAll(os.Getenv("OUTBOUND_SCOPES"), ",", " ")))
+	sender := New(Config{
+		ServiceURL:     url,
+		From:           map[App]string{AppAllocations: os.Getenv("EMAIL_ALLOCATIONS_FROM"), AppTravel: os.Getenv("EMAIL_TRAVEL_FROM")},
+		TestRecipients: recipients,
+	}, rest.New("email", url, oauth))
+	_, samples := previewSamples()
+	for _, s := range samples {
+		if err := sender.Send(context.Background(), s.m); err != nil {
+			t.Errorf("%s: %v", s.name, err)
+			continue
+		}
+		t.Logf("sent %s: %s", s.name, s.m.Subject)
+	}
+}
+
+// Every email uses only the Choreo Labs palette, and every sample has a
+// greeting, one button, a first sentence and a subject in "Action: ID name" form.
+func TestSamples_PaletteAndStructure(t *testing.T) {
+	allowed := map[string]bool{"#FF4600": true, "#C43300": true, "#0B1633": true, "#050A1C": true, "#1F4FFF": true,
+		"#5A6072": true, "#F4F6FA": true, "#FFFFFF": true}
+	hex := regexp.MustCompile(`#[0-9A-Fa-f]{6}\b`)
+	subjectRe := regexp.MustCompile(`^\[Engagement App\] [A-Z][A-Za-z ]+: \S+ .+`)
+	now, samples := previewSamples()
+	for _, s := range samples {
+		page, subject, err := renderSample(s, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range hex.FindAllString(page, -1) {
+			if !allowed[strings.ToUpper(c)] {
+				t.Errorf("%s: colour %s is not in the palette", s.name, c)
+			}
+		}
+		if !subjectRe.MatchString(subject) {
+			t.Errorf("%s: subject %q", s.name, subject)
+		}
+		if !strings.Contains(page, ">Hi") || strings.Contains(page, "Hi @") || strings.Contains(page, "<!-- [GREETING") || strings.Count(page, `class="ea-btn"`) > 1 {
+			t.Errorf("%s: greeting or button is wrong", s.name)
+		}
+		if len(s.m.Content["title"]) > 32 {
+			t.Errorf("%s: title %q is too long for one line", s.name, s.m.Content["title"])
+		}
 	}
 }

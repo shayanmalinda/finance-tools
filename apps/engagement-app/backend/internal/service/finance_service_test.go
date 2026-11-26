@@ -236,8 +236,8 @@ func TestFinanceAddPerDiem(t *testing.T) {
 		e.addedPD.StartDate != "2026-11-06 13:00:00" || pd.StartTime != "13:00" || pd.Days != 11 {
 		t.Errorf("added %+v, returned %+v", e.addedPD, pd)
 	}
-	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "New per diems have been added" ||
-		mail.sent[0].Subject != "[Engagement App] Travel Request (#"+job+")" {
+	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Per Diem Added" ||
+		!strings.HasPrefix(mail.sent[0].Subject, "[Engagement App] Per Diem Added: "+job+" ") {
 		t.Errorf("mail = %+v", mail.sent)
 	}
 
@@ -372,7 +372,7 @@ func TestFinanceDecideHRWinsAndOneEmail(t *testing.T) {
 	if e.decision.Step != "travel" || len(res.Results) != 3 || res.Results[2].OK {
 		t.Errorf("decision %+v, res %+v", e.decision, res)
 	}
-	if len(mail.sent) != 1 || mail.sent[0].ReferenceID != "TRV-2026-11-0002" || mail.sent[0].Content["title"] != "Travel invoices have been approved" {
+	if len(mail.sent) != 1 || mail.sent[0].ReferenceID != "TRV-2026-11-0002" || mail.sent[0].Content["title"] != "Invoice Approved" {
 		t.Errorf("mail = %+v", mail.sent)
 	}
 	if _, err := s.RejectInvoices(ctx, perms("f@wso2.com", 33), []int{1}, " "); err == nil {
@@ -444,16 +444,16 @@ func TestFinanceRecipients(t *testing.T) {
 	r := email.FinanceRecipients{TravelLogisticsGroup: "log@wso2.com", FinanceGroup: "fin@wso2.com", AppBaseURL: "https://one.wso2.com/",
 		CompanyRecipients: map[string][]string{"WSO2 - UK": {"uk1@wso2.com", "ukpay@wso2.com"}, "WSO2 Inc": {"us@wso2.com"}}}
 	m := email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, " wso2 - uk ", "invoices", email.FinanceItems{})
-	if strings.Join(m.To, ",") != "log@wso2.com,uk1@wso2.com" || strings.Join(m.CC, ",") != "ukpay@wso2.com" ||
+	if strings.Join(m.To, ",") != "uk1@wso2.com" || strings.Join(m.CC, ",") != "log@wso2.com,ukpay@wso2.com" ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/"+job+"/invoices" || m.TemplateID != "travelFinanceUpdate" {
 		t.Errorf("uk = %+v", m)
 	}
 	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "WSO2 Inc", "invoices", email.FinanceItems{})
-	if strings.Join(m.To, ",") != "log@wso2.com,us@wso2.com" || strings.Join(m.CC, ",") != "fin@wso2.com" {
+	if strings.Join(m.To, ",") != "us@wso2.com" || strings.Join(m.CC, ",") != "log@wso2.com,fin@wso2.com" {
 		t.Errorf("single address = %+v", m)
 	}
 	m = email.FinanceTravelMessage(r, email.FinanceInvoicesAdded, job, "", "invoices", email.FinanceItems{})
-	if strings.Join(m.To, ",") != "log@wso2.com,fin@wso2.com" || len(m.CC) != 0 {
+	if strings.Join(m.To, ",") != "fin@wso2.com" || strings.Join(m.CC, ",") != "log@wso2.com" {
 		t.Errorf("no company = %+v", m)
 	}
 }
@@ -492,8 +492,8 @@ func TestFinanceDecideEmailItems(t *testing.T) {
 	if len(mail.sent) != 1 || mail.sent[0].ReferenceID != "TRV-B" || e.invFilter.JobNumber != "TRV-B" {
 		t.Fatalf("mail = %+v, filter %+v", mail.sent, e.invFilter)
 	}
-	items := mail.sent[0].Content["items_html"]
-	for _, want := range []string{"INV-1", "Hotel", "USD 980.0", "INV-4", "LKR 45000.0", "Wrong amount"} {
+	items := mail.sent[0].Content["details_html"]
+	for _, want := range []string{"INV-1", "Hotel", "USD 980.00", "INV-4", "LKR 45000.00", "Wrong amount"} {
 		if !strings.Contains(items, want) {
 			t.Errorf("items lack %q:\n%s", want, items)
 		}
@@ -509,7 +509,7 @@ func TestFinanceDecideEmailItems(t *testing.T) {
 	if _, err := s.ApproveInvoices(ctx, perms("f@wso2.com", 33), []int{1}); err != nil {
 		t.Fatal(err)
 	}
-	if len(mail.sent) != 1 || strings.Contains(mail.sent[0].Content["items_html"], "INV-") {
+	if len(mail.sent) != 1 || strings.Contains(mail.sent[0].Content["details_html"], "INV-") {
 		t.Errorf("lookup failed: mail = %+v", mail.sent)
 	}
 }
@@ -524,8 +524,8 @@ func TestFinanceAddedEmailItems(t *testing.T) {
 		StartDate: "2026-11-06", StartTime: "13:00", EndDate: "2026-11-16", EndTime: "18:00", Currency: "gbp", Rate: 70}); err != nil {
 		t.Fatal(err)
 	}
-	items := mail.sent[0].Content["items_html"]
-	for _, want := range []string{"GBP", "70.0", "6 Nov 2026, 13:00", "16 Nov 2026, 18:00", ">11<", "GBP 735.0"} {
+	items := mail.sent[0].Content["details_html"]
+	for _, want := range []string{"GBP 70.00", "6 Nov 2026, 13:00", "16 Nov 2026, 18:00", ">11<", "GBP 735.00"} {
 		if !strings.Contains(items, want) {
 			t.Errorf("per diem items lack %q", want)
 		}
@@ -546,7 +546,7 @@ func TestFinanceDecideEmailPagesInvoices(t *testing.T) {
 	if _, err := s.ApproveInvoices(ctx, perms("f@wso2.com", 33), []int{1150}); err != nil {
 		t.Fatal(err)
 	}
-	if len(mail.sent) != 1 || !strings.Contains(mail.sent[0].Content["items_html"], "INV-1150") {
+	if len(mail.sent) != 1 || !strings.Contains(mail.sent[0].Content["details_html"], "INV-1150") {
 		t.Fatalf("invoice on a later page missing from the email: %+v", mail.sent)
 	}
 	if e.invPages < 3 {
@@ -575,7 +575,7 @@ func TestFinanceDecideEmailListsEachInvoiceOnce(t *testing.T) {
 	if _, err := s.ApproveInvoices(ctx, perms("f@wso2.com", 33), []int{500, 1150}); err != nil {
 		t.Fatal(err)
 	}
-	items := mail.sent[0].Content["items_html"]
+	items := mail.sent[0].Content["details_html"]
 	if n := strings.Count(items, "INV-0500"); n != 1 {
 		t.Errorf("INV-0500 listed %d times, want once", n)
 	}

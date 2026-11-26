@@ -609,9 +609,9 @@ func TestTravelAssign_InProgressSendsAssignedEmail(t *testing.T) {
 		t.Fatalf("sent %d emails", len(f.mail.sent))
 	}
 	m := f.mail.sent[0]
-	if m.TemplateID != "assignRequests" || m.Subject != "[Engagement App] Travel Request (#TRV-2026-10-1246)" ||
-		m.To[0] != "travel-logistics@wso2.com" || len(m.CC) != 0 || m.Content["title"] != "New Travel Request Assigned" ||
-		m.Content["travel_agent_name"] != "Acorn Travels" || m.Content["visa_type"] != "Business/Visit" ||
+	if m.TemplateID != "assignRequests" || !strings.HasPrefix(m.Subject, "[Engagement App] Travel Agent Assigned: TRV-2026-10-1246 ") ||
+		m.To[0] != "travel-logistics@wso2.com" || len(m.CC) != 0 || m.Content["title"] != "Travel Agent Assigned" ||
+		m.Content["greeting_name"] != "Travel Logistics Team" || !strings.Contains(m.Content["details_html"], "Business/Visit") ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
 		t.Errorf("email = %+v", m)
 	}
@@ -629,7 +629,7 @@ func TestTravelAssign_CancelledAndOnHold(t *testing.T) {
 	if _, err := f.svc.Update(context.Background(), travelTeam, "TRV-2026-10-1246", domain.TravelRequestUpdate{Status: travelP("Cancelled")}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.mail.sent) != 1 || f.mail.sent[0].Content["travel_agent_name"] != "All" || f.mail.sent[0].TemplateID != "noContent" {
+	if len(f.mail.sent) != 1 || f.mail.sent[0].Content["title"] != "Travel Cancelled" || f.mail.sent[0].TemplateID != "noContent" {
 		t.Errorf("sent %+v", f.mail.sent)
 	}
 }
@@ -677,18 +677,18 @@ func TestTravelUpdate_RulesAndEmails(t *testing.T) {
 	if w := f.entity.writes[0]; w.Status != nil || *w.TravelAgentID != 1 || *w.VisaID != 332 {
 		t.Errorf("write = %+v", w)
 	}
-	if len(f.mail.sent) != 2 || f.mail.sent[0].Content["travel_agent_name"] != "Acorn Travels" ||
-		f.mail.sent[0].Content["description"] != "Please note that this travel request has been Cancelled for you." ||
-		f.mail.sent[1].Content["title"] != "New Travel Request Assigned" || f.mail.sent[1].Content["travel_agent_name"] != "Classic Travels" {
+	if len(f.mail.sent) != 2 || f.mail.sent[0].Content["title"] != "Travel Reassigned" ||
+		f.mail.sent[0].Content["description"] != "This travel request is no longer assigned to Acorn Travels." ||
+		f.mail.sent[1].Content["title"] != "Travel Agent Assigned" || !strings.Contains(f.mail.sent[1].Content["description"], "Classic Travels") {
 		t.Errorf("sent = %+v", f.mail.sent)
 	}
 
-	// Visa change by the agent: "Visa has been changed".
+	// Visa change by the agent: "Visa Updated".
 	f = open()
 	if _, err := f.svc.Update(ctx, travelAgent(), "TRV-2026-10-1246", domain.TravelRequestUpdate{Visa: travelP("333")}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.mail.sent) != 1 || f.mail.sent[0].Content["title"] != "Visa has been changed" {
+	if len(f.mail.sent) != 1 || f.mail.sent[0].Content["title"] != "Visa Updated" {
 		t.Errorf("sent = %+v", f.mail.sent)
 	}
 
@@ -700,9 +700,9 @@ func TestTravelUpdate_RulesAndEmails(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := f.mail.sent[0]
-	if m.TemplateID != "completeTravel" || strings.Join(m.To, ",") != "travel-logistics@wso2.com,uk-entity@wso2.com" ||
-		strings.Join(m.CC, ",") != "uk-pay@wso2.com" || !strings.Contains(m.Content["table_data"], "2026-10-06 09:00") ||
-		!strings.Contains(m.Content["table_data"], "770.0") {
+	if m.TemplateID != "completeTravel" || strings.Join(m.To, ",") != "uk-entity@wso2.com" ||
+		strings.Join(m.CC, ",") != "travel-logistics@wso2.com,uk-pay@wso2.com" || !strings.Contains(m.Content["details_html"], "6 Oct 2026, 09:00") ||
+		!strings.Contains(m.Content["details_html"], "GBP 770.00") {
 		t.Errorf("completed = %+v", m)
 	}
 }

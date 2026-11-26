@@ -1066,6 +1066,30 @@ func (s *engagementService) routing(ctx context.Context, r engagemententity.Enga
 	return nil
 }
 
+// firstName is the person's first name from HR for a greeting ("" when unknown).
+func (s *engagementService) firstName(ctx context.Context, addr string) string {
+	if addr == "" || s.hr == nil {
+		return ""
+	}
+	emp, err := s.hr.Employee(ctx, addr)
+	if err != nil || emp == nil {
+		return ""
+	}
+	return strings.TrimSpace(emp.FirstName)
+}
+
+// groupOrFirstName is the greeting name of the allocating recipients: the
+// Allocations Team for its group, a lead's first name for one lead, else "".
+func (s *engagementService) groupOrFirstName(ctx context.Context, to []string) string {
+	if len(to) != 1 {
+		return ""
+	}
+	if to[0] == s.recipients.AllocationsGroup {
+		return "Allocations Team"
+	}
+	return s.firstName(ctx, to[0])
+}
+
 // sendEmail sends an engagement email; a failure is logged, never returned.
 func (s *engagementService) sendEmail(ctx context.Context, actor string, ev email.EngagementEvent, r engagemententity.EngagementRecord,
 	at *domain.ReferenceAllocationType, cancelled []engagemententity.EngagementRosterAllocation) {
@@ -1106,6 +1130,11 @@ func (s *engagementService) sendEmail(ctx context.Context, actor string, ev emai
 		if engagementVal(a.IsTravelRequired) == "Yes" && (cl == "Confirmed" || cl == "Confirmed - Visa Pending") {
 			rcpt.TravelAffected = true
 		}
+	}
+	rcpt.ActorName = s.firstName(ctx, actor)
+	rcpt.RoutingName = s.groupOrFirstName(ctx, rcpt.Routing)
+	if len(rcpt.Consultants) == 1 {
+		rcpt.ConsultantName = s.firstName(ctx, rcpt.Consultants[0])
 	}
 	msg := email.EngagementMessage(ev, data, rcpt, actor)
 	if err := s.mail.Send(ctx, msg); err != nil {

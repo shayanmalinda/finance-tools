@@ -48,8 +48,8 @@ type Message struct {
 	App App
 	To  []string
 	CC  []string
-	// Subject, e.g. "[Engagement App] Consultant request for E07201 : Acme -
-	// PoC" (the legacy app's subject with the Engagement App tag).
+	// Subject, e.g. "[Engagement App] Approval Needed: EVT00272 Marketing
+	// event" (subjectFor: the action first, then the record ID and name).
 	Subject string
 	// TemplateID is the template in templates/ (Render).
 	TemplateID string
@@ -164,7 +164,6 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 	if testing {
 		// Not live (staging): mark the email and show who it would have gone
 		// to, so testers can check the routing. Never set when live.
-		p.Subject = stagingSubjectPrefix + p.Subject
 		banner = stagingBanner(m.Audience)
 		p.To, p.CC = append([]string(nil), s.cfg.TestRecipients...), []string{}
 	}
@@ -194,9 +193,6 @@ const engagementAppName = "Engagement App"
 // digitalTeamSignature closes every email (CLOSING_AND_SIGNATURE).
 const digitalTeamSignature = "Cheers,<br> Choreo Labs Digital Team"
 
-// stagingSubjectPrefix marks every email sent while emails are not live.
-const stagingSubjectPrefix = "[STAGING] "
-
 // stagingBanner is the staging notice Render shows above the body: who gets
 // the email in production, by role (HTML-escaped), never by address.
 func stagingBanner(a Audience) string {
@@ -207,13 +203,13 @@ func stagingBanner(a Audience) string {
 		}
 		return strings.Join(out, ", ")
 	}
-	to := "the usual recipients for this email"
+	to := "the usual recipients"
 	if len(a.To) > 0 {
 		to = esc(a.To)
 	}
-	b := "Staging test email. In production this is sent to: <b>To:</b> " + to + "."
+	b := "<b>Staging test.</b> In production: <b>To</b> " + to + "."
 	if len(a.CC) > 0 {
-		b += " <b>CC:</b> " + esc(a.CC) + "."
+		b += " <b>CC</b> " + esc(a.CC) + "."
 	}
 	return b
 }

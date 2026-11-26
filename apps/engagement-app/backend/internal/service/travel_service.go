@@ -647,10 +647,11 @@ func travelVisaCovers(v engagemententity.TravelVisaRecord, start, end string) bo
 
 // ── Emails ────────────────────────────────────────────────────────────────
 
-func travelEmailTrip(r engagemententity.TravelRequestRecord) email.TravelTrip {
+func (s *travelService) travelEmailTrip(ctx context.Context, r engagemententity.TravelRequestRecord) email.TravelTrip {
 	return email.TravelTrip{
-		JobNumber: r.JobNumber, TravellerEmail: r.TravellerEmail, Customer: r.CustomerName,
-		Country: r.Country, City: travelDeref(r.City), StartDate: r.StartDate, EndDate: r.EndDate,
+		JobNumber: r.JobNumber, TravellerEmail: r.TravellerEmail, TravellerName: travelDeref(s.people.get(ctx, r.TravellerEmail).Name),
+		Customer: r.CustomerName,
+		Country:  r.Country, City: travelDeref(r.City), StartDate: r.StartDate, EndDate: r.EndDate,
 	}
 }
 
@@ -671,11 +672,10 @@ func (s *travelService) assignEmails(ctx context.Context, r engagemententity.Tra
 	switch status {
 	case domain.TravelStatusInProgress:
 		if r.TravelAgentID != nil && r.VisaID != nil {
-			s.send(ctx, email.TravelAssigned(set, travelEmailTrip(r), travelEmailVisa(r), agentName))
+			s.send(ctx, email.TravelAssigned(set, s.travelEmailTrip(ctx, r), travelEmailVisa(r), agentName))
 		}
 	case domain.TravelStatusCancelled:
-		s.send(ctx, email.TravelNotice(set, r.JobNumber, r.TravellerEmail, "All",
-			"Travel Request is Cancelled", "Please note that this travel request has been Cancelled."))
+		s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, r), "Travel Cancelled", "This travel request was cancelled."))
 	}
 }
 
@@ -685,30 +685,26 @@ func (s *travelService) assignEmails(ctx context.Context, r engagemententity.Tra
 func (s *travelService) updateEmails(ctx context.Context, before, after engagemententity.TravelRequestRecord,
 	statusChanged, agentChanged, visaChanged bool, agentName string) {
 	set := s.opts.Email
-	jn, traveller := after.JobNumber, after.TravellerEmail
 	if statusChanged {
 		switch after.Status {
 		case domain.TravelStatusOnHold:
-			s.send(ctx, email.TravelNotice(set, jn, traveller, agentName,
-				"Travel Request On Hold", "Please note that this travel request is On Hold."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel On Hold", "This travel request is on hold."))
 		case domain.TravelStatusCancelled:
-			s.send(ctx, email.TravelNotice(set, jn, traveller, agentName,
-				"Travel Request is Cancelled", "Please note that this travel request has been Cancelled."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Cancelled", "This travel request was cancelled."))
 		case domain.TravelStatusInProgress:
-			s.send(ctx, email.TravelNotice(set, jn, traveller, agentName,
-				"Travel Request is In Progress", "Please note that this travel request is now In Progress."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel In Progress", "This travel request is now in progress."))
 		case domain.TravelStatusCompleted:
 			s.completedEmail(ctx, after, agentName)
 		}
 	}
 	if agentChanged {
 		if before.TravelAgentID != nil {
-			s.send(ctx, email.TravelNotice(set, jn, traveller, travelDeref(before.TravelAgentName),
-				"Travel Request is Cancelled", "Please note that this travel request has been Cancelled for you."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Reassigned",
+				"This travel request is no longer assigned to "+travelDeref(before.TravelAgentName)+"."))
 		}
-		s.send(ctx, email.TravelAssigned(set, travelEmailTrip(after), travelEmailVisa(after), agentName))
+		s.send(ctx, email.TravelAssigned(set, s.travelEmailTrip(ctx, after), travelEmailVisa(after), agentName))
 	} else if visaChanged && after.TravelAgentID != nil {
-		s.send(ctx, email.TravelVisaChanged(set, travelEmailTrip(after), travelEmailVisa(after), agentName))
+		s.send(ctx, email.TravelVisaChanged(set, s.travelEmailTrip(ctx, after), travelEmailVisa(after), agentName))
 	}
 }
 
@@ -733,7 +729,7 @@ func (s *travelService) completedEmail(ctx context.Context, r engagemententity.T
 		rows = append(rows, row)
 	}
 	company := travelDeref(s.people.get(ctx, r.TravellerEmail).Company)
-	s.send(ctx, email.TravelCompleted(s.opts.Email, travelEmailTrip(r), travelEmailVisa(r), agentName, company, rows))
+	s.send(ctx, email.TravelCompleted(s.opts.Email, s.travelEmailTrip(ctx, r), travelEmailVisa(r), agentName, company, rows))
 }
 
 // send sends m; a failure is logged only. The sender writes the

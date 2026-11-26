@@ -222,7 +222,7 @@ func (s *FinanceService) AddInvoices(ctx context.Context, p domain.Perms, jobNum
 		typeNames[t.ID] = t.Name
 	}
 	for _, c := range created {
-		s.notify(ctx, email.FinanceInvoicesAdded, jobNumber, trip.TravellerEmail, "invoices",
+		s.notify(ctx, email.FinanceInvoicesAdded, trip, "invoices",
 			email.FinanceItems{Invoices: []email.FinanceInvoiceItem{financeInvoiceItem(c, typeNames)}})
 	}
 	return domain.InvoicePage{Items: s.invoicesOf(ctx, p, created), Total: len(created)}, nil
@@ -414,9 +414,10 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 		if decision == "reject" {
 			kind = email.FinanceInvoicesRejected
 		}
-		traveller := ""
+		trip := engagemententity.FinanceTrip{JobNumber: lastJob}
 		if t, err := s.entity.FinanceTrip(ctx, lastJob); err == nil {
-			traveller = t.TravellerEmail
+			trip = t
+			trip.JobNumber = lastJob
 		}
 		items := email.FinanceItems{}
 		if decision == "reject" {
@@ -445,7 +446,7 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 				break
 			}
 		}
-		s.notify(ctx, kind, lastJob, traveller, "invoices", items)
+		s.notify(ctx, kind, trip, "invoices", items)
 	}
 	return out, nil
 }

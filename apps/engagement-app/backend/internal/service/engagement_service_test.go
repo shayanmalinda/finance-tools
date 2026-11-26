@@ -289,8 +289,8 @@ func TestEngagementCreate_Customer(t *testing.T) {
 		t.Fatalf("d %+v mails %d", d, len(mail.sent))
 	}
 	m := mail.sent[0]
-	if m.Subject != "[Engagement App] Consultant request for E09999 : Acme - Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
-		!reflect.DeepEqual(m.To, []string{"consultant@wso2.com", "allocations@wso2.com", "consultant@wso2.com"}) {
+	if m.Subject != "[Engagement App] Ready to Allocate: E09999 Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
+		!reflect.DeepEqual(m.To, []string{"allocations@wso2.com"}) || m.Content["greeting_name"] != "Allocations Team" {
 		t.Errorf("mail = %+v", m)
 	}
 }
@@ -397,7 +397,7 @@ func TestEngagementUpdate_LocksStatusAndEmail(t *testing.T) {
 	if *u.EngagementScope != scope || *u.RequestStatus != "Updated" || u.UpdatedBy != "a@wso2.com" {
 		t.Errorf("update = %+v", u)
 	}
-	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Customer Engagement Updated" {
+	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Updated" {
 		t.Errorf("mails = %+v", mail.sent)
 	}
 	var ve *apierror.ValidationError
@@ -432,9 +432,9 @@ func TestEngagementUpdate_LocksStatusAndEmail(t *testing.T) {
 		t.Errorf("approve update = %+v", u)
 	}
 	// AllocationTypeID equal to the current one is no change; the title is.
-	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Internal Engagement Updated and Approved" ||
-		!reflect.DeepEqual(mail.sent[0].To, []string{"lead@wso2.com", "a@wso2.com"}) ||
-		!reflect.DeepEqual(mail.sent[0].CC, []string{"consultant@wso2.com", "travel@wso2.com"}) {
+	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Ready to Allocate" ||
+		!reflect.DeepEqual(mail.sent[0].To, []string{"lead@wso2.com"}) ||
+		!reflect.DeepEqual(mail.sent[0].CC, []string{"travel@wso2.com", "a@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("mail = %+v", mail.sent)
 	}
 }
@@ -468,7 +468,7 @@ func TestEngagementStatusChanges(t *testing.T) {
 	}
 	m := mail.sent[0]
 	if m.TemplateID != "customerEngagementCancelled" || m.To[0] != "jane@wso2.com" ||
-		!reflect.DeepEqual(m.CC, []string{"travel@wso2.com", "consultant@wso2.com"}) {
+		!reflect.DeepEqual(m.CC, []string{"allocations@wso2.com", "travel@wso2.com", "a@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("cancel mail = %+v", m)
 	}
 	// Cancelled now: no further status changes.
@@ -495,7 +495,7 @@ func TestEngagementApprove(t *testing.T) {
 	if _, err := svc.Approve(ctx, engagementPerms("a@wso2.com", engagementAdmin, nil), "EL1"); err != nil {
 		t.Fatal(err)
 	}
-	if u := entity.lastUpdate(); *u.RequestStatus != "Approved" || mail.sent[0].Content["title"] != "Internal Engagement Approved" {
+	if u := entity.lastUpdate(); *u.RequestStatus != "Approved" || mail.sent[0].Content["title"] != "Ready to Allocate" {
 		t.Errorf("update %+v mail %+v", u, mail.sent)
 	}
 	var ce *apierror.ConflictError

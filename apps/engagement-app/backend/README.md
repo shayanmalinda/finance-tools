@@ -87,13 +87,31 @@ It sends the finished HTML, base64-encoded, to the Email Service
 email is signed by the Choreo Labs Digital Team. An unknown template id is an
 error, never a blank email.
 
-The templates are a single-column, 600px card (navy header, detail list,
-orange action button) that goes full width on screens under 620px; layout is
+Every subject is `[Engagement App] <Action>: <Record ID> <Record name>`. An
+email goes To whoever must act next and everyone else is copied; the greeting
+names that person (first name) or team. Each body is built by Go
+(`internal/email/layout.go`: greeting, what happened, the one action button,
+then the details with empty rows hidden), so the template files only hold the
+details placeholder.
+
+The templates are a single-column, 600px card (navy header, action button,
+detail list) that goes full width on screens under 620px; layout is
 table-based with inline styles so Gmail and Outlook render it. To review a
 change, render one sample of every template with the real message builders:
 
 ```bash
 EMAIL_PREVIEW_DIR=/tmp/email-previews go test -count=1 -run TestWritePreviews ./internal/email
+```
+
+To check them in a real inbox, send one sample of every email type to the
+test recipients through the normal sender (dev only: refuses to run when
+`IS_LIVE_EMAILS=true`, and always redirects to `EMAIL_TEST_RECIPIENTS`):
+
+```bash
+EMAIL_SEND_SAMPLES=true IS_LIVE_EMAILS=false EMAIL_TEST_RECIPIENTS=you@wso2.com \
+EMAIL_SERVICE_URL=... OUTBOUND_TOKEN_URL=... OUTBOUND_CLIENT_ID=... OUTBOUND_CLIENT_SECRET=... \
+EMAIL_ALLOCATIONS_FROM=... EMAIL_TRAVEL_FROM=... \
+go test -count=1 -run TestSendSamples -v ./internal/email
 ```
 
 ## Dashboard cache
@@ -161,7 +179,7 @@ committed files.
 | `SERVER_PORT` | No | `8190` | – |
 | `EMAIL_SERVICE_URL` | Yes, unless `EMAIL_DISABLED` | – | Base URL of the **Email Service** (`POST /send-email`), not the legacy Email Alert Service: the backend renders each email from its own templates and sends the finished HTML (see Emails) |
 | `EMAIL_DISABLED` | Locally | `false` | `true` logs that an email would be sent (no addresses or subject) instead of sending it |
-| `IS_LIVE_EMAILS` | **Production: `true`** | `false` | `false` (staging): every email goes only to `EMAIL_TEST_RECIPIENTS`, with no CC, a `[STAGING] ` subject prefix and a notice above the body naming the real recipients (legacy `isSendTestingEmailsOnlyVal` + `allocationTestEmail`, now for both apps). `true` sends to the real recipients |
+| `IS_LIVE_EMAILS` | **Production: `true`** | `false` | `false` (staging): every email goes only to `EMAIL_TEST_RECIPIENTS`, with no CC and a notice above the body naming the real recipients by role (legacy `isSendTestingEmailsOnlyVal` + `allocationTestEmail`, now for both apps). `true` sends to the real recipients |
 | `EMAIL_TEST_RECIPIENTS` | With email on and not live | – | Comma-separated addresses that receive every email on staging. Without them (and not live) the backend refuses to start, so staging can't mail real people |
 | `EMAIL_ALLOCATIONS_FROM`, `EMAIL_TRAVEL_FROM` | With email | – | `allocationManagerEmail`, `travelAppEmail` |
 | `EMAIL_ALLOCATIONS_GROUP`, `EMAIL_PARTNER_ALLOCATIONS_GROUP`, `EMAIL_TRAVEL_GROUP` | With email | – | `allocationGroupEmail`, `partnerAllocationGroupEmail`, `travelGroupEmail` |

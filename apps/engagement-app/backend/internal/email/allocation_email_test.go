@@ -62,19 +62,27 @@ func TestAllocationMessage_ConfirmedListsVisasAndCopiesTravel(t *testing.T) {
 	if m.TemplateID != "consultantConfirmed" || m.App != AppAllocations {
 		t.Errorf("template = %s", m.TemplateID)
 	}
-	if want := []string{"allocations@wso2.com", "jane@wso2.com", "lead@wso2.com", "mgr@wso2.com", "travel@wso2.com"}; !reflect.DeepEqual(m.To, want) {
-		t.Errorf("to = %v", m.To)
+	// Travel must arrange the trip, so it is To; everyone else is copied.
+	if !reflect.DeepEqual(m.To, []string{"travel@wso2.com"}) ||
+		!reflect.DeepEqual(m.CC, []string{"jane@wso2.com", "lead@wso2.com", "allocations@wso2.com", "mgr@wso2.com"}) {
+		t.Errorf("to = %v cc = %v", m.To, m.CC)
 	}
-	if m.Subject != "Re: [Engagement App] Consultant request for E07201 : Acme - Acme <PoC>" {
+	if m.Subject != "[Engagement App] Allocation Confirmed: E07201 Acme <PoC>" {
 		t.Errorf("subject = %s", m.Subject)
 	}
 	c := m.Content
-	if c["title"] != "Allocation Confirmed for Engagement" || c["consultant"] != "jane@wso2.com" ||
-		c["project_name"] != "Acme &lt;PoC&gt;" || c["business_unit"] != "APIM" || c["location_address"] != "N/A" ||
-		c["travel_readiness_comment"] != "Visa available for the allocation period" ||
-		!strings.Contains(c["visa_data"], "Sri Lanka: Business Multiple Entry, Visa Approved from 2026-01-01 to 2026-11-08") ||
-		!strings.Contains(c["visa_data"], "expiring within a week") || c["project_name_label"] != "Opportunity" {
+	if c["title"] != "Allocation Confirmed" || c["greeting_name"] != "Travel Team" || c["action_label"] != "Review Travel Requests" ||
+		!strings.HasSuffix(c["action_link"], "/finance/engagement-app/travel-requests/new") {
 		t.Errorf("content = %v", c)
+	}
+	for _, want := range []string{"Acme &lt;PoC&gt;", "APIM", "Visa available for the allocation period", "10–20 Nov 2026",
+		"Sri Lanka: Business Multiple Entry, Visa Approved from 2026-01-01 to 2026-11-08", "expires within a week"} {
+		if !strings.Contains(c["details_html"], want) {
+			t.Errorf("details lack %q", want)
+		}
+	}
+	if strings.Contains(c["details_html"], "N/A") {
+		t.Error("details show N/A")
 	}
 }
 
@@ -91,36 +99,53 @@ func TestAllocVisaData_LabelsEachVisaWithItsOwnCountry(t *testing.T) {
 }
 
 func TestAllocationMessage_BranchesAndPartner(t *testing.T) {
-	base := AllocationEmailData{EngagementTypeID: 5, EngagementID: "EVT00001", ConsultantEmail: "jane@wso2.com", Actor: "mgr@wso2.com"}
+	base := AllocationEmailData{EngagementTypeID: 5, EngagementID: "EVT00001", OpportunityName: "Summit", ConsultantEmail: "jane@wso2.com",
+		ConsultantName: "Jane", Actor: "mgr@wso2.com", Leads: []string{"lead@wso2.com"}}
 
+	// Allocated: the consultant acts, so To is the consultant by first name.
 	d := base
 	d.ClearanceStatus = "Clearance In Progress"
 	m := AllocationMessage(d, allocGroups)
-	if m.TemplateID != "marketingEventAllocation" || m.Content["title"] != "Allocation Added for Marketing Event" || m.Content["to"] != "jane@wso2.com" {
-		t.Errorf("CIP = %s %v", m.TemplateID, m.Content)
+	if m.TemplateID != "marketingEventAllocation" || m.Subject != "[Engagement App] Allocated: EVT00001 Summit" ||
+		m.Content["greeting_name"] != "Jane" || !reflect.DeepEqual(m.To, []string{"jane@wso2.com"}) ||
+		!reflect.DeepEqual(m.CC, []string{"lead@wso2.com", "allocations@wso2.com", "mgr@wso2.com"}) || m.Content["action_link"] != "/me/allocations" {
+		t.Errorf("allocated = %+v", m)
 	}
 
+	// Declined: the allocations team reallocates; travel is copied when arranged.
 	d = base
 	d.EngagementTypeID = 1
 	d.ClearanceStatus, d.PrevClearanceStatus, d.TravelRequired = "Rejected by Consultant", "Confirmed", true
 	m = AllocationMessage(d, allocGroups)
-	if m.Content["title"] != "Allocation Declined for Internal Engagement" || m.To[len(m.To)-1] != "travel@wso2.com" || m.Content["info_title"] != "Engagement Info" {
-		t.Errorf("declined = %v %v", m.To, m.Content)
+	if m.Content["title"] != "Allocation Declined" || m.Content["greeting_name"] != "Allocations Team" || m.Content["action_label"] != "Reallocate" ||
+		m.Content["action_link"] != "/finance/engagement-app/engagements/EVT00001/allocate" ||
+		!reflect.DeepEqual(m.To, []string{"allocations@wso2.com"}) || m.CC[len(m.CC)-1] != "travel@wso2.com" {
+		t.Errorf("declined = %+v", m)
 	}
 
+	// Accepted: the allocations team reviews it.
+	d = base
+	d.ClearanceStatus, d.PrevClearanceStatus = "Accepted by Consultant", "Clearance In Progress"
+	if m = AllocationMessage(d, allocGroups); m.Content["title"] != "Allocation Accepted" || !reflect.DeepEqual(m.To, []string{"allocations@wso2.com"}) {
+		t.Errorf("accepted = %+v", m)
+	}
+
+	// A partner's emails go To the partner allocations team, with no consultant or leads.
 	d = base
 	d.EngagementTypeID = 3
 	d.ConsultantEmail = "partner-allocations-group+Nimbus+Arjun+Rao@wso2.com"
 	d.ClearanceStatus = "Confirmed"
 	m = AllocationMessage(d, allocGroups)
-	if !reflect.DeepEqual(m.To, []string{"partners@wso2.com", "mgr@wso2.com"}) || m.Content["visa_data"] != "" || m.Content["travel_readiness_comment"] != "" {
-		t.Errorf("partner = %v %v", m.To, m.Content)
+	if !reflect.DeepEqual(m.To, []string{"partners@wso2.com"}) || !reflect.DeepEqual(m.CC, []string{"mgr@wso2.com"}) ||
+		m.Content["greeting_name"] != "Partner Allocations Team" || strings.Contains(m.Content["details_html"], "Visa") {
+		t.Errorf("partner = %+v", m)
 	}
 
+	// Confirmed without travel goes To the consultant; no visas is stated.
 	d = base
 	d.ClearanceStatus = "Confirmed"
 	m = AllocationMessage(d, allocGroups)
-	if m.Content["travel_readiness_comment"] != "Visa not available" || m.Content["title"] != "Allocation Confirmed for Marketing Event" {
-		t.Errorf("no visas = %v", m.Content)
+	if !reflect.DeepEqual(m.To, []string{"jane@wso2.com"}) || !strings.Contains(m.Content["details_html"], "Visa not available") {
+		t.Errorf("confirmed = %+v", m)
 	}
 }

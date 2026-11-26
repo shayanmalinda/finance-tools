@@ -79,6 +79,10 @@ type EngagementRecipients struct {
 	// (Notify To Allocations "No"), the Allocations group ("Yes", or any
 	// customer engagement), or nothing.
 	Routing []string
+	// RoutingName, ConsultantName and ActorName are the greeting names of
+	// those recipients ("Allocations Team", or a first name): "" when unknown
+	// or when several people share the To line.
+	RoutingName, ConsultantName, ActorName string
 	// Consultants are the cancelled allocations' consultants.
 	Consultants []string
 	// TravelAffected copies the Travel group on a cancellation: a cancelled
@@ -97,175 +101,122 @@ func engagementTravelExpected(nature string) bool {
 	return false
 }
 
-func engagementOrNA(s string) string {
-	if s == "" {
-		return "N/A"
-	}
-	return s
-}
-
-func engagementDateOnly(s string) string {
-	if len(s) > 10 {
-		return s[:10]
-	}
-	return s
-}
-
-// EngagementMessage builds the legacy engagement email for ev (subject,
-// title, description, template id, content keys, To and CC), sent by actor.
+// EngagementMessage builds the engagement email for ev (subject, title,
+// description, button, To and CC), sent by actor. The email goes To whoever
+// must act next and everyone else is copied: an internal engagement or
+// marketing event waiting for approval goes To its approvers ("Approval
+// Needed"), an approved one or a customer engagement To whoever allocates
+// ("Ready to Allocate").
 func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRecipients, actor string) Message {
 	internal := engagementIsInternal(e.EngagementTypeID)
 	marketing := e.EngagementTypeID == 5
-	ref := e.ID + " : " + e.CustomerName + " - " + e.ProjectName
-
-	var subject, title, description, template string
-	switch {
-	case internal && marketing:
-		template = "marketingEvent"
-	case internal:
-		template = "internalEngagement"
-	default:
-		template = "customerEngagement"
-	}
 	what := "engagement"
 	if marketing {
 		what = "marketing event"
 	}
-	to := []string{}
-	cc := []string{}
+	template := "customerEngagement"
+	switch {
+	case marketing:
+		template = "marketingEvent"
+	case internal:
+		template = "internalEngagement"
+	}
+
+	base := strings.TrimRight(r.AppBaseURL, "/") + "/finance/engagement-app/engagements/" + url.PathEscape(e.ID)
+	var action, description, label, link, reason string
+	var to, cc []string
 	var toRoles, ccRoles []string
+	var toName string
+	allocate := func(done string) {
+		action, label, link = "Ready to Allocate", "Allocate Now", base+"/allocate"
+		description = done + " Allocate the consultants it needs."
+		to, toName = r.Routing, r.RoutingName
+		toRoles = []string{"whoever allocates: the allocations team or the requester's lead (per allocation type)"}
+		reason = "you allocate consultants for this " + what
+	}
 	switch ev {
 	case EngagementCreated:
-		literal := "Consultant"
 		if internal {
-			literal = "Approval"
-		}
-		subject = "[Engagement App] " + literal + " request for " + ref
-		switch {
-		case marketing:
-			title = "New Marketing Event created - Please approve"
-		case internal:
-			title = "New Internal Engagement created - Please approve"
-		default:
-			title = "New Customer Engagement Created"
-		}
-		description = "A new " + what + " has been created. Please review and approve."
-		to = append(to, actor)
-		toRoles = append(toRoles, "the engagement creator")
-		if internal {
+			action, label, link = "Approval Needed", "Review and Approve", base+"/details"
+			description = "A new " + what + " was created and needs your approval. Review it and approve it."
+			to, toName, toRoles = r.InternalApprovers, "Internal Engagement Approvers", []string{"the internal engagement approvers"}
 			if marketing {
-				to = append(to, r.MarketingApprovers...)
-				toRoles = append(toRoles, "marketing event approvers")
-			} else {
-				to = append(to, r.InternalApprovers...)
-				toRoles = append(toRoles, "internal engagement approvers")
+				to, toName, toRoles = r.MarketingApprovers, "Marketing Approvers", []string{"the marketing event approvers"}
 			}
+			reason = "you approve " + what + "s"
+			cc = append(cc, r.Routing...)
+			ccRoles = append(ccRoles, "whoever allocates (per allocation type)")
+		} else {
+			allocate("A new " + what + " was created.")
+		}
+	case EngagementApproved, EngagementUpdatedAndApproved:
+		done := "The " + what + " was approved."
+		if ev == EngagementUpdatedAndApproved {
+			done = "The " + what + " was updated and approved."
+		}
+		allocate(done)
+		if engagementTravelExpected(e.Nature) && r.TravelGroup != "" {
+			cc = append(cc, r.TravelGroup)
+			ccRoles = append(ccRoles, "the travel team")
 		}
 	case EngagementUpdated:
-		literal := "Consultant"
+		action, label, link = "Updated", "View Engagement", base+"/allocations"
 		if e.RequestStatus == "Pending Approval" {
-			literal = "Approval"
+			link = base + "/details"
 		}
-		subject = "Re: [Engagement App] " + literal + " request for " + ref
-		switch {
-		case marketing:
-			title = "Marketing Event Updated"
-		case internal:
-			title = "Internal Engagement Updated"
-		default:
-			title = "Customer Engagement Updated"
-		}
-		description = "Please note that the following " + what + " has been updated."
-	case EngagementApproved, EngagementUpdatedAndApproved:
-		status := "Approved"
-		if ev == EngagementUpdatedAndApproved {
-			status = "Updated and Approved"
-		}
-		subject = "Re: [Engagement App] Consultant request for " + ref
-		if marketing {
-			title = "Marketing Event " + status
-			template = "marketingEvent"
-		} else {
-			title = "Internal Engagement " + status
-			template = "internalEngagement"
-		}
-		description = "Please note that the following " + what + " has been " + strings.ToLower(status) + "."
+		description = "The " + what + " was updated. Review the changes."
+		to, toName = r.Routing, r.RoutingName
+		toRoles = []string{"whoever allocates: the allocations team or the requester's lead (per allocation type)"}
+		reason = "you allocate consultants for this " + what
 	case EngagementCancelled:
-		subject = "Re: [Engagement App] Consultant request for " + ref
-		switch {
-		case marketing:
-			title, template = "Marketing Event Cancelled", "marketingEventCancelled"
-		case internal:
-			title, template = "Internal Engagement Cancelled", "internalEngagementCancelled"
-		default:
-			title, template = "Customer Engagement Cancelled", "customerEngagementCancelled"
+		action = "Cancelled"
+		description = "The " + what + " was cancelled, and so were its allocations."
+		to, toName = r.Consultants, r.ConsultantName
+		toRoles = []string{"the allocated consultants"}
+		reason = "you were allocated to this " + what
+		if len(to) == 0 {
+			to, toName, toRoles = r.Routing, r.RoutingName, []string{"whoever allocates (per allocation type)"}
+		} else {
+			cc = append(cc, r.Routing...)
+			ccRoles = append(ccRoles, "whoever allocates (per allocation type)")
 		}
-		description = "Please note that the following " + what + " has been cancelled."
-		to = append(to, r.Consultants...)
-		toRoles = append(toRoles, "the allocated consultants")
 		if r.TravelAffected && r.TravelGroup != "" {
 			cc = append(cc, r.TravelGroup)
 			ccRoles = append(ccRoles, "the travel team")
 		}
+		template += "Cancelled"
+	}
+	// Nobody to act: the person who made the change gets it.
+	if len(to) == 0 {
+		to, toName, toRoles = []string{actor}, r.ActorName, []string{"the person who made the change"}
+	} else {
+		cc = append(cc, actor)
+		ccRoles = append(ccRoles, "the person who made the change")
 	}
 	cc = append(cc, e.Requester)
 	ccRoles = append(ccRoles, "the engagement requester")
-	to = append(to, r.Routing...)
-	if len(r.Routing) > 0 {
-		toRoles = append(toRoles, "the requester's lead or the allocations team (per allocation type)")
-	}
-	to = append(to, actor)
-	toRoles = append(toRoles, "the person who made the change")
-	if (ev == EngagementApproved || ev == EngagementUpdatedAndApproved) && engagementTravelExpected(e.Nature) && r.TravelGroup != "" {
-		cc = append(cc, r.TravelGroup)
-		ccRoles = append(ccRoles, "the travel team")
-	}
 
-	base := strings.TrimRight(r.AppBaseURL, "/") + "/finance/engagement-app"
-	link := base + "/engagements/" + url.PathEscape(e.ID) + "/allocations"
-	if strings.Contains(title, "Please approve") {
-		seg := "internal"
-		if marketing {
-			seg = "marketing"
-		}
-		link = base + "/approvals/" + seg
-	}
-	contracts := "No"
-	if e.ContractsSigned {
-		contracts = "Yes"
-	}
-	esc := html.EscapeString
+	facts := engFacts{ID: e.ID, Customer: e.CustomerName, Project: e.ProjectName, Product: e.ProductName,
+		AllocationType: e.AllocationTypeName, Code: e.EngagementCode, Nature: e.Nature, Country: e.Country,
+		Address: e.Address, Start: e.StartDate, End: e.EndDate, Contact: e.CustomerContact, Domain: e.BusinessDomain,
+		OpportunityOwner: e.OpportunityOwner, TechnicalOwner: e.TechnicalOwner, Scope: e.EngagementScope,
+		Comment: e.Comment, BusinessUnit: e.BusinessUnit, ProductUnit: e.ProductUnit, SubRegion: e.SubRegion,
+		ContractsSigned: e.ContractsSigned, Kind: e.EngagementTypeID}
 	content := map[string]string{
-		"title":             title,
-		"description":       description,
-		"allocate_now_link": link,
-		"customer_name":     esc(e.CustomerName),
-		"project_name":      esc(e.ProjectName),
-		"product_name":      esc(e.ProductName),
-		"allocation_type":   esc(e.AllocationTypeName),
-		"engagement_code":   esc(e.EngagementCode),
-		"engagement_nature": esc(e.Nature),
-		"global_pod":        esc(engagementOrNA(e.SubRegion)),
-		"country":           esc(e.Country),
-		"location_address":  esc(engagementOrNA(e.Address)),
-		"product_unit":      esc(engagementOrNA(e.ProductUnit)),
-		"business_unit":     esc(engagementOrNA(e.BusinessUnit)),
-		"start_date":        engagementDateOnly(e.StartDate),
-		"end_date":          engagementDateOnly(e.EndDate),
-		"customer_contact":  esc(engagementOrNA(e.CustomerContact)),
-		"business_domain":   esc(engagementOrNA(e.BusinessDomain)),
-		"opportunity_owner": esc(e.OpportunityOwner),
-		"technical_owner":   esc(e.TechnicalOwner),
-		"contracts_signed":  contracts,
-		"engagement_scope":  esc(engagementOrNA(e.EngagementScope)),
-		"comments":          esc(engagementOrNA(e.Comment)),
+		"title":         action,
+		"description":   html.EscapeString(description),
+		"greeting_name": toName,
+		"reason":        "You are receiving this because " + reason + ", or because you are copied on it.",
+		"action_label":  label,
+		"action_link":   link,
+		"details_html":  detailsSection(facts.blockTitle(), facts.rows(true)...),
 	}
 	notification := string(ev)
 	if ev == EngagementUpdatedAndApproved {
 		notification = string(EngagementApproved)
 	}
 	return Message{
-		App: AppAllocations, To: to, CC: cc, Subject: subject, TemplateID: template, Content: content,
+		App: AppAllocations, To: to, CC: cc, Subject: subjectFor(action, e.ID, e.ProjectName), TemplateID: template, Content: content,
 		NotificationType: notification, ReferenceID: e.ID,
 		Audience: Audience{To: toRoles, CC: ccRoles},
 	}

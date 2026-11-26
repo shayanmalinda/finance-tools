@@ -493,6 +493,11 @@ func (s *allocationService) sendAllocationEmail(ctx context.Context, eng engagem
 			BusinessUnit: allocStr(f.BusinessUnit), ProductUnit: allocStr(f.ProductUnit), SubRegion: allocStr(f.SubRegion)})
 	}
 	if !email.AllocationIsPartnerEmail(a.Email) {
+		if s.people != nil {
+			if n := strings.Fields(allocStr(s.people.get(ctx, a.Email).Name)); len(n) > 0 {
+				d.ConsultantName = n[0]
+			}
+		}
 		d.Leads = s.leadsOf(ctx, a.Email)
 		if email.AllocationIsConfirmation(clearance, prev) {
 			visas, err := s.d.Entity.AllocationVisas(ctx, a.Email, a.StartDate, a.EndDate)

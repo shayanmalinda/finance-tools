@@ -20,6 +20,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"html"
 	"regexp"
 	"sort"
 	"strings"
@@ -61,7 +62,32 @@ func Render(templateID string, content map[string]string, banner string) (string
 	if err != nil {
 		return "", err
 	}
-	page := strings.Replace(string(base), bodyMarker, bannerRow(banner)+string(body), 1)
+	// The shared top of every email: greeting, what happened, the one button.
+	get := func(k string) string {
+		for ck, v := range content {
+			if strings.EqualFold(ck, k) {
+				return v
+			}
+		}
+		return ""
+	}
+	top := greetingHTML(get("greeting_name"))
+	if d := get("description"); d != "" {
+		top += fmt.Sprintf(`<p style="margin: 0 0 16px; %s">%s</p>`+"\n", layText, d)
+	}
+	if link := get("action_link"); link != "" {
+		top += buttonHTML(get("action_label"), link)
+	}
+	reason := ""
+	if r := get("reason"); r != "" {
+		reason = fmt.Sprintf(`<p style="margin: 16px 0 0; %s font-size: 13px; line-height: 20px; color: %s;">%s</p>`, layFont, colSlate, html.EscapeString(r))
+	}
+	merged := map[string]string{"reason_html": reason}
+	for k, v := range content {
+		merged[k] = v
+	}
+	content = merged
+	page := strings.Replace(string(base), bodyMarker, bannerRow(banner)+top+string(body), 1)
 	// Literal replacement in a fixed order (the service used a regex
 	// replace, where a "$" in a value is special, in map order).
 	keys := make([]string, 0, len(content))
@@ -82,6 +108,6 @@ func bannerRow(banner string) string {
 	}
 	return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; margin: 0 0 24px;"><tr>` +
 		`<td bgcolor="#F4F6FA" style="background-color: #F4F6FA; border-left: 4px solid #FF4600; border-radius: 6px; padding: 12px 16px; ` +
-		`font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #0B1633;">` +
+		`font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; line-height: 20px; color: #0B1633;">` +
 		banner + `</td></tr></table>`
 }
