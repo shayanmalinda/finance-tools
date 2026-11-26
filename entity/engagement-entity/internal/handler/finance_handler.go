@@ -223,7 +223,7 @@ func (h *FinanceHandler) Invoices(w http.ResponseWriter, r *http.Request) {
 		JobNumber: strings.TrimSpace(q.Get("jobNumber")), Statuses: financeRawList(r, "status"),
 		Failed: q.Get("failed"), Search: q.Get("search"), CostTypes: financeRawList(r, "costType"),
 		Agencies: financeRawList(r, "agency"), Months: financeList(r, "month"), CampaignIDs: financeList(r, "campaignId"),
-		Limit: limit, Offset: offset,
+		Sort: q.Get("sort"), Limit: limit, Offset: offset,
 	}
 	var err error
 	if f.AddedFrom, err = financeDateParam(r, "addedFrom"); err == nil {
@@ -368,7 +368,7 @@ func (h *FinanceHandler) Payments(w http.ResponseWriter, r *http.Request) {
 		JobNumber: strings.TrimSpace(q.Get("jobNumber")), NSStatuses: financeList(r, "nsStatus"),
 		Search: q.Get("search"), Travellers: financeList(r, "traveller"),
 		ConvertedCurrency: financeList(r, "convertedCurrency"), CampaignIDs: financeList(r, "campaignId"),
-		Limit: limit, Offset: offset,
+		Sort: q.Get("sort"), Limit: limit, Offset: offset,
 	}
 	var err error
 	if f.AddedFrom, err = financeDateParam(r, "addedFrom"); err == nil {

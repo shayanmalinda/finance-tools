@@ -218,6 +218,48 @@ func engagementWhere(req domain.EngagementSearchRequest) (string, []any) {
 	return ` WHERE ` + strings.Join(conds, ` AND `), args
 }
 
+// engagementSortColumns whitelists the column sorts of the engagements list.
+// "created" is the creation time (last_updated_date, which is set on insert
+// only); the Approvals list has always used it as its oldest-first order.
+var engagementSortColumns = SortColumns{
+	"id":               {`e.id`},
+	"type":             {`eT.name`},
+	"country":          {`e.country`},
+	"startDate":        {`e.start_date`},
+	"requestStatus":    {`e.status`},
+	"engagementStatus": {`e.engagement_status`},
+	"created":          {`e.last_updated_date`},
+}
+
+// approvalSortColumns whitelists the column sorts of the approvals list. The
+// business unit is the first of the engagement's funding sources by name.
+var approvalSortColumns = SortColumns{
+	"id":        {`e.id`},
+	"type":      {`eT.name`},
+	"country":   {`e.country`},
+	"startDate": {`e.start_date`},
+	"businessUnit": {`(SELECT MIN(bu.name) FROM engagement_funding_source AS eFS
+			JOIN business_unit AS bu ON eFS.business_unit_id = bu.id WHERE eFS.engagement_id = e.id)`},
+	"created": {`e.last_updated_date`},
+}
+
+// engagementOrder returns the ORDER BY of the engagement search and its bind
+// arguments. A whitelisted sort wins; "created" alone is the Approvals
+// default; anything else (empty, "current", unknown) is the current-first
+// order, which needs req.Today.
+func engagementOrder(req domain.EngagementSearchRequest) (string, []any) {
+	cols := engagementSortColumns
+	if req.PendingApproval {
+		cols = approvalSortColumns
+	}
+	if o, ok := cols.Order(req.Sort, `e.id`); ok {
+		return o, nil
+	}
+	return ` ORDER BY CASE WHEN DATE(e.end_date) >= ? THEN 0 ELSE 1 END,
+			CASE WHEN DATE(e.end_date) >= ? THEN e.start_date END ASC,
+			e.start_date DESC, e.id ASC`, []any{req.Today, req.Today}
+}
+
 func (r *engagementRepo) Search(ctx context.Context, req domain.EngagementSearchRequest) ([]domain.Engagement, int, error) {
 	where, args := engagementWhere(req)
 	const from = ` FROM engagement AS e
@@ -227,14 +269,8 @@ func (r *engagementRepo) Search(ctx context.Context, req domain.EngagementSearch
 	if err := r.alloc.QueryRowContext(ctx, `SELECT COUNT(*)`+from+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("engagement.Search count: %w", err)
 	}
-	order := ` ORDER BY e.last_updated_date ASC, e.id ASC`
-	pageArgs := append([]any{}, args...)
-	if req.Sort != domain.EngagementSortCreated {
-		order = ` ORDER BY CASE WHEN DATE(e.end_date) >= ? THEN 0 ELSE 1 END,
-			CASE WHEN DATE(e.end_date) >= ? THEN e.start_date END ASC,
-			e.start_date DESC, e.id ASC`
-		pageArgs = append(pageArgs, req.Today, req.Today)
-	}
+	order, pageArgs := engagementOrder(req)
+	pageArgs = append(append([]any{}, args...), pageArgs...)
 	pageArgs = append(pageArgs, req.Limit, req.Offset)
 	rows, err := r.alloc.QueryContext(ctx, engagementSelect()+where+order+` LIMIT ? OFFSET ?`, pageArgs...)
 	if err != nil {

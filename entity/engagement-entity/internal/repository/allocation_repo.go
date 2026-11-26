@@ -432,6 +432,19 @@ const allocationSearchFrom = `
 			JOIN engagement_type AS eT ON eaT.engagement_type = eT.id
 			LEFT JOIN allocation_type AS aT ON a.allocation_type = aT.id`
 
+// allocationSortColumns whitelists the column sorts of the allocations list.
+// "status" is the allocation status (clearance_status) and "created" the
+// added date.
+var allocationSortColumns = SortColumns{
+	"id":         {`a.id`},
+	"consultant": {`a.email`},
+	"engagement": {`e.id`},
+	"type":       {`eaT.allocation_type`},
+	"startDate":  {`a.start_date`},
+	"status":     {`a.clearance_status`},
+	"created":    {`a.added_date`},
+}
+
 // Search returns one page of the Engagement Allocations list, current
 // allocations first (ending today or later, by start date), then finished
 // ones (latest start first), with the total and each row's travel rows.
@@ -450,10 +463,13 @@ func (r *allocationRepo) Search(ctx context.Context, req domain.AllocationSearch
 		return out, 0, nil
 	}
 
-	q := allocationSelect + allocationSearchFrom + where +
-		` ORDER BY (a.end_date >= ?) DESC, CASE WHEN a.end_date >= ? THEN a.start_date END ASC, a.start_date DESC, a.id ASC` +
-		` LIMIT ? OFFSET ?`
-	pageArgs := append(append([]any{}, args...), req.Today, req.Today, req.Limit, req.Offset)
+	order := ` ORDER BY (a.end_date >= ?) DESC, CASE WHEN a.end_date >= ? THEN a.start_date END ASC, a.start_date DESC, a.id ASC`
+	orderArgs := []any{req.Today, req.Today}
+	if o, ok := allocationSortColumns.Order(req.Sort, `a.id`); ok {
+		order, orderArgs = o, nil
+	}
+	q := allocationSelect + allocationSearchFrom + where + order + ` LIMIT ? OFFSET ?`
+	pageArgs := append(append(append([]any{}, args...), orderArgs...), req.Limit, req.Offset)
 	rows, err := r.alloc.QueryContext(ctx, q, pageArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("allocation.Search: %w", err)

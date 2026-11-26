@@ -92,7 +92,7 @@ func TestEngagementSearch_ApprovalsBaseSortAndCreatorSearch(t *testing.T) {
 	mock.ExpectQuery(re(`WHERE e.id != '' AND e.status = 'Pending Approval' AND (e.id LIKE ? OR e.customer_name LIKE ?` +
 		` OR e.project_name LIKE ? OR e.engagement_code LIKE ? OR e.country LIKE ? OR aT.allocation_type LIKE ? OR e.username LIKE ?)`)).
 		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
-	mock.ExpectQuery(re(`ORDER BY e.last_updated_date ASC, e.id ASC LIMIT ? OFFSET ?`)).
+	mock.ExpectQuery(re(`ORDER BY e.last_updated_date, e.id LIMIT ? OFFSET ?`)).
 		WillReturnRows(sqlmock.NewRows(engagementTestCols))
 	items, _, err := repo.Search(context.Background(), domain.EngagementSearchRequest{
 		PendingApproval: true, Search: "owner", Sort: domain.EngagementSortCreated, Limit: 50,

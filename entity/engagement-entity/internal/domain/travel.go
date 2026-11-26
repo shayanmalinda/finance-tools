@@ -293,8 +293,12 @@ type TravelVisaFilter struct {
 	Search string
 	// ExcludeIDs leaves out these visa_status rows (the placeholder visas).
 	ExcludeIDs []int
-	Limit      int
-	Offset     int
+	// Sort is one column sort (traveller, country, visaType, validFrom,
+	// expiry; a leading "-" means descending). Empty or unknown keeps the
+	// expiry-ascending order.
+	Sort   string
+	Limit  int
+	Offset int
 }
 
 // TravelVisaPage is returned by GET /visas.
@@ -359,6 +363,10 @@ type TravelDocumentFilter struct {
 	Today    string
 	// Search matches email, document number, type and country.
 	Search string
+	// Sort is one column sort (traveller, type, country, issued, expiry; a
+	// leading "-" means descending). Empty or unknown keeps the
+	// expiry-ascending order.
+	Sort   string
 	Limit  int
 	Offset int
 }

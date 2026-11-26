@@ -140,6 +140,15 @@ func travelVisaStateWhere(f domain.TravelVisaFilter) (string, []any) {
 	return c, args
 }
 
+// travelVisaSortColumns whitelists the visa list sorts.
+var travelVisaSortColumns = SortColumns{
+	"traveller": {`v.email`},
+	"country":   {`v.country`},
+	"visaType":  {`v.visa_type`},
+	"validFrom": {`v.start_date`},
+	"expiry":    {`v.end_date`},
+}
+
 func (r *travelDocumentRepo) SearchVisas(ctx context.Context, f domain.TravelVisaFilter) ([]domain.TravelVisa, int, error) {
 	where, args := travelVisaWhere(f)
 	var total int
@@ -149,7 +158,11 @@ func (r *travelDocumentRepo) SearchVisas(ctx context.Context, f domain.TravelVis
 	if total == 0 {
 		return []domain.TravelVisa{}, 0, nil
 	}
-	rows, err := r.db.QueryContext(ctx, travelVisaSelect+where+` ORDER BY v.end_date ASC, v.id LIMIT ? OFFSET ?`,
+	order, ok := travelVisaSortColumns.Order(f.Sort, `v.id`)
+	if !ok {
+		order = ` ORDER BY v.end_date ASC, v.id`
+	}
+	rows, err := r.db.QueryContext(ctx, travelVisaSelect+where+order+` LIMIT ? OFFSET ?`,
 		append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("visaStatus.Search: %w", err)
@@ -337,6 +350,15 @@ func travelDocumentWhere(f domain.TravelDocumentFilter) (string, []any) {
 	return ` WHERE ` + strings.Join(conds, ` AND `), args
 }
 
+// travelDocumentSortColumns whitelists the travel document list sorts.
+var travelDocumentSortColumns = SortColumns{
+	"traveller": {`d.email`},
+	"type":      {`d.document_type`},
+	"country":   {`d.issued_country`},
+	"issued":    {`d.issued_date`},
+	"expiry":    {`d.expiry_date`},
+}
+
 func (r *travelDocumentRepo) SearchDocuments(ctx context.Context, f domain.TravelDocumentFilter) ([]domain.TravelDocument, int, error) {
 	where, args := travelDocumentWhere(f)
 	var total int
@@ -346,8 +368,12 @@ func (r *travelDocumentRepo) SearchDocuments(ctx context.Context, f domain.Trave
 	if total == 0 {
 		return []domain.TravelDocument{}, 0, nil
 	}
+	order, ok := travelDocumentSortColumns.Order(f.Sort, `d.id`)
+	if !ok {
+		order = ` ORDER BY d.expiry_date IS NULL, d.expiry_date ASC, d.id`
+	}
 	rows, err := r.db.QueryContext(ctx,
-		travelDocumentSelect+where+` ORDER BY d.expiry_date IS NULL, d.expiry_date ASC, d.id LIMIT ? OFFSET ?`,
+		travelDocumentSelect+where+order+` LIMIT ? OFFSET ?`,
 		append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("travelDocument.Search: %w", err)

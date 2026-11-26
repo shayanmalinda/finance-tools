@@ -330,8 +330,12 @@ type FinanceInvoiceFilter struct {
 	AddedTo   string
 	// AllocationIDs is resolved from CampaignIDs by the service.
 	AllocationIDs []string
-	Limit         int
-	Offset        int
+	// Sort is one column sort (invoiceNumber, jobNumber, costType, addedDate,
+	// status; a leading "-" means descending). Empty or unknown keeps the
+	// newest-first order.
+	Sort   string
+	Limit  int
+	Offset int
 }
 
 // FinanceInvoiceCounts are the invoice work queue sizes.
@@ -418,7 +422,11 @@ type FinancePaymentFilter struct {
 	CampaignIDs        []string
 	AddedFrom, AddedTo string
 	AllocationIDs      []string
-	Limit, Offset      int
+	// Sort is one column sort (number, jobNumber, addedDate, status; a
+	// leading "-" means descending). Empty or unknown keeps the newest-first
+	// order.
+	Sort          string
+	Limit, Offset int
 }
 
 // FinancePaymentCounts are the payment work queue sizes.

@@ -124,7 +124,11 @@ type EngagementSearchRequest struct {
 	StartFrom   string `json:"startFrom"`
 	StartTo     string `json:"startTo"`
 	EndTo       string `json:"endTo"`
-	// Sort is EngagementSortCurrent (default) or EngagementSortCreated.
+	// Sort is EngagementSortCurrent (default), EngagementSortCreated, or one
+	// of the column sorts (engagements: id, type, country, startDate,
+	// requestStatus, engagementStatus, created; approvals: id, type, country,
+	// startDate, businessUnit, created; a leading "-" means descending).
+	// An unknown value gives the default.
 	Sort string `json:"sort"`
 	// Today (YYYY-MM-DD) splits current from finished rows; required for
 	// the current sort.

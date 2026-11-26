@@ -161,7 +161,7 @@ func (h *TravelHandler) ListVisas(w http.ResponseWriter, r *http.Request) {
 		Emails: travelQueryList(r, "email"), Countries: travelQueryList(r, "country"),
 		Status: q.Get("status"), Validity: q.Get("validity"), Today: q.Get("today"),
 		CoversFrom: q.Get("coversFrom"), CoversTo: q.Get("coversTo"), Search: q.Get("search"),
-		ExcludeIDs: exclude, Limit: limit, Offset: offset,
+		ExcludeIDs: exclude, Sort: q.Get("sort"), Limit: limit, Offset: offset,
 		IncludeMarkedExpired: includeMarkedExpired,
 	})
 	if err != nil {
@@ -228,7 +228,7 @@ func (h *TravelHandler) ListTravelDocuments(w http.ResponseWriter, r *http.Reque
 		Emails: travelQueryList(r, "email"), Countries: travelQueryList(r, "country"),
 		DocumentTypes: travelQueryList(r, "documentType"), Status: q.Get("status"),
 		Validity: q.Get("validity"), Today: q.Get("today"), Search: q.Get("search"),
-		Limit: limit, Offset: offset,
+		Sort: q.Get("sort"), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		writeServiceError(w, r, err)

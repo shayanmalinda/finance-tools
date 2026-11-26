@@ -105,7 +105,7 @@ func TestEngagementSearch_DefaultsAndValidation(t *testing.T) {
 		t.Errorf("resp = %+v", resp)
 	}
 	for _, bad := range []domain.EngagementSearchRequest{
-		{Limit: 501}, {Offset: -1}, {StartFrom: "2026-13-01"}, {Consultants: "some"}, {Sort: "id"},
+		{Limit: 501}, {Offset: -1}, {StartFrom: "2026-13-01"}, {Consultants: "some"},
 	} {
 		_, err := svc.Search(context.Background(), bad)
 		engagementIsValidation(t, err)

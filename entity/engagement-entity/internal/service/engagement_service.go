@@ -129,12 +129,10 @@ func (s *engagementService) Search(ctx context.Context, req domain.EngagementSea
 	if req.Consultants != "" && req.Consultants != "allocated" && req.Consultants != "none" {
 		return domain.EngagementSearchResponse{}, &apierror.ValidationError{Msg: "consultants must be allocated or none"}
 	}
-	switch req.Sort {
-	case "":
+	// An empty or unknown sort gives the default order (the repository
+	// whitelists the column sorts), so older callers keep working.
+	if req.Sort == "" {
 		req.Sort = domain.EngagementSortCurrent
-	case domain.EngagementSortCurrent, domain.EngagementSortCreated:
-	default:
-		return domain.EngagementSearchResponse{}, &apierror.ValidationError{Msg: "sort must be current or created"}
 	}
 	if req.Today == "" {
 		req.Today = s.now().UTC().Format("2006-01-02")
