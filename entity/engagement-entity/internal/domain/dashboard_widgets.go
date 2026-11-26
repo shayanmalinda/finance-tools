@@ -29,7 +29,8 @@ const (
 	DashboardUnknown = "unknown"
 )
 
-// DashboardCostLinesFilter selects cost lines. From and To are inclusive days.
+// DashboardCostLinesFilter selects cost lines. From and To are inclusive days;
+// both may be empty only when JobNumbers is set, which reads every date.
 type DashboardCostLinesFilter struct {
 	From, To   string
 	Sources    []string // invoice, perDiem, card, claim; empty means all four

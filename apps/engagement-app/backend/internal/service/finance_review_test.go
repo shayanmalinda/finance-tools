@@ -203,12 +203,12 @@ func TestFinanceAddInvoicesReadsTheCompanyOnce(t *testing.T) {
 	}
 	// Each email shows its own invoice, the cost type named from its id.
 	for i, want := range []string{"A1", "A2", "A3"} {
-		items := m.sent[i].Content["items_html"]
+		items := m.sent[i].Content["details_html"]
 		if !strings.Contains(items, ">"+want+"<") || !strings.Contains(items, ">Air Ticket<") || !strings.Contains(items, ">Nov<") {
 			t.Errorf("email %d items:\n%s", i, items)
 		}
 	}
-	if !strings.Contains(m.sent[2].Content["items_html"], "USD 30.0") {
+	if !strings.Contains(m.sent[2].Content["details_html"], "USD 30.00") {
 		t.Error("third email lacks its amount")
 	}
 }

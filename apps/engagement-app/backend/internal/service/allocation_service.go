@@ -493,6 +493,11 @@ func (s *allocationService) sendAllocationEmail(ctx context.Context, eng engagem
 			BusinessUnit: allocStr(f.BusinessUnit), ProductUnit: allocStr(f.ProductUnit), SubRegion: allocStr(f.SubRegion)})
 	}
 	if !email.AllocationIsPartnerEmail(a.Email) {
+		if s.people != nil {
+			if n := strings.Fields(allocStr(s.people.get(ctx, a.Email).Name)); len(n) > 0 {
+				d.ConsultantName = n[0]
+			}
+		}
 		d.Leads = s.leadsOf(ctx, a.Email)
 		if email.AllocationIsConfirmation(clearance, prev) {
 			visas, err := s.d.Entity.AllocationVisas(ctx, a.Email, a.StartDate, a.EndDate)
@@ -598,7 +603,8 @@ func (s *allocationService) list(ctx context.Context, p domain.Perms, f domain.A
 	res, err := s.d.Entity.SearchAllocations(ctx, engagemententity.AllocationSearchRequest{
 		EngagementTypeIDs: allocSortedInts(allowed), ClearanceStatuses: f.ClearanceStatuses, Consultants: f.Consultants,
 		AllocationTypes: f.AllocationTypes, TravelRequired: f.TravelRequired, StartFrom: f.StartFrom, EndTo: f.EndTo,
-		Search: f.Search, Today: allocToday(s.d.Now()), Limit: f.Limit, Offset: f.Offset,
+		Search: f.Search, Today: allocToday(s.d.Now()), Sort: domain.KnownSort(f.Sort, domain.AllocationSorts),
+		Limit: f.Limit, Offset: f.Offset,
 	})
 	if err != nil {
 		return page, err

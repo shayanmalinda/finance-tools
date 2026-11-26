@@ -52,15 +52,21 @@ type EngagementListFilter struct {
 	StartFrom          string
 	StartTo            string
 	EndTo              string
-	Limit              int
-	Offset             int
+	// Sort is one of domain.EngagementSorts; empty or unknown keeps the
+	// current-first order.
+	Sort string
+	// IncludePending adds the Pending Approval engagements the caller may
+	// view to the list; false keeps the legacy list without them.
+	IncludePending bool
+	Limit          int
+	Offset         int
 }
 
 // EngagementService is the engagements and approvals screens.
 type EngagementService interface {
 	List(ctx context.Context, p domain.Perms, f EngagementListFilter) (domain.EngagementPage, error)
 	Facets(ctx context.Context, p domain.Perms, segment string) (domain.EngagementFacets, error)
-	Approvals(ctx context.Context, p domain.Perms, segment, search string, limit, offset int) (domain.EngagementPage, error)
+	Approvals(ctx context.Context, p domain.Perms, segment, search, sort string, limit, offset int) (domain.EngagementPage, error)
 	Get(ctx context.Context, p domain.Perms, id string) (domain.EngagementDetail, error)
 	Create(ctx context.Context, p domain.Perms, in domain.EngagementCreate) (domain.EngagementDetail, error)
 	Update(ctx context.Context, p domain.Perms, id string, in domain.EngagementUpdate) (domain.EngagementDetail, error)
@@ -237,8 +243,11 @@ func engagementSegmentCounts(p domain.Perms, typeCounts map[int]int) map[string]
 	return out
 }
 
-// List is the Engagements list: one segment, Pending Approval left out (it
-// is on Approvals), only engagements the caller's engRole covers.
+// List is the Engagements list: one segment, only engagements the caller's
+// engRole covers. Pending Approval is left out (it is on Approvals) unless
+// IncludePending asks for the ones the caller may view: all of them with
+// engRole, else (internal and marketing only) all of a type the caller
+// approves (Allocations 26 / 29) or the caller's own.
 func (s *engagementService) List(ctx context.Context, p domain.Perms, f EngagementListFilter) (domain.EngagementPage, error) {
 	if err := engagementCheckKind(f.Segment); err != nil {
 		return domain.EngagementPage{}, err
@@ -272,6 +281,7 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 		}
 		types = keep
 	}
+	allowedTypes := types
 	if !engagementRole(p, f.Segment) {
 		// The segment is shown (for Create) but its rows need engRole.
 		types = []int{0}
@@ -280,8 +290,22 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 		EngagementTypeIDs: types, Search: f.Search, Accounts: f.Accounts, AllocationTypes: f.AllocationTypes,
 		RequestStatuses: f.RequestStatuses, EngagementStatuses: f.EngagementStatuses, BusinessUnits: f.BusinessUnits,
 		Countries: f.Countries, Consultants: f.Consultants, StartFrom: f.StartFrom, StartTo: f.StartTo, EndTo: f.EndTo,
-		Sort: "current", Today: s.now().UTC().Format("2006-01-02"),
+		Sort: engagementSort(f.Sort, domain.EngagementSorts, "current"), Today: s.now().UTC().Format("2006-01-02"),
 		IncludeConsultants: engagementSeesConsultants(p, f.Segment), Limit: f.Limit, Offset: f.Offset,
+	}
+	pendingOnly := false
+	if f.IncludePending && f.Segment != domain.EngagementKindCustomer {
+		if engagementRole(p, f.Segment) {
+			q.IncludePending = true
+		} else if approver, creator := engagementPendingViewer(p, f.Segment); approver || creator {
+			// No engRole, so no regular rows: only the Pending Approval ones
+			// the caller may view (a creator sees only their own).
+			pendingOnly = true
+			q.PendingApproval, q.IncludeConsultants, q.EngagementTypeIDs = true, false, allowedTypes
+			if !approver {
+				q.PendingCreator = p.Email
+			}
+		}
 	}
 	res, err := s.entity.EngagementSearch(ctx, q)
 	if err != nil {
@@ -289,11 +313,45 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 	}
 	page := domain.EngagementPage{Items: make([]domain.EngagementSummary, 0, len(res.Items)), Total: res.Total,
 		SegmentCounts: engagementSegmentCounts(p, res.TypeCounts)}
+	if pendingOnly {
+		// The counts are of the pending rows only: report just this segment.
+		n := 0
+		for _, t := range engagementSegmentTypes(f.Segment) {
+			n += res.TypeCounts[t]
+		}
+		page.SegmentCounts = map[string]int{f.Segment: n}
+	}
 	for _, r := range res.Items {
 		page.Items = append(page.Items, s.summary(p, r, true))
 	}
 	s.fillCampaigns(ctx, page.Items)
 	return page, nil
+}
+
+// engagementPendingViewer says how a caller without engRole may view Pending
+// Approval engagements of an internal or marketing segment: approver (all of
+// the type) or creator (their own, the engagement rules' creator scope).
+func engagementPendingViewer(p domain.Perms, segment string) (approver, creator bool) {
+	if p.IsAgent() || p.Email == "" {
+		return false, false
+	}
+	switch segment {
+	case domain.EngagementKindMarketing:
+		approver = p.Alloc.Has(29)
+	case domain.EngagementKindInternal:
+		approver = p.Alloc.Has(26)
+	default:
+		return false, false
+	}
+	return approver, true
+}
+
+// engagementSort keeps sort when it is a known column sort, else fallback.
+func engagementSort(sort string, keys []string, fallback string) string {
+	if s := domain.KnownSort(sort, keys); s != "" {
+		return s
+	}
+	return fallback
 }
 
 func engagementOneOfInt(v int, list []int) bool {
@@ -327,7 +385,7 @@ func (s *engagementService) Facets(ctx context.Context, p domain.Perms, segment 
 // Approvals lists the Pending Approval internal engagements (Allocations 26)
 // or marketing events (29), oldest first. Legacy did not scope the list to
 // the approver.
-func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segment, search string, limit, offset int) (domain.EngagementPage, error) {
+func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segment, search, sort string, limit, offset int) (domain.EngagementPage, error) {
 	var typeID, priv int
 	switch segment {
 	case domain.EngagementApprovalsInternal:
@@ -341,7 +399,8 @@ func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segme
 		return domain.EngagementPage{}, engagementForbidden()
 	}
 	res, err := s.entity.EngagementSearch(ctx, engagemententity.EngagementSearchQuery{
-		PendingApproval: true, EngagementTypeIDs: []int{typeID}, Search: search, Sort: "created", Limit: limit, Offset: offset,
+		PendingApproval: true, EngagementTypeIDs: []int{typeID}, Search: search,
+		Sort: engagementSort(sort, domain.ApprovalSorts, "created"), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		return domain.EngagementPage{}, err
@@ -1007,6 +1066,30 @@ func (s *engagementService) routing(ctx context.Context, r engagemententity.Enga
 	return nil
 }
 
+// firstName is the person's first name from HR for a greeting ("" when unknown).
+func (s *engagementService) firstName(ctx context.Context, addr string) string {
+	if addr == "" || s.hr == nil {
+		return ""
+	}
+	emp, err := s.hr.Employee(ctx, addr)
+	if err != nil || emp == nil {
+		return ""
+	}
+	return strings.TrimSpace(emp.FirstName)
+}
+
+// groupOrFirstName is the greeting name of the allocating recipients: the
+// Allocations Team for its group, a lead's first name for one lead, else "".
+func (s *engagementService) groupOrFirstName(ctx context.Context, to []string) string {
+	if len(to) != 1 {
+		return ""
+	}
+	if to[0] == s.recipients.AllocationsGroup {
+		return "Allocations Team"
+	}
+	return s.firstName(ctx, to[0])
+}
+
 // sendEmail sends an engagement email; a failure is logged, never returned.
 func (s *engagementService) sendEmail(ctx context.Context, actor string, ev email.EngagementEvent, r engagemententity.EngagementRecord,
 	at *domain.ReferenceAllocationType, cancelled []engagemententity.EngagementRosterAllocation) {
@@ -1047,6 +1130,24 @@ func (s *engagementService) sendEmail(ctx context.Context, actor string, ev emai
 		if engagementVal(a.IsTravelRequired) == "Yes" && (cl == "Confirmed" || cl == "Confirmed - Visa Pending") {
 			rcpt.TravelAffected = true
 		}
+	}
+	// Greeting names are optional: bound their HR lookups so a slow HR cannot
+	// use up the time Send needs. A failed lookup leaves the name empty.
+	gctx, gcancel := context.WithTimeout(ctx, 5*time.Second)
+	defer gcancel()
+	rcpt.ActorName = s.firstName(gctx, actor)
+	if ev == email.EngagementCreated {
+		approvers := s.recipients.InternalApprovers
+		if data.EngagementTypeID == 5 {
+			approvers = s.recipients.MarketingApprovers
+		}
+		if len(approvers) == 1 {
+			rcpt.ApproverName = s.firstName(gctx, approvers[0])
+		}
+	}
+	rcpt.RoutingName = s.groupOrFirstName(gctx, rcpt.Routing)
+	if len(rcpt.Consultants) == 1 {
+		rcpt.ConsultantName = s.firstName(gctx, rcpt.Consultants[0])
 	}
 	msg := email.EngagementMessage(ev, data, rcpt, actor)
 	if err := s.mail.Send(ctx, msg); err != nil {

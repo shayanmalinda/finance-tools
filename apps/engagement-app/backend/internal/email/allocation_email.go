@@ -19,6 +19,8 @@ package email
 import (
 	"fmt"
 	"html"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -41,7 +43,7 @@ const (
 	allocPartnerEmailPrefix    = "partner-allocations-group"
 	allocNotificationPrefix    = "Allocation"
 	allocVisaParagraphStyle    = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 14px;line-height: 22px;color: #0B1633;text-align: left;margin: 0;font-weight: 400;`
-	allocVisaWarningStyle      = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 13px;line-height: 20px;color: #b42318;text-align: left;margin: 0 0 8px;font-weight: 500;display: block;`
+	allocVisaWarningStyle      = `font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;font-size: 13px;line-height: 20px;color: #C43300;text-align: left;margin: 0 0 8px;font-weight: 500;display: block;`
 	allocVisaAvailableComment  = "Visa available for the allocation period"
 	allocVisaUnavailableComent = "Visa not available"
 )
@@ -110,6 +112,8 @@ type AllocationEmailData struct {
 	StartDate           string
 	EndDate             string
 	AllocationComment   string
+	// ConsultantName is the consultant's first name for the greeting ("" when unknown).
+	ConsultantName string
 	// Actor is the user who made the change; always a recipient.
 	Actor string
 	// Leads are the consultant's reporting leads (not for partners).
@@ -134,152 +138,171 @@ func AllocationMyAllocationsLink(baseURL string) string {
 	return strings.TrimRight(baseURL, "/") + "/me/allocations"
 }
 
-func allocNA(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "N/A"
-	}
-	return s
-}
-
-func allocDateOnly(s string) string {
-	if len(s) > 10 {
-		return s[:10]
-	}
-	return s
-}
-
-// AllocationMessage ports sendEmailForAllocation: recipients, subject,
-// title, description, template and content keys for one allocation change.
+// AllocationMessage builds the email for one allocation change. It goes To
+// whoever must act next (the consultant to respond, the allocations team to
+// reallocate or confirm, the travel team to arrange travel) and everyone else
+// is copied.
 func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 	isInternal := d.EngagementTypeID == 1 || d.EngagementTypeID == 5
 	isEvent := d.EngagementTypeID == 5
 	email := d.ConsultantEmail
-	pick := func(event, internal, customer string) string {
-		switch {
-		case isEvent:
-			return event
-		case isInternal:
-			return internal
-		}
-		return customer
+	partner := AllocationIsPartnerEmail(email)
+	what := "engagement"
+	if isEvent {
+		what = "marketing event"
+	}
+	templateID := "customerEngagementAllocation"
+	switch {
+	case isEvent:
+		templateID = "marketingEventAllocation"
+	case isInternal:
+		templateID = "internalEngagementAllocation"
+	}
+	who := d.ConsultantName
+	if who == "" {
+		who = email
 	}
 
-	var to []string
-	if AllocationIsPartnerEmail(email) {
-		to = append(to, g.PartnerAllocationsGroup)
-	} else {
-		to = append(to, g.AllocationsGroup, email)
-		to = append(to, d.Leads...)
+	// The allocations team (or the partner allocations team) and, for a
+	// consultant, the consultant and their leads.
+	team, teamName, teamRole := g.AllocationsGroup, "Allocations Team", "the allocations team"
+	if partner {
+		team, teamName, teamRole = g.PartnerAllocationsGroup, "Partner Allocations Team", "the partner allocations team"
 	}
-	to = append(to, d.Actor)
+	engagementBase := strings.TrimRight(g.AppBaseURL, "/") + "/finance/engagement-app/engagements/" + url.PathEscape(d.EngagementID)
+	myAllocations, myLabel := AllocationMyAllocationsLink(g.AppBaseURL), "View My Allocations"
 
 	c, prev := d.ClearanceStatus, d.PrevClearanceStatus
 	travelArranged := d.TravelRequired && (prev == allocConfirmed || prev == allocConfirmedVisaPending)
-	templateID := pick("marketingEventAllocation", "internalEngagementAllocation", "customerEngagementAllocation")
-	var toKey, title, description, consultant, visaData, readiness string
-
+	confirmed := false
+	var action, description, label, link, toName string
+	var to []string
+	var toRoles []string
+	forConsultant := func() {
+		if partner {
+			to, toName, toRoles = []string{team}, teamName, []string{teamRole}
+			label, link = "Review Allocations", engagementBase+"/allocations"
+			return
+		}
+		to, toName, toRoles = []string{email}, d.ConsultantName, []string{"the allocated consultant"}
+		label, link = myLabel, myAllocations
+	}
+	forTeam := func(lbl, path string) {
+		to, toName, toRoles = []string{team}, teamName, []string{teamRole}
+		label, link = lbl, engagementBase+path
+	}
+	var visaData, readiness string
 	switch {
 	case c == allocClearanceInProgress:
-		toKey = email
-		title = pick("Allocation Added for Marketing Event", "Allocation Added for Internal Engagement", "Allocation Added for Customer Engagement")
-		if isEvent {
-			description = "You have been identified as a consultant for the following marketing event. Please discuss with your lead and let us know your availability."
-		} else {
-			description = "You have been identified as a consultant for the following engagement. Please discuss with your lead and let us know your availability."
+		action = "Allocated"
+		description = "You have been allocated to the following " + what + ". Discuss it with your lead and let us know your availability."
+		if partner {
+			description = email + " has been allocated to the following " + what + ". Confirm their availability."
+		}
+		forConsultant()
+		if !partner {
+			label = "Respond to Allocation"
 		}
 	case c == allocRejectedByConsultant || c == allocRejectedOther:
-		if travelArranged {
-			to = append(to, g.TravelGroup)
-		}
-		toKey = "All"
-		title = pick("Allocation Declined for Marketing Event", "Allocation Declined for Internal Engagement", "Allocation Declined for Customer Engagement")
-		description = fmt.Sprintf("Please note that %s has declined the following allocation request", email)
+		action = "Allocation Declined"
+		description = who + " declined the following allocation. Allocate someone else."
+		forTeam("Reallocate", "/allocate")
 	case prev != allocReadyForClearance && c == allocAllocationCancelled:
-		if travelArranged {
-			to = append(to, g.TravelGroup)
-		}
-		toKey = email
-		title = pick("Allocation Cancelled for Marketing Event", "Allocation Cancelled for Internal Engagement", "Allocation Cancelled for Customer Engagement")
-		description = "Please note that the following allocation has been cancelled."
+		action = "Allocation Cancelled"
+		description = "The following allocation was cancelled."
+		forConsultant()
 	case c == allocAcceptedByConsultant:
-		toKey = "All"
-		title = pick("Allocation Accepted for Marketing Event", "Allocation Accepted for Internal Engagement", "Allocation Accepted for Customer Engagement")
-		description = fmt.Sprintf("The following allocation requested has been accepted by %s.", email)
+		action = "Allocation Accepted"
+		description = who + " accepted the following allocation. Review it and confirm."
+		forTeam("Review Allocation", "/allocations")
 	case c == allocRejectedVisaIssues:
-		if travelArranged {
-			to = append(to, g.TravelGroup)
-		}
-		toKey = "All"
-		title = pick("Allocation Cancelled for Marketing Event", "Allocation Cancelled for Internal Engagement", "Allocation Cancelled for Customer Engagement")
-		description = fmt.Sprintf("The following allocation requested has been cancelled for %s due to visa issues", email)
+		action = "Allocation Cancelled"
+		description = "The following allocation was cancelled for " + who + " because of visa issues."
+		forConsultant()
 	case AllocationIsConfirmation(c, prev):
+		action = "Allocation Confirmed"
 		if d.TravelRequired {
-			to = append(to, g.TravelGroup)
-		}
-		if isEvent {
-			title = "Allocation Confirmed for Marketing Event"
-			description = "The following consultant has been confirmed for this marketing event. Please make necessary arrangements."
+			description = who + " is confirmed for this " + what + ". Arrange the travel."
+			to, toName, toRoles = []string{g.TravelGroup}, "Travel Team", []string{"the travel team"}
+			label, link = "Review Travel Requests", strings.TrimRight(g.AppBaseURL, "/")+"/finance/engagement-app/travel-requests/new"
+			if strings.TrimSpace(g.TravelGroup) == "" {
+				// No travel team address: the allocations team gets it, not nobody.
+				description = who + " is confirmed for this " + what + ". Check whether travel is needed."
+				forTeam("Review Allocation", "/allocations")
+			}
 		} else {
-			title = "Allocation Confirmed for Engagement"
-			description = "The following consultant has been confirmed for this engagement. Please make necessary arrangements."
+			description = "You are confirmed for this " + what + "."
+			if partner {
+				description = email + " is confirmed for this " + what + "."
+			}
+			forConsultant()
 		}
-		consultant = email
-		if !AllocationIsPartnerEmail(email) {
+		if !partner {
 			visaData, readiness = allocVisaData(d)
 		}
 		templateID = "consultantConfirmed"
+		confirmed = true
 	}
 
-	bu, pu, pod := "N/A", "N/A", "N/A"
+	// Copies: everyone else who receives this email today.
+	var cc []string
+	var ccRoles []string
+	add := func(role string, addrs ...string) {
+		added := false
+		for _, a := range addrs {
+			if a != "" && !slices.Contains(to, a) {
+				cc = append(cc, a)
+				added = true
+			}
+		}
+		if added {
+			ccRoles = append(ccRoles, role)
+		}
+	}
+	if !partner {
+		add("the allocated consultant", email)
+		if len(d.Leads) > 0 {
+			add("the consultant's leads", d.Leads...)
+		}
+	}
+	add(teamRole, team)
+	add("the person who made the change", d.Actor)
+	if (confirmed && d.TravelRequired) || (!confirmed && travelArranged && c != allocClearanceInProgress && c != allocAcceptedByConsultant) {
+		add("the travel team", g.TravelGroup)
+	}
+
+	facts := engFacts{ID: d.EngagementID, Customer: d.CustomerName, Project: d.OpportunityName, Product: d.ProductName,
+		AllocationType: d.AllocationTypeName, Code: d.EngagementCode, Nature: d.EngagementNature, Country: d.Country,
+		Address: d.Address, Contact: d.CustomerContact, Domain: d.BusinessDomain, OpportunityOwner: d.OpportunityOwner,
+		TechnicalOwner: d.TechnicalOwner, Scope: d.EngagementScope, Comment: d.EngagementComment,
+		ContractsSigned: d.ContractsSigned, Kind: d.EngagementTypeID}
 	if len(d.FundingSources) == 1 {
-		bu, pu, pod = d.FundingSources[0].BusinessUnit, d.FundingSources[0].ProductUnit, d.FundingSources[0].SubRegion
+		f := d.FundingSources[0]
+		facts.BusinessUnit, facts.ProductUnit, facts.SubRegion = f.BusinessUnit, f.ProductUnit, f.SubRegion
 	}
-	contracts := "No"
-	if d.ContractsSigned {
-		contracts = "Yes"
+	details := detailsSection("Allocation",
+		personRow("Consultant", who, email), row{"Dates", dateRange(d.StartDate, d.EndDate)},
+		row{"Allocation Remarks", d.AllocationComment}, row{"Travel Readiness", readiness})
+	if visaData != "" {
+		details += sectionTitle("Visa") + visaData
 	}
+	details += detailsSection(facts.blockTitle(), facts.rows(false)...)
 	content := map[string]string{
-		"to":                       toKey,
-		"title":                    title,
-		"description":              description,
-		"info_title":               map[bool]string{true: "Marketing Event Info", false: "Engagement Info"}[isEvent],
-		"project_name_label":       pick("Event Name", "Name / Purpose", "Opportunity"),
-		"consultant":               consultant,
-		"customer_name":            d.CustomerName,
-		"project_name":             d.OpportunityName,
-		"product_name":             d.ProductName,
-		"allocation_type":          d.AllocationTypeName,
-		"engagement_code":          d.EngagementCode,
-		"engagement_nature":        d.EngagementNature,
-		"global_pod":               pod,
-		"country":                  d.Country,
-		"location_address":         allocNA(d.Address),
-		"product_unit":             pu,
-		"business_unit":            bu,
-		"start_date":               allocDateOnly(d.StartDate),
-		"end_date":                 allocDateOnly(d.EndDate),
-		"customer_contact":         allocNA(d.CustomerContact),
-		"business_domain":          allocNA(d.BusinessDomain),
-		"opportunity_owner":        d.OpportunityOwner,
-		"technical_owner":          d.TechnicalOwner,
-		"contracts_signed":         contracts,
-		"engagement_scope":         allocNA(d.EngagementScope),
-		"comments":                 allocNA(d.EngagementComment),
-		"allocation_comments":      allocNA(d.AllocationComment),
-		"consultant_role":          "",
-		"travel_readiness_comment": readiness,
-		"action_link":              AllocationMyAllocationsLink(g.AppBaseURL),
+		"title":         action,
+		"description":   html.EscapeString(description),
+		"greeting_name": toName,
+		"reason":        "You are receiving this because you are involved in this allocation, or because you are copied on it.",
+		"action_label":  label,
+		"action_link":   link,
+		"details_html":  details,
 	}
-	for k, v := range content {
-		content[k] = html.EscapeString(v)
-	}
-	content["visa_data"] = visaData // built escaped
 
 	return Message{
 		App:              AppAllocations,
 		To:               to,
-		CC:               []string{},
-		Subject:          "Re: [Engagement App] Consultant request for " + d.EngagementID + " : " + d.CustomerName + " - " + d.OpportunityName,
+		CC:               cc,
+		Audience:         Audience{To: toRoles, CC: ccRoles},
+		Subject:          subjectFor(action, d.EngagementID, d.OpportunityName),
 		TemplateID:       templateID,
 		Content:          content,
 		NotificationType: allocNotificationPrefix + ": " + c,
@@ -290,6 +313,15 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 // allocVisaData builds the legacy visa paragraphs and readiness comment.
 // The "expiring within a week" warning compares the visa end date with now
 // plus seven days, as the legacy code does.
+func allocDateOnly(s string) string {
+	if len(s) > 10 {
+		return s[:10]
+	}
+	return s
+}
+
+// d.Visas are the visas the caller found for the allocation period (the
+// entity's AllocationVisas takes the dates), so any visa listed covers it.
 func allocVisaData(d AllocationEmailData) (string, string) {
 	if len(d.Visas) == 0 {
 		return "", allocVisaUnavailableComent
@@ -305,7 +337,7 @@ func allocVisaData(d AllocationEmailData) (string, string) {
 			html.EscapeString(country), html.EscapeString(v.VisaType), html.EscapeString(v.EntryType),
 			html.EscapeString(v.Status), html.EscapeString(allocDateOnly(v.StartDate)), html.EscapeString(allocDateOnly(v.EndDate)))
 		if end, err := time.Parse("2006-01-02", allocDateOnly(v.EndDate)); err == nil && weekAhead.Sub(end) > 0 {
-			fmt.Fprintf(&b, `<span style="%s">(Above visa will be expiring within a week after the allocation end date)</span>`, allocVisaWarningStyle)
+			fmt.Fprintf(&b, `<span style="%s">The visa expires within a week of the allocation end date</span>`, allocVisaWarningStyle)
 		}
 	}
 	return b.String(), allocVisaAvailableComment

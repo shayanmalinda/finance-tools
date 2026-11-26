@@ -93,3 +93,25 @@ func TestDashboardClient_PathsAndDecoding(t *testing.T) {
 		}
 	}
 }
+
+// An empty From and To are left out of the query, so a job-only read reaches
+// the entity with no date range; a range, when set, is sent as before.
+func TestDashboardCostLines_OmitsAnEmptyRange(t *testing.T) {
+	var uris []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uris = append(uris, r.URL.RequestURI())
+		_, _ = w.Write([]byte(`{"items":[],"truncated":[],"unavailable":[]}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, nil)
+	if _, err := c.DashboardCostLines(context.Background(), DashboardCostLinesFilter{JobNumbers: []string{"TRV-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DashboardCostLines(context.Background(), DashboardCostLinesFilter{From: "2026-01-01", To: "2026-02-01"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/dashboard/cost-lines?jobNumber=TRV-1", "/dashboard/cost-lines?from=2026-01-01&to=2026-02-01"}
+	if len(uris) != 2 || uris[0] != want[0] || uris[1] != want[1] {
+		t.Errorf("requests = %v, want %v", uris, want)
+	}
+}

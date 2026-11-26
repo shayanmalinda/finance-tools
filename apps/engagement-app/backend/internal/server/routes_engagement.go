@@ -73,7 +73,10 @@ func registerEngagementRoutes(a *area) {
 	a.handle("GET /engagements", listGate, engH.List)
 	a.handle("GET /engagements/facets", listGate, engH.Facets)
 	a.handleIdem("POST /engagements", alloc(2, 11, 12), engH.Create)
-	a.handle("GET /engagements/{id}", alloc(3, 6, 9, 13, 16, 19, 26, 29, 32, 33), engH.Get)
+	// 2, 11 and 12 (the create privileges) pass the gate so a creator can open
+	// their own Pending Approval engagement; the service answers 403 for anyone
+	// who is neither a viewer nor that creator.
+	a.handle("GET /engagements/{id}", alloc(2, 3, 6, 9, 11, 12, 13, 16, 19, 26, 29, 32, 33), engH.Get)
 	a.handle("PATCH /engagements/{id}", alloc(4, 5, 7, 14, 15, 17, 27, 30), engH.Update)
 	a.handle("POST /engagements/{id}/request-status", alloc(7, 17), engH.SetRequestStatus)
 	a.handle("POST /engagements/{id}/engagement-status", alloc(4, 5, 7, 14, 17), engH.SetEngagementStatus)
@@ -85,7 +88,7 @@ func registerEngagementRoutes(a *area) {
 	a.handle("GET /role-settings/{app}", roleGate, setH.RoleSettings)
 	a.handle("PUT /role-settings/{app}/roles/{roleId}/privileges", roleGate, setH.UpdateRolePrivileges)
 	a.handle("GET /settings/allocation-types", alloc(25), setH.AllocationTypes)
-	a.handle("POST /settings/allocation-types", alloc(25), setH.CreateAllocationType)
+	a.handleIdem("POST /settings/allocation-types", alloc(25), setH.CreateAllocationType)
 	a.handle("PUT /settings/allocation-types/{allocationTypeId}", alloc(25), setH.UpdateAllocationType)
 	a.handle("DELETE /settings/allocation-types/{allocationTypeId}", alloc(25), setH.DeleteAllocationType)
 }

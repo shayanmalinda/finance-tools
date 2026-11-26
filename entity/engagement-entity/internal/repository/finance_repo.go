@@ -654,6 +654,17 @@ func financeInvoiceWhere(f domain.FinanceInvoiceFilter) (string, []any) {
 	return " WHERE " + strings.Join(where, " AND "), args
 }
 
+// financeInvoiceSortColumns whitelists the invoice list sorts. There is no
+// "amount": invoice_amount is in the invoice's own currency and
+// converted_amount in the subsidiary's, so neither sorts meaningfully.
+var financeInvoiceSortColumns = SortColumns{
+	"invoiceNumber": {`i.invoice_number`},
+	"jobNumber":     {`i.job_number`},
+	"costType":      {`iCT.name`},
+	"addedDate":     {`i.added_date`},
+	"status":        {`i.status`},
+}
+
 // Invoices ports getTravelInvoices with the Release 1 filters, newest first
 // (the legacy list had no ORDER BY), and the total of matches.
 func (r *financeRepo) Invoices(ctx context.Context, f domain.FinanceInvoiceFilter) ([]domain.FinanceInvoice, int, error) {
@@ -666,7 +677,11 @@ func (r *financeRepo) Invoices(ctx context.Context, f domain.FinanceInvoiceFilte
 	if limit <= 0 || limit > financeMaxRows {
 		limit = financeMaxRows
 	}
-	rows, err := r.db.QueryContext(ctx, financeInvoiceSelect+where+` ORDER BY i.added_date DESC, i.invoice_number ASC, i.id DESC LIMIT ? OFFSET ?`,
+	order, ok := financeInvoiceSortColumns.Order(f.Sort, `i.id`)
+	if !ok {
+		order = ` ORDER BY i.added_date DESC, i.invoice_number ASC, i.id DESC`
+	}
+	rows, err := r.db.QueryContext(ctx, financeInvoiceSelect+where+order+` LIMIT ? OFFSET ?`,
 		append(args, limit, max(f.Offset, 0))...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("finance.Invoices: %w", err)
@@ -923,6 +938,16 @@ func financePaymentWhere(f domain.FinancePaymentFilter) (string, []any) {
 	return " WHERE " + strings.Join(where, " AND "), args
 }
 
+// financePaymentSortColumns whitelists the per diem payment list sorts; no
+// "amount" for the reason given at financeInvoiceSortColumns. "status" is the
+// NetSuite status, the only status the table stores.
+var financePaymentSortColumns = SortColumns{
+	"number":    {`pp.per_diem_number`},
+	"jobNumber": {`pp.job_number`},
+	"addedDate": {`pp.added_date`},
+	"status":    {`pp.ns_status`},
+}
+
 // Payments ports getPerDiemPaymentDetails with the Release 1 filters,
 // newest first, and the total of matches.
 func (r *financeRepo) Payments(ctx context.Context, f domain.FinancePaymentFilter) ([]domain.FinancePayment, int, error) {
@@ -935,7 +960,11 @@ func (r *financeRepo) Payments(ctx context.Context, f domain.FinancePaymentFilte
 	if limit <= 0 || limit > financeMaxRows {
 		limit = financeMaxRows
 	}
-	rows, err := r.db.QueryContext(ctx, financePaymentSelect+where+` ORDER BY pp.added_date DESC, pp.per_diem_number ASC, pp.id DESC LIMIT ? OFFSET ?`,
+	order, ok := financePaymentSortColumns.Order(f.Sort, `pp.id`)
+	if !ok {
+		order = ` ORDER BY pp.added_date DESC, pp.per_diem_number ASC, pp.id DESC`
+	}
+	rows, err := r.db.QueryContext(ctx, financePaymentSelect+where+order+` LIMIT ? OFFSET ?`,
 		append(args, limit, max(f.Offset, 0))...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("finance.Payments: %w", err)

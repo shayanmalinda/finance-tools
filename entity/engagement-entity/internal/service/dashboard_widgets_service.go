@@ -48,22 +48,27 @@ func dashboardPaidOf(typeName string) string {
 
 var dashboardCostSources = []string{domain.DashboardCostInvoice, domain.DashboardCostPerDiem, domain.DashboardCostCard, domain.DashboardCostClaim}
 
-// CostLines reads the cost lines of every asked source in the range, joins
+// CostLines reads the cost lines of every asked source in the range (any date
+// when jobNumbers are given without a range), joins
 // the trips and engagements in Go (the schemas cannot be joined in SQL) and
 // returns them in their original amounts. A source that cannot be read is in
 // Unavailable (card and claim when expense_app is down); invoices and per
 // diem payments fail the call.
 func (s *dashboardService) CostLines(ctx context.Context, f domain.DashboardCostLinesFilter) (domain.DashboardCostEntries, error) {
-	from, err := time.Parse(dashboardDateLayout, f.From)
-	if err != nil {
-		return domain.DashboardCostEntries{}, &apierror.ValidationError{Msg: "from must be a date (YYYY-MM-DD)"}
-	}
-	to, err := time.Parse(dashboardDateLayout, f.To)
-	if err != nil {
-		return domain.DashboardCostEntries{}, &apierror.ValidationError{Msg: "to must be a date (YYYY-MM-DD)"}
-	}
-	if to.Before(from) || to.Sub(from) > dashboardMaxRange*24*time.Hour {
-		return domain.DashboardCostEntries{}, &apierror.ValidationError{Msg: "from must not be after to, and the range is at most 731 days"}
+	// The range is required, except when jobs are asked for by number: then
+	// from and to may both be left out to read every date of those jobs.
+	var err error
+	if f.From != "" || f.To != "" || len(f.JobNumbers) == 0 {
+		var from, to time.Time
+		if from, err = time.Parse(dashboardDateLayout, f.From); err != nil {
+			return domain.DashboardCostEntries{}, &apierror.ValidationError{Msg: "from must be a date (YYYY-MM-DD)"}
+		}
+		if to, err = time.Parse(dashboardDateLayout, f.To); err != nil {
+			return domain.DashboardCostEntries{}, &apierror.ValidationError{Msg: "to must be a date (YYYY-MM-DD)"}
+		}
+		if to.Before(from) || to.Sub(from) > dashboardMaxRange*24*time.Hour {
+			return domain.DashboardCostEntries{}, &apierror.ValidationError{Msg: "from must not be after to, and the range is at most 731 days"}
+		}
 	}
 	want := map[string]bool{}
 	for _, src := range f.Sources {

@@ -222,7 +222,7 @@ func (s *FinanceService) AddInvoices(ctx context.Context, p domain.Perms, jobNum
 		typeNames[t.ID] = t.Name
 	}
 	for _, c := range created {
-		s.notify(ctx, email.FinanceInvoicesAdded, jobNumber, trip.TravellerEmail, "invoices",
+		s.notify(ctx, email.FinanceInvoicesAdded, trip, "invoices",
 			email.FinanceItems{Invoices: []email.FinanceInvoiceItem{financeInvoiceItem(c, typeNames)}})
 	}
 	return domain.InvoicePage{Items: s.invoicesOf(ctx, p, created), Total: len(created)}, nil
@@ -310,7 +310,8 @@ func (s *FinanceService) Invoices(ctx context.Context, p domain.Perms, q domain.
 	}
 	f := engagemententity.FinanceInvoiceFilter{
 		Search: strings.TrimSpace(q.Search), CostTypes: q.CostTypes, Agencies: q.Agencies, Months: q.Months,
-		CampaignIDs: q.CampaignIDs, AgencyID: financeAgencyID(p), Limit: q.Limit, Offset: q.Offset,
+		CampaignIDs: q.CampaignIDs, AgencyID: financeAgencyID(p), Sort: domain.KnownSort(q.Sort, domain.InvoiceSorts),
+		Limit: q.Limit, Offset: q.Offset,
 	}
 	base := financeAllStatuses
 	switch q.Tab {
@@ -413,9 +414,10 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 		if decision == "reject" {
 			kind = email.FinanceInvoicesRejected
 		}
-		traveller := ""
+		trip := engagemententity.FinanceTrip{JobNumber: lastJob}
 		if t, err := s.entity.FinanceTrip(ctx, lastJob); err == nil {
-			traveller = t.TravellerEmail
+			trip = t
+			trip.JobNumber = lastJob
 		}
 		items := email.FinanceItems{}
 		if decision == "reject" {
@@ -444,7 +446,7 @@ func (s *FinanceService) decide(ctx context.Context, p domain.Perms, ids []int, 
 				break
 			}
 		}
-		s.notify(ctx, kind, lastJob, traveller, "invoices", items)
+		s.notify(ctx, kind, trip, "invoices", items)
 	}
 	return out, nil
 }
@@ -656,6 +658,6 @@ func financeInvoiceItem(inv engagemententity.FinanceInvoice, names map[int]strin
 		costType = names[inv.CostTypeID]
 	}
 	return email.FinanceInvoiceItem{Number: inv.InvoiceNumber, CostType: costType, Month: inv.Month,
-		Currency: inv.InvoiceCurrency, Amount: inv.InvoiceAmount,
+		Currency: inv.InvoiceCurrency, Amount: inv.InvoiceAmount, Agency: financeDeref(inv.AgencyName),
 		PaidCurrency: inv.ConvertedCurrency, PaidAmount: inv.ConvertedAmount}
 }

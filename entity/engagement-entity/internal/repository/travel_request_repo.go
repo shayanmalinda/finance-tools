@@ -126,25 +126,24 @@ func travelWhere(f domain.TravelRequestSearch, withStatuses bool) (string, []any
 	return b.String(), args
 }
 
-// travelSortOrders maps each whitelisted sort to a fixed ORDER BY. User
-// input is never interpolated; an unknown sort falls through to the default.
-var travelSortOrders = map[string]string{
-	domain.TravelSortStartDesc:       ` ORDER BY t.start_date DESC, t.job_number`,
-	domain.TravelSortJobNumber:       ` ORDER BY t.job_number`,
-	domain.TravelSortJobNumberDesc:   ` ORDER BY t.job_number DESC`,
-	domain.TravelSortStartDate:       ` ORDER BY t.start_date, t.job_number`,
-	domain.TravelSortStartDateDesc:   ` ORDER BY t.start_date DESC, t.job_number`,
-	domain.TravelSortDestination:     ` ORDER BY t.country, t.city, t.job_number`,
-	domain.TravelSortDestinationDesc: ` ORDER BY t.country DESC, t.city DESC, t.job_number`,
-	domain.TravelSortAgency:          ` ORDER BY ta.name_of_travel_agent, t.job_number`,
-	domain.TravelSortAgencyDesc:      ` ORDER BY ta.name_of_travel_agent DESC, t.job_number`,
-	domain.TravelSortStatus:          ` ORDER BY t.status, t.job_number`,
-	domain.TravelSortStatusDesc:      ` ORDER BY t.status DESC, t.job_number`,
+// travelSortColumns whitelists the column sorts of the travel request list.
+// User input is never interpolated; an unknown sort falls through to the
+// default order.
+var travelSortColumns = SortColumns{
+	"jobNumber":   {`t.job_number`},
+	"startDate":   {`t.start_date`},
+	"destination": {`t.country`, `t.city`},
+	"agency":      {`ta.name_of_travel_agent`},
+	"status":      {`t.status`},
 }
 
 // travelOrder returns the ORDER BY of a whitelisted sort.
 func travelOrder(f domain.TravelRequestSearch) (string, []any) {
-	if o, ok := travelSortOrders[f.Sort]; ok {
+	sort := f.Sort
+	if sort == domain.TravelSortStartDesc {
+		sort = domain.TravelSortStartDateDesc
+	}
+	if o, ok := travelSortColumns.Order(sort, `t.job_number`); ok {
 		return o, nil
 	}
 	today := f.Today

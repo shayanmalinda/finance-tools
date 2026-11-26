@@ -98,6 +98,16 @@ func TestEngagementRules_Scope(t *testing.T) {
 			engagementStateOf(1, "Pending Approval"), "roster"},
 		{"internal approver does not see an approved one", engagementPerms("x@wso2.com", engagementApproverInt, nil),
 			engagementStateOf(1, "Approved"), ""},
+		{"creator sees their own pending engagement, minimal scope", engagementPerms("consultant@wso2.com", nil, nil),
+			engagementStateOf(1, "Pending Approval"), "consultants"},
+		{"creator match ignores case", engagementPerms("Consultant@WSO2.com", nil, nil),
+			engagementStateOf(5, "Pending Approval"), "consultants"},
+		{"non-creator without view privileges stays forbidden", engagementPerms("other@wso2.com", nil, nil),
+			engagementStateOf(1, "Pending Approval"), ""},
+		{"creator cannot see it once approved", engagementPerms("consultant@wso2.com", nil, nil),
+			engagementStateOf(1, "Approved"), ""},
+		{"creator with view privileges keeps their wider scope", engagementPerms("consultant@wso2.com", engagementAdmin, nil),
+			engagementStateOf(1, "Pending Approval"), "roster"},
 		{"travel agent never", agent, engagementStateOf(6, "New"), ""},
 	}
 	for _, tc := range tests {
@@ -182,10 +192,34 @@ func TestEngagementList_SegmentGateRoleAndCounts(t *testing.T) {
 	}
 }
 
+func TestEngagementList_SortPassThroughAndDefault(t *testing.T) {
+	entity := engagementTestEntity()
+	svc := engagementTestService(entity, &engagementFakeMail{})
+	ctx := context.Background()
+	p := engagementPerms("a@wso2.com", engagementAdmin, nil)
+	for sort, want := range map[string]string{"": "current", "-created": "-created", "country": "country", "bogus": "current", "businessUnit": "current"} {
+		if _, err := svc.List(ctx, p, EngagementListFilter{Segment: "customer", Sort: sort}); err != nil {
+			t.Fatal(err)
+		}
+		if entity.search.Sort != want {
+			t.Errorf("list sort %q sent %q, want %q", sort, entity.search.Sort, want)
+		}
+	}
+	ap := engagementPerms("x@wso2.com", engagementApproverInt, nil)
+	for sort, want := range map[string]string{"": "created", "-businessUnit": "-businessUnit", "requestStatus": "created"} {
+		if _, err := svc.Approvals(ctx, ap, "internal", "", sort, 50, 0); err != nil {
+			t.Fatal(err)
+		}
+		if entity.search.Sort != want {
+			t.Errorf("approvals sort %q sent %q, want %q", sort, entity.search.Sort, want)
+		}
+	}
+}
+
 func TestEngagementApprovals(t *testing.T) {
 	entity := engagementTestEntity()
 	svc := engagementTestService(entity, &engagementFakeMail{})
-	page, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "internal", "", 50, 0)
+	page, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "internal", "", "", 50, 0)
 	if err != nil || len(page.Items) != 1 || page.Items[0].ID != "EL1" || !reflect.DeepEqual(page.SegmentCounts, map[string]int{"internal": 2}) {
 		t.Fatalf("page %+v err %v", page, err)
 	}
@@ -193,7 +227,7 @@ func TestEngagementApprovals(t *testing.T) {
 		t.Errorf("search = %+v", entity.search)
 	}
 	var fe *apierror.ForbiddenError
-	if _, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "events", "", 50, 0); !errors.As(err, &fe) {
+	if _, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "events", "", "", 50, 0); !errors.As(err, &fe) {
 		t.Fatalf("events: %v", err)
 	}
 }
@@ -255,8 +289,8 @@ func TestEngagementCreate_Customer(t *testing.T) {
 		t.Fatalf("d %+v mails %d", d, len(mail.sent))
 	}
 	m := mail.sent[0]
-	if m.Subject != "[Engagement App] Consultant request for E09999 : Acme - Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
-		!reflect.DeepEqual(m.To, []string{"consultant@wso2.com", "allocations@wso2.com", "consultant@wso2.com"}) {
+	if m.Subject != "[Engagement App] Ready to Allocate: E09999 Acme - APIM PoC" || m.TemplateID != "customerEngagement" ||
+		!reflect.DeepEqual(m.To, []string{"allocations@wso2.com"}) || m.Content["greeting_name"] != "Allocations Team" {
 		t.Errorf("mail = %+v", m)
 	}
 }
@@ -363,7 +397,7 @@ func TestEngagementUpdate_LocksStatusAndEmail(t *testing.T) {
 	if *u.EngagementScope != scope || *u.RequestStatus != "Updated" || u.UpdatedBy != "a@wso2.com" {
 		t.Errorf("update = %+v", u)
 	}
-	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Customer Engagement Updated" {
+	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Updated" {
 		t.Errorf("mails = %+v", mail.sent)
 	}
 	var ve *apierror.ValidationError
@@ -398,9 +432,9 @@ func TestEngagementUpdate_LocksStatusAndEmail(t *testing.T) {
 		t.Errorf("approve update = %+v", u)
 	}
 	// AllocationTypeID equal to the current one is no change; the title is.
-	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Internal Engagement Updated and Approved" ||
-		!reflect.DeepEqual(mail.sent[0].To, []string{"lead@wso2.com", "a@wso2.com"}) ||
-		!reflect.DeepEqual(mail.sent[0].CC, []string{"consultant@wso2.com", "travel@wso2.com"}) {
+	if len(mail.sent) != 1 || mail.sent[0].Content["title"] != "Ready to Allocate" ||
+		!reflect.DeepEqual(mail.sent[0].To, []string{"lead@wso2.com"}) ||
+		!reflect.DeepEqual(mail.sent[0].CC, []string{"travel@wso2.com", "a@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("mail = %+v", mail.sent)
 	}
 }
@@ -434,7 +468,7 @@ func TestEngagementStatusChanges(t *testing.T) {
 	}
 	m := mail.sent[0]
 	if m.TemplateID != "customerEngagementCancelled" || m.To[0] != "jane@wso2.com" ||
-		!reflect.DeepEqual(m.CC, []string{"travel@wso2.com", "consultant@wso2.com"}) {
+		!reflect.DeepEqual(m.CC, []string{"allocations@wso2.com", "travel@wso2.com", "a@wso2.com", "consultant@wso2.com"}) {
 		t.Errorf("cancel mail = %+v", m)
 	}
 	// Cancelled now: no further status changes.
@@ -461,7 +495,7 @@ func TestEngagementApprove(t *testing.T) {
 	if _, err := svc.Approve(ctx, engagementPerms("a@wso2.com", engagementAdmin, nil), "EL1"); err != nil {
 		t.Fatal(err)
 	}
-	if u := entity.lastUpdate(); *u.RequestStatus != "Approved" || mail.sent[0].Content["title"] != "Internal Engagement Approved" {
+	if u := entity.lastUpdate(); *u.RequestStatus != "Approved" || mail.sent[0].Content["title"] != "Ready to Allocate" {
 		t.Errorf("update %+v mail %+v", u, mail.sent)
 	}
 	var ce *apierror.ConflictError
@@ -616,5 +650,68 @@ func TestReferenceOpportunities_FirstLineItemFailureStopsTheRest(t *testing.T) {
 	// At most the four already running when the first failed.
 	if n := sales.calls.Load(); n > 4 {
 		t.Errorf("line item calls = %d, want at most 4", n)
+	}
+}
+
+func TestEngagementList_IncludePending(t *testing.T) {
+	entity := engagementTestEntity()
+	svc := engagementTestService(entity, &engagementFakeMail{})
+	ctx := context.Background()
+	admin := engagementPerms("a@wso2.com", engagementAdmin, nil)
+
+	// Absent flag: the query is the legacy one.
+	if _, err := svc.List(ctx, admin, EngagementListFilter{Segment: "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if entity.search.IncludePending || entity.search.PendingApproval || entity.search.PendingCreator != "" {
+		t.Errorf("absent flag: search = %+v", entity.search)
+	}
+	// engRole: every pending row of the segment.
+	if _, err := svc.List(ctx, admin, EngagementListFilter{Segment: "marketing", IncludePending: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !entity.search.IncludePending || entity.search.PendingApproval || !reflect.DeepEqual(entity.search.EngagementTypeIDs, []int{5}) {
+		t.Errorf("engRole: search = %+v", entity.search)
+	}
+	// Customer engagements are never pending: the flag changes nothing.
+	if _, err := svc.List(ctx, admin, EngagementListFilter{Segment: "customer", IncludePending: true}); err != nil {
+		t.Fatal(err)
+	}
+	if entity.search.IncludePending {
+		t.Errorf("customer: search = %+v", entity.search)
+	}
+	// Create-only (12), no engRole: only the caller's own pending events.
+	creator := engagementPerms("c@wso2.com", []int{12}, nil)
+	page, err := svc.List(ctx, creator, EngagementListFilter{Segment: "marketing", IncludePending: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := entity.search
+	if !s.PendingApproval || s.PendingCreator != "c@wso2.com" || s.IncludeConsultants || !reflect.DeepEqual(s.EngagementTypeIDs, []int{5}) {
+		t.Errorf("creator: search = %+v", s)
+	}
+	if !reflect.DeepEqual(page.SegmentCounts, map[string]int{"marketing": 1}) {
+		t.Errorf("creator counts = %v", page.SegmentCounts)
+	}
+	// Without the flag the same caller sees nothing, as today.
+	if _, err := svc.List(ctx, creator, EngagementListFilter{Segment: "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if entity.search.PendingApproval || !reflect.DeepEqual(entity.search.EngagementTypeIDs, []int{0}) {
+		t.Errorf("creator without flag: search = %+v", entity.search)
+	}
+	// Approver (29) without engRole: every pending event, not just their own.
+	if _, err := svc.List(ctx, engagementPerms("x@wso2.com", []int{12, 29}, nil), EngagementListFilter{Segment: "marketing", IncludePending: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !entity.search.PendingApproval || entity.search.PendingCreator != "" {
+		t.Errorf("approver: search = %+v", entity.search)
+	}
+	// An agent never sees the list.
+	var fe *apierror.ForbiddenError
+	agent := engagementPerms("c@agency.com", engagementAdmin, []int{18})
+	agent.Agency = &domain.TravelAgency{ID: 1, Name: "Classic"}
+	if _, err := svc.List(ctx, agent, EngagementListFilter{Segment: "marketing", IncludePending: true}); !errors.As(err, &fe) {
+		t.Errorf("agent: err %v", err)
 	}
 }

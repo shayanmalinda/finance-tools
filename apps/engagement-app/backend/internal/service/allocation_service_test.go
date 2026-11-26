@@ -276,8 +276,9 @@ func TestAllocationCreate_InternalConfirmedEmailsWithVisasAndPartner(t *testing.
 		t.Errorf("out = %+v", out)
 	}
 	m := snd.sent[0]
-	if m.TemplateID != "consultantConfirmed" || !strings.Contains(m.Content["visa_data"], "Business Single Entry") ||
-		!reflect.DeepEqual(m.To, []string{"allocations@wso2.com", "jane@wso2.com", "lead1@wso2.com", "lead2@wso2.com", "mgr@wso2.com", "travel@wso2.com"}) {
+	if m.TemplateID != "consultantConfirmed" || !strings.Contains(m.Content["details_html"], "Business Single Entry") ||
+		!reflect.DeepEqual(m.To, []string{"travel@wso2.com"}) ||
+		!reflect.DeepEqual(m.CC, []string{"jane@wso2.com", "lead1@wso2.com", "lead2@wso2.com", "allocations@wso2.com", "mgr@wso2.com"}) {
 		t.Errorf("email = %+v", m)
 	}
 
@@ -339,7 +340,7 @@ func TestAllocationUpdateStatus(t *testing.T) {
 	if _, err := svc.UpdateStatus(ctx, p, "A1", domain.AllocationStatusUpdate{ClearanceStatus: sp("Clearance In Progress")}); err != nil {
 		t.Fatal(err)
 	}
-	if *ent.updates[1].Status != "Active" || len(snd.sent) != 1 || snd.sent[0].Content["title"] != "Allocation Added for Internal Engagement" {
+	if *ent.updates[1].Status != "Active" || len(snd.sent) != 1 || snd.sent[0].Content["title"] != "Allocated" {
 		t.Errorf("CIP: %+v %+v", ent.updates[1], snd.sent)
 	}
 }

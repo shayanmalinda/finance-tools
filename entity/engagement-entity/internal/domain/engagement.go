@@ -109,7 +109,14 @@ const (
 type EngagementSearchRequest struct {
 	// PendingApproval true lists only Pending Approval engagements (the
 	// legacy approval search); false lists every other engagement.
-	PendingApproval   bool     `json:"pendingApproval"`
+	PendingApproval bool `json:"pendingApproval"`
+	// IncludePending true adds the Pending Approval engagements to the
+	// "every other engagement" list. Absent or false keeps the legacy list
+	// (no Pending Approval). Ignored when PendingApproval is true.
+	IncludePending bool `json:"includePending"`
+	// PendingCreator, with PendingApproval true, keeps only the Pending
+	// Approval engagements created by this person (the creator's own).
+	PendingCreator    string   `json:"pendingCreator"`
 	EngagementTypeIDs []int    `json:"engagementTypeIds"`
 	Search            string   `json:"search"`
 	Accounts          []string `json:"accounts"`
@@ -124,7 +131,11 @@ type EngagementSearchRequest struct {
 	StartFrom   string `json:"startFrom"`
 	StartTo     string `json:"startTo"`
 	EndTo       string `json:"endTo"`
-	// Sort is EngagementSortCurrent (default) or EngagementSortCreated.
+	// Sort is EngagementSortCurrent (default), EngagementSortCreated, or one
+	// of the column sorts (engagements: id, type, country, startDate,
+	// requestStatus, engagementStatus, created; approvals: id, type, country,
+	// startDate, businessUnit, created; a leading "-" means descending).
+	// An unknown value gives the default.
 	Sort string `json:"sort"`
 	// Today (YYYY-MM-DD) splits current from finished rows; required for
 	// the current sort.

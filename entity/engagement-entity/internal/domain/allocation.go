@@ -186,7 +186,11 @@ type AllocationSearchRequest struct {
 	EndTo     string `json:"endTo"`
 	Search    string `json:"search"`
 	// Today orders current allocations (ending today or later) first.
-	Today  string `json:"today"`
+	Today string `json:"today"`
+	// Sort is one column sort (id, consultant, engagement, type, startDate,
+	// status, created; a leading "-" means descending). Empty or unknown
+	// keeps the current-first order.
+	Sort   string `json:"sort"`
 	Limit  int    `json:"limit"`
 	Offset int    `json:"offset"`
 }

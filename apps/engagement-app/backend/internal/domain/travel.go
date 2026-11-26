@@ -298,6 +298,9 @@ type TravelRecordQuery struct {
 	DocumentTypes []string
 	// Status is Active or Expired (computed from the end or expiry date).
 	Status string
+	// Sort is one of VisaSorts or DocumentSorts (by list); empty or unknown
+	// keeps the expiry order.
+	Sort   string
 	Limit  int
 	Offset int
 }

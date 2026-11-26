@@ -264,7 +264,9 @@ paths:
       - Engagements
       summary: Search engagements (legacy getEngagements / getEngagementsForApprovalProcess)
       description: 'pendingApproval false lists every engagement that is not Pending Approval; true lists
-        only those. Multi-value filters are OR within, AND across. search matches id, account, title,
+        only those. includePending (optional, default false) adds the Pending Approval ones to the
+        pendingApproval false list; pendingCreator, with pendingApproval true, keeps only the ones created
+        by that person. Multi-value filters are OR within, AND across. search matches id, account, title,
         code, country and allocation type (and the creator for pendingApproval). Sort `current` (default):
         rows ending on or after `today` first by start ascending, then the rest by start descending; `created`:
         oldest first. typeCounts counts the base set per engagement type.'
@@ -1126,6 +1128,12 @@ paths:
           items:
             type: integer
         description: Visa ids to leave out (the placeholder visas on the list pages).
+      - name: sort
+        in: query
+        description: One column sort, optional; a leading `-` is descending, every sort ends
+          with the id as a tiebreak. Empty or unknown keeps the expiry-ascending order. Recognized keys are traveller, country, visaType, validFrom, expiry.
+        schema:
+          type: string
       - name: limit
         in: query
         schema:
@@ -1272,6 +1280,12 @@ paths:
         schema:
           type: string
         description: Email, number, type, country.
+      - name: sort
+        in: query
+        description: One column sort, optional; a leading `-` is descending, every sort ends
+          with the id as a tiebreak. Empty or unknown keeps the expiry-ascending order. Recognized keys are traveller, type, country, issued, expiry.
+        schema:
+          type: string
       - name: limit
         in: query
         schema:
@@ -1716,6 +1730,12 @@ paths:
         schema:
           type: string
           format: date
+      - name: sort
+        in: query
+        description: One column sort, optional; a leading `-` is descending, every sort ends
+          with the id as a tiebreak. Empty or unknown keeps the newest-first order. Recognized keys are invoiceNumber, jobNumber, costType, addedDate, status.
+        schema:
+          type: string
       - name: limit
         in: query
         description: 0 or absent - every match (up to 10000).
@@ -1964,6 +1984,12 @@ paths:
         schema:
           type: string
           format: date
+      - name: sort
+        in: query
+        description: One column sort, optional; a leading `-` is descending, every sort ends
+          with the id as a tiebreak. Empty or unknown keeps the newest-first order. Recognized keys are number, jobNumber, addedDate, status.
+        schema:
+          type: string
       - name: limit
         in: query
         schema:
@@ -2362,14 +2388,16 @@ paths:
       parameters:
       - name: from
         in: query
-        required: true
+        description: Required unless `jobNumber` is given. With `jobNumber` and neither `from` nor `to`,
+          every date of those jobs is read. Supply `from` and `to` together or omit both; one
+          without the other is rejected.
         schema:
           type: string
           format: date
       - name: to
         in: query
-        required: true
-        description: At most 731 days after from.
+        description: Required unless `jobNumber` is given (see `from`); supply with `from` or omit both.
+          At most 731 days after from.
         schema:
           type: string
           format: date
@@ -3126,6 +3154,10 @@ components:
       properties:
         pendingApproval:
           type: boolean
+        includePending:
+          type: boolean
+        pendingCreator:
+          type: string
         engagementTypeIds:
           type: array
           items:
@@ -3173,9 +3205,10 @@ components:
           format: date
         sort:
           type: string
-          enum:
-          - current
-          - created
+          description: 'Optional. `current` (default) and `created` as described on the operation, or a column
+            sort with an optional leading `-` for descending: engagements take id, type, country, startDate,
+            requestStatus, engagementStatus, created; approvals (pendingApproval) take id, type, country,
+            startDate, businessUnit, created. Unknown values keep the default order.'
         today:
           type: string
           format: date
@@ -3792,6 +3825,10 @@ components:
         today:
           type: string
           format: date
+        sort:
+          type: string
+          description: Optional column sort, a leading `-` is descending; unknown values keep the
+            current-first order.
         limit:
           type: integer
           minimum: 1
@@ -4182,19 +4219,7 @@ components:
           type: boolean
         sort:
           type: string
-          enum:
-          - current
-          - startDesc
-          - jobNumber
-          - -jobNumber
-          - startDate
-          - -startDate
-          - destination
-          - -destination
-          - agency
-          - -agency
-          - status
-          - -status
+          description: Optional column sort, a leading `-` is descending. Recognized keys are current, startDesc, jobNumber, startDate, destination, agency, status.
           default: current
           description: >-
             `current` lists trips ending today or later first (start date

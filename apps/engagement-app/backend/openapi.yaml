@@ -599,6 +599,12 @@ paths:
       operationId: listMyAllocations
       x-privileges: { allocations: [1], travel: [49] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps the current-first order.
+          schema: { type: string, enum: [id, -id, consultant, -consultant, engagement, -engagement, type, -type, startDate, -startDate, status, -status, created, -created] }
         - $ref: '#/components/parameters/Search'
         - { name: kind, in: query, schema: { type: array, items: { $ref: '#/components/schemas/EngagementKind' } } }
         - { name: engagementTypeId, in: query, schema: { type: array, items: { type: integer } } }
@@ -651,6 +657,12 @@ paths:
       operationId: listMyVisas
       x-privileges: { travel: [20] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps earliest expiry first.
+          schema: { type: string, enum: [traveller, -traveller, country, -country, visaType, -visaType, validFrom, -validFrom, expiry, -expiry] }
         - { name: country, in: query, schema: { type: array, items: { type: string } } }
       responses:
         '200':
@@ -693,6 +705,13 @@ paths:
       summary: Own active travel documents (passports and IDs)
       operationId: listMyTravelDocuments
       x-privileges: { travel: [23] }
+      parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps earliest expiry first, no expiry last.
+          schema: { type: string, enum: [traveller, -traveller, type, -type, country, -country, issued, -issued, expiry, -expiry] }
       responses:
         '200':
           description: Own documents
@@ -757,6 +776,12 @@ paths:
       operationId: listEngagements
       x-privileges: { allocations: [2, 3, 9, 11, 12, 13, 19] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps the current-first order (ending today or later first).
+          schema: { type: string, enum: [id, -id, type, -type, country, -country, startDate, -startDate, requestStatus, -requestStatus, engagementStatus, -engagementStatus, created, -created] }
         - { name: segment, in: query, required: true, schema: { $ref: '#/components/schemas/EngagementKind' } }
         - $ref: '#/components/parameters/Search'
         - { name: engagementTypeId, in: query, schema: { type: array, items: { type: integer } } }
@@ -770,6 +795,10 @@ paths:
         - { name: startFrom, in: query, schema: { type: string, format: date } }
         - { name: startTo, in: query, schema: { type: string, format: date } }
         - { name: endTo, in: query, schema: { type: string, format: date } }
+        - name: includePending
+          in: query
+          description: Optional. `true` also lists the Pending Approval internal engagements and marketing events the caller may view (all of the segment with engRole; otherwise all of a type the caller approves, or the caller's own). Absent or any other value keeps the list without them.
+          schema: { type: boolean }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
       responses:
@@ -854,12 +883,15 @@ paths:
         - Approvers (26 internal / 29 marketing) see a Pending Approval
           engagement in `roster` scope.
 
+        - The creator of a Pending Approval engagement sees it in `consultants`
+          scope, even without the view privileges.
+
         - Otherwise 403 (travel agents never see engagements).
 
         `actions` lists what the caller may do (Allocate, Edit, Edit Pending,
         Approve, Complete/Reopen, Change Engagement Status).
       operationId: getEngagement
-      x-privileges: { allocations: [3, 6, 9, 13, 16, 19, 26, 29, 32, 33] }
+      x-privileges: { allocations: [2, 3, 6, 9, 11, 12, 13, 16, 19, 26, 29, 32, 33] }
       parameters:
         - $ref: '#/components/parameters/EngagementId'
       responses:
@@ -1102,6 +1134,12 @@ paths:
       operationId: listApprovals
       x-privileges: { allocations: [26, 29] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps oldest first.
+          schema: { type: string, enum: [id, -id, type, -type, country, -country, startDate, -startDate, businessUnit, -businessUnit, created, -created] }
         - { name: segment, in: query, required: true, schema: { type: string, enum: [internal, events] }, description: '`marketing` is accepted as an alias of `events`.' }
         - $ref: '#/components/parameters/Search'
         - $ref: '#/components/parameters/Limit'
@@ -1137,6 +1175,12 @@ paths:
       operationId: listAllocations
       x-privileges: { allocations: [9, 19] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps the current-first order.
+          schema: { type: string, enum: [id, -id, consultant, -consultant, engagement, -engagement, type, -type, startDate, -startDate, status, -status, created, -created] }
         - $ref: '#/components/parameters/Search'
         - { name: kind, in: query, schema: { type: array, items: { $ref: '#/components/schemas/EngagementKind' } } }
         - { name: engagementTypeId, in: query, schema: { type: array, items: { type: integer } } }
@@ -1809,6 +1853,12 @@ paths:
       operationId: listInvoices
       x-privileges: { travel: [39, 32, 33, 34] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps newest first.
+          schema: { type: string, enum: [invoiceNumber, -invoiceNumber, jobNumber, -jobNumber, costType, -costType, addedDate, -addedDate, status, -status] }
         - { name: tab, in: query, schema: { type: string, enum: [approve-po, approve, push, all], default: all } }
         - $ref: '#/components/parameters/Search'
         - { name: poApproval, in: query, schema: { type: array, items: { $ref: '#/components/schemas/ApprovalState' } } }
@@ -1950,6 +2000,12 @@ paths:
       operationId: listPerDiemPayments
       x-privileges: { travel: [40, 41] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps newest first.
+          schema: { type: string, enum: [number, -number, jobNumber, -jobNumber, addedDate, -addedDate, status, -status] }
         - { name: tab, in: query, schema: { type: string, enum: [push, all], default: all } }
         - $ref: '#/components/parameters/Search'
         - { name: netsuiteStatus, in: query, schema: { type: array, items: { type: string, enum: [Pushed, Pending] } } }
@@ -2173,6 +2229,12 @@ paths:
       operationId: listVisas
       x-privileges: { travel: [8] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps earliest expiry first.
+          schema: { type: string, enum: [traveller, -traveller, country, -country, visaType, -visaType, validFrom, -validFrom, expiry, -expiry] }
         - $ref: '#/components/parameters/Search'
         - { name: traveller, in: query, schema: { type: array, items: { type: string } } }
         - { name: country, in: query, schema: { type: array, items: { type: string } } }
@@ -2278,6 +2340,12 @@ paths:
       operationId: listTravelDocuments
       x-privileges: { travel: [11] }
       parameters:
+        - name: sort
+          in: query
+          description: >-
+            Optional column sort; a `-` prefix is descending. Empty or an unknown
+            value keeps earliest expiry first, no expiry last.
+          schema: { type: string, enum: [traveller, -traveller, type, -type, country, -country, issued, -issued, expiry, -expiry] }
         - $ref: '#/components/parameters/Search'
         - { name: traveller, in: query, schema: { type: array, items: { type: string } } }
         - { name: country, in: query, schema: { type: array, items: { type: string } } }
@@ -2469,6 +2537,8 @@ paths:
       summary: Add New Allocation Type (unique name per engagement type; department stored upper case)
       operationId: createAllocationType
       x-privileges: { allocations: [25] }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:

@@ -79,6 +79,7 @@ func travelRecordQuery(r *http.Request) (domain.TravelRecordQuery, error) {
 	q := domain.TravelRecordQuery{
 		Travellers: queryList(r, "traveller"), Countries: queryList(r, "country"),
 		DocumentTypes: queryList(r, "documentType"), Status: strings.TrimSpace(r.URL.Query().Get("status")),
+		Sort: strings.TrimSpace(r.URL.Query().Get("sort")),
 	}
 	var err error
 	if q.Search, err = travelSearch(r); err != nil {

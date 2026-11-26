@@ -171,6 +171,8 @@ type EngagementRecord struct {
 // EngagementSearchQuery is the body of POST /engagements/search.
 type EngagementSearchQuery struct {
 	PendingApproval    bool     `json:"pendingApproval"`
+	IncludePending     bool     `json:"includePending,omitempty"`
+	PendingCreator     string   `json:"pendingCreator,omitempty"`
 	EngagementTypeIDs  []int    `json:"engagementTypeIds,omitempty"`
 	Search             string   `json:"search,omitempty"`
 	Accounts           []string `json:"accounts,omitempty"`

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/domain"
 	"github.com/wso2-open-operations/finance-tools/entity/engagement-entity/internal/repository"
 )
@@ -216,5 +217,31 @@ func TestDashboardWidgetsServiceValidation(t *testing.T) {
 	got, err := svc.Manager(context.Background(), domain.DashboardManagerFilter{Today: "2026-11-05"})
 	if err != nil || got.TopBy != "customer" || len(got.WithoutConsultants) != 0 {
 		t.Errorf("Manager without types = %+v, %v", got, err)
+	}
+}
+
+// The date range is optional only when jobs are asked for by number; the
+// dashboard (no job numbers) still needs it.
+func TestDashboardCostLines_RangeRequiredUnlessJobNumbers(t *testing.T) {
+	svc := NewDashboardService(&fakeCostRepo{}, nil)
+	ctx := context.Background()
+	var ve *apierror.ValidationError
+	for name, f := range map[string]domain.DashboardCostLinesFilter{
+		"no range, no jobs":        {},
+		"employee only, no range":  {Employees: []string{"a@example.com"}},
+		"jobs with only from":      {From: "2026-01-01", JobNumbers: []string{"TRV-1"}},
+		"jobs with a bad to":       {From: "2026-01-01", To: "x", JobNumbers: []string{"TRV-1"}},
+		"jobs with a reversed one": {From: "2026-02-01", To: "2026-01-01", JobNumbers: []string{"TRV-1"}},
+	} {
+		if _, err := svc.CostLines(ctx, f); !errors.As(err, &ve) {
+			t.Errorf("%s: err = %v, want a validation error", name, err)
+		}
+	}
+	repo := &fakeCostRepo{}
+	if _, err := NewDashboardService(repo, nil).CostLines(ctx, domain.DashboardCostLinesFilter{JobNumbers: []string{"TRV-1"}}); err != nil {
+		t.Fatalf("jobs without a range: %v", err)
+	}
+	if repo.filter.From != "" || repo.filter.To != "" {
+		t.Errorf("repo filter = %+v, want no range", repo.filter)
 	}
 }

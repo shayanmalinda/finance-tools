@@ -46,7 +46,9 @@ func (h *EngagementHandler) List(w http.ResponseWriter, r *http.Request) {
 		Accounts: queryList(r, "account"), AllocationTypes: queryList(r, "allocationType"),
 		RequestStatuses: queryList(r, "requestStatus"), EngagementStatuses: queryList(r, "engagementStatus"),
 		BusinessUnits: queryList(r, "businessUnit"), Countries: queryList(r, "country"),
-		Consultants: r.URL.Query().Get("consultants"),
+		Consultants: r.URL.Query().Get("consultants"), Sort: strings.TrimSpace(r.URL.Query().Get("sort")),
+		// Optional and additive: only the exact value "true" turns it on.
+		IncludePending: r.URL.Query().Get("includePending") == "true",
 	}
 	var err error
 	if len(f.Search) > 200 {
@@ -100,7 +102,8 @@ func (h *EngagementHandler) Approvals(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, r, err)
 		return
 	}
-	resp, err := h.svc.Approvals(r.Context(), p, r.URL.Query().Get("segment"), strings.TrimSpace(r.URL.Query().Get("search")), limit, offset)
+	resp, err := h.svc.Approvals(r.Context(), p, r.URL.Query().Get("segment"), strings.TrimSpace(r.URL.Query().Get("search")),
+		strings.TrimSpace(r.URL.Query().Get("sort")), limit, offset)
 	if err != nil {
 		writeServiceError(w, r, err)
 		return

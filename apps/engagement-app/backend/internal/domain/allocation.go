@@ -97,8 +97,11 @@ type AllocationListFilter struct {
 	TravelRequired    *bool
 	StartFrom         string
 	EndTo             string
-	Limit             int
-	Offset            int
+	// Sort is one of AllocationSorts; empty or unknown keeps the
+	// current-first order.
+	Sort   string
+	Limit  int
+	Offset int
 }
 
 // AllocationCreateRequest is POST /engagements/{id}/allocations (Add New

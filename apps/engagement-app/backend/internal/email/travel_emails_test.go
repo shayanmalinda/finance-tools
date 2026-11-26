@@ -18,6 +18,7 @@ package email
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -52,37 +53,68 @@ func TestTravelFinanceRecipients(t *testing.T) {
 	}
 }
 
-func TestTravelEmails_LegacyShape(t *testing.T) {
+func TestTravelEmails_Shape(t *testing.T) {
 	s := travelTestSettings()
 	s.CCTraveller = true
-	trip := TravelTrip{JobNumber: "TRV-2026-10-1246", TravellerEmail: "traveller@wso2.com", Customer: "Acme & Sons",
+	trip := TravelTrip{JobNumber: "TRV-2026-10-1246", TravellerEmail: "traveller@wso2.com", TravellerName: "Jane Doe", Customer: "Acme & Sons",
 		Country: "United Kingdom", City: "<London>", StartDate: "2026-10-06", EndDate: "2026-10-16"}
 
 	m := TravelAssigned(s, trip, TravelVisa{}, "Acorn Travels")
 	if m.App != AppTravel || m.TemplateID != "assignRequests" || m.CC[0] != "traveller@wso2.com" ||
-		m.Content["customer"] != "Acme &amp; Sons" || m.Content["travel_location"] != "&lt;London&gt;" ||
-		m.Content["visa_type"] != "N/A" || m.Content["visa_start_date"] != "N/A" ||
+		m.Subject != "[Engagement App] Travel Agent Assigned: TRV-2026-10-1246 Jane Doe to United Kingdom" ||
+		m.Content["greeting_name"] != "Acorn Travels" || m.Content["action_label"] != "Review Travel Request" ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
 		t.Errorf("assigned = %+v", m)
 	}
-	n := TravelNotice(s, trip.JobNumber, "", "All", "Travel Request is Cancelled", "x")
-	if len(n.Content) != 4 || len(n.CC) != 0 || n.TemplateID != "noContent" {
+	page := renderMessage(t, m)
+	for _, want := range []string{"Acme &amp; Sons", "&lt;London&gt;", "6&#8211;16 Oct 2026", "Acorn Travels", "Hi Acorn Travels,"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("assigned page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, "N/A") || strings.Contains(page, ">Visa<") {
+		t.Error("empty visa block or N/A shown")
+	}
+	n := TravelNotice(s, trip, "Travel Cancelled", "x", "")
+	if len(n.CC) != 1 || n.TemplateID != "noContent" || n.Subject != "[Engagement App] Travel Cancelled: TRV-2026-10-1246 Jane Doe to United Kingdom" {
 		t.Errorf("notice = %+v", n)
 	}
+	// The agency greeted must act; the email still goes To the logistics team.
+	if v := TravelVisaChanged(s, trip, TravelVisa{}, "Acorn Travels"); v.Content["greeting_name"] != "Acorn Travels" || v.To[0] != "logistics@wso2.com" {
+		t.Errorf("visa changed = %+v", v)
+	}
+	if v := TravelAssigned(s, trip, TravelVisa{}, ""); v.Content["greeting_name"] != "Travel Logistics Team" {
+		t.Errorf("no agency greeting = %q", v.Content["greeting_name"])
+	}
+	if r := TravelNotice(s, trip, "Travel Reassigned", "x", "Classic Travels"); r.Content["greeting_name"] != "Classic Travels" || r.To[0] != "logistics@wso2.com" {
+		t.Errorf("reassigned = %+v", r)
+	}
+	if n.Content["greeting_name"] != "Travel Logistics Team" {
+		t.Errorf("notice greeting = %q", n.Content["greeting_name"])
+	}
+	// Completed goes To the company's finance contacts, with logistics and the traveller copied.
 	c := TravelCompleted(s, trip, TravelVisa{VisaType: "Work Permit", StartDate: "2026-01-01 00:00:00"}, "Acorn", "WSO2 - UK", nil)
-	if c.Content["table_data"] != "No Perdiems" || c.Content["visa_start_date"] != "2026-01-01" ||
-		strings.Join(c.To, ",") != "logistics@wso2.com,uk1@wso2.com,uk2@wso2.com" ||
-		strings.Join(c.CC, ",") != "ukpay@wso2.com,traveller@wso2.com" {
+	if c.Content["greeting_name"] != "Finance Team" || c.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/per-diems" ||
+		strings.Join(c.To, ",") != "uk1@wso2.com,uk2@wso2.com" ||
+		strings.Join(c.CC, ",") != "logistics@wso2.com,ukpay@wso2.com,traveller@wso2.com" {
 		t.Errorf("completed = %+v", c)
 	}
-	c = TravelCompleted(s, trip, TravelVisa{}, "Acorn", "", []TravelPerDiem{{StartDate: "2026-10-06 09:00:00", NoOfDays: "11", Total: "770.0"}})
-	if !strings.Contains(c.Content["table_data"], "<td style=\"padding: 5px 5px;\">2026-10-06 09:00</td>") {
-		t.Errorf("table = %s", c.Content["table_data"])
+	c = TravelCompleted(s, trip, TravelVisa{}, "Acorn", "", []TravelPerDiem{{StartDate: "2026-10-06 09:00:00", NoOfDays: "11", Currency: "USD", Rate: "70.0", Total: "770.0"}})
+	if d := c.Content["details_html"]; !strings.Contains(d, "6 Oct 2026, 09:00") || !strings.Contains(d, "USD 770.00") {
+		t.Errorf("table = %s", d)
+	}
+
+	// No finance address at all: travel logistics gets it, not nobody.
+	noFin := s
+	noFin.FinanceGroup = ""
+	if c := TravelCompleted(noFin, trip, TravelVisa{}, "Acorn", "", nil); !reflect.DeepEqual(c.To, []string{"logistics@wso2.com"}) ||
+		strings.Contains(strings.Join(c.CC, ","), "logistics@wso2.com") {
+		t.Errorf("completed without finance: to %v cc %v", c.To, c.CC)
 	}
 
 	var content map[string]string
 	if err := json.Unmarshal([]byte(AuditContent(m, 2026)), &content); err != nil ||
-		content["CURRENT_YEAR"] != "2026" || content["APP_NAME"] != "Engagement App" || content["title"] != "New Travel Request Assigned" {
+		content["CURRENT_YEAR"] != "2026" || content["APP_NAME"] != "Engagement App" || content["title"] != "Travel Agent Assigned" {
 		t.Errorf("audit content = %v %v", content, err)
 	}
 	if TravelFormatNumber(70) != "70.0" || TravelFormatNumber(12.5) != "12.5" {
