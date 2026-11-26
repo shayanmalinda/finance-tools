@@ -124,7 +124,19 @@ func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany
 		},
 		NotificationType: kind,
 		ReferenceID:      jobNumber,
+		Audience:         financeAudience(len(cc) > 0),
 	}
+}
+
+// financeAudience is the role labels of a travel finance email: logistics
+// plus the traveller company's finance contacts (the finance team when the
+// company is unknown), with a CC when the company has several contacts or one.
+func financeAudience(hasCC bool) Audience {
+	a := Audience{To: []string{"the travel logistics team", "the finance contacts for the traveller's company (the finance team if none)"}}
+	if hasCC {
+		a.CC = []string{"the company's finance contacts or finance team"}
+	}
+	return a
 }
 
 // FinanceItems are the records a travel finance email is about: the per

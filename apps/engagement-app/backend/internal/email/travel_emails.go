@@ -107,6 +107,9 @@ func travelCC(s TravelSettings, travellerEmail string) []string {
 	return []string{}
 }
 
+// travelCCRole is the CC role label of the traveller copy (travelCC).
+const travelCCRole = "the traveller, when traveller copies are on"
+
 func travelNA(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return "N/A"
@@ -168,6 +171,7 @@ func TravelAssigned(s TravelSettings, t TravelTrip, v TravelVisa, agentName stri
 		Content: travelTripContent(s, "New Travel Request Assigned",
 			"Please take necessary actions for the following Travel Request", agentName, t, v),
 		NotificationType: "travel-assigned", ReferenceID: t.JobNumber,
+		Audience: Audience{To: []string{"the travel logistics team"}, CC: []string{travelCCRole}},
 	}
 }
 
@@ -179,6 +183,7 @@ func TravelVisaChanged(s TravelSettings, t TravelTrip, v TravelVisa, agentName s
 		Content: travelTripContent(s, "Visa has been changed",
 			"Visa has been changed. Please take necessary actions for the following Travel Request", agentName, t, v),
 		NotificationType: "travel-visa-changed", ReferenceID: t.JobNumber,
+		Audience: Audience{To: []string{"the travel logistics team"}, CC: []string{travelCCRole}},
 	}
 }
 
@@ -196,6 +201,7 @@ func TravelNotice(s TravelSettings, jobNumber, travellerEmail, addressing, title
 			"action_link":       TravelActionLink(s.AppBaseURL, jobNumber),
 		},
 		NotificationType: "travel-notice", ReferenceID: jobNumber,
+		Audience: Audience{To: []string{"the travel logistics team"}, CC: []string{travelCCRole}},
 	}
 }
 
@@ -273,6 +279,10 @@ func TravelCompleted(s TravelSettings, t TravelTrip, v TravelVisa, agentName, co
 	return Message{
 		App: AppTravel, To: to, CC: cc, Subject: travelSubject(t.JobNumber), TemplateID: TravelTemplateCompleted,
 		Content: content, NotificationType: "travel-completed", ReferenceID: t.JobNumber,
+		Audience: Audience{
+			To: []string{"the travel logistics team", "the finance contacts for the traveller's company (the finance team if none)"},
+			CC: []string{"the company's finance contacts or finance team", travelCCRole},
+		},
 	}
 }
 

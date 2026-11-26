@@ -133,6 +133,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 	}
 	to := []string{}
 	cc := []string{}
+	var toRoles, ccRoles []string
 	switch ev {
 	case EngagementCreated:
 		literal := "Consultant"
@@ -150,11 +151,14 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		}
 		description = "A new " + what + " has been created. Please review and approve."
 		to = append(to, actor)
+		toRoles = append(toRoles, "the engagement creator")
 		if internal {
 			if marketing {
 				to = append(to, r.MarketingApprovers...)
+				toRoles = append(toRoles, "marketing event approvers")
 			} else {
 				to = append(to, r.InternalApprovers...)
+				toRoles = append(toRoles, "internal engagement approvers")
 			}
 		}
 	case EngagementUpdated:
@@ -198,15 +202,23 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		}
 		description = "Please note that the following " + what + " has been cancelled."
 		to = append(to, r.Consultants...)
+		toRoles = append(toRoles, "the allocated consultants")
 		if r.TravelAffected && r.TravelGroup != "" {
 			cc = append(cc, r.TravelGroup)
+			ccRoles = append(ccRoles, "the travel team")
 		}
 	}
 	cc = append(cc, e.Requester)
+	ccRoles = append(ccRoles, "the engagement requester")
 	to = append(to, r.Routing...)
+	if len(r.Routing) > 0 {
+		toRoles = append(toRoles, "the requester's lead or the allocations team (per allocation type)")
+	}
 	to = append(to, actor)
+	toRoles = append(toRoles, "the person who made the change")
 	if (ev == EngagementApproved || ev == EngagementUpdatedAndApproved) && engagementTravelExpected(e.Nature) && r.TravelGroup != "" {
 		cc = append(cc, r.TravelGroup)
+		ccRoles = append(ccRoles, "the travel team")
 	}
 
 	base := strings.TrimRight(r.AppBaseURL, "/") + "/finance/engagement-app"
@@ -255,5 +267,6 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 	return Message{
 		App: AppAllocations, To: to, CC: cc, Subject: subject, TemplateID: template, Content: content,
 		NotificationType: notification, ReferenceID: e.ID,
+		Audience: Audience{To: toRoles, CC: ccRoles},
 	}
 }

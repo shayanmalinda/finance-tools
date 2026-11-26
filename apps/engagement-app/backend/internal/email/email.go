@@ -59,6 +59,16 @@ type Message struct {
 	// NotificationType and ReferenceID are for logs only.
 	NotificationType string
 	ReferenceID      string
+	// Audience says by role who gets this email in production. The staging
+	// banner shows it instead of addresses, which on staging are test values.
+	Audience Audience
+}
+
+// Audience is the production recipients of an email by role, in plain
+// English ("the engagement creator"), never addresses.
+type Audience struct {
+	To []string
+	CC []string
 }
 
 // Sender sends email. Send must not be retried by callers on error: a
@@ -155,7 +165,7 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 		// Not live (staging): mark the email and show who it would have gone
 		// to, so testers can check the routing. Never set when live.
 		p.Subject = stagingSubjectPrefix + p.Subject
-		banner = stagingBanner(to, cc)
+		banner = stagingBanner(m.Audience)
 		p.To, p.CC = append([]string(nil), s.cfg.TestRecipients...), []string{}
 	}
 	page, err := Render(m.TemplateID, content, banner)
@@ -187,20 +197,25 @@ const digitalTeamSignature = "Cheers,<br> Choreo Labs Digital Team"
 // stagingSubjectPrefix marks every email sent while emails are not live.
 const stagingSubjectPrefix = "[STAGING] "
 
-// stagingBanner is the staging notice Render shows above the body: the real
-// recipients, HTML-escaped.
-func stagingBanner(to, cc []string) string {
+// stagingBanner is the staging notice Render shows above the body: who gets
+// the email in production, by role (HTML-escaped), never by address.
+func stagingBanner(a Audience) string {
 	esc := func(list []string) string {
-		if len(list) == 0 {
-			return "none"
-		}
 		out := make([]string, len(list))
-		for i, a := range list {
-			out[i] = html.EscapeString(a)
+		for i, r := range list {
+			out[i] = html.EscapeString(r)
 		}
 		return strings.Join(out, ", ")
 	}
-	return "Staging test email. In production it would go to: <b>To:</b> " + esc(to) + "; <b>CC:</b> " + esc(cc) + "."
+	to := "the usual recipients for this email"
+	if len(a.To) > 0 {
+		to = esc(a.To)
+	}
+	b := "Staging test email. In production this is sent to: <b>To:</b> " + to + "."
+	if len(a.CC) > 0 {
+		b += " <b>CC:</b> " + esc(a.CC) + "."
+	}
+	return b
 }
 
 // subjectLine replaces control characters (CR, LF, tab, ...) in a subject

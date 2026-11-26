@@ -96,7 +96,8 @@ func TestHTTPSender(t *testing.T) {
 	// with the real recipients (escaped) in a notice above the body.
 	cfg.TestRecipients = []string{"qa@wso2.com", "lead@wso2.com"}
 	s = New(cfg, rest.New("email", srv.URL, srv.Client()))
-	msg.To, msg.CC = []string{"t@wso2.com"}, []string{"f&o@wso2.com"}
+	msg.To, msg.CC = []string{"t@wso2.com"}, []string{"f@wso2.com"}
+	msg.Audience = Audience{To: []string{"the engagement creator", "the finance team & co"}, CC: []string{"the allocations team"}}
 	if err := s.Send(context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +106,12 @@ func TestHTTPSender(t *testing.T) {
 	}
 	page = decoded(t, got)
 	if got.Subject != "[STAGING] [Engagement App] Travel Request (#TRV-1)" ||
-		!strings.Contains(page, "Staging test email. In production it would go to: <b>To:</b> t@wso2.com; <b>CC:</b> f&amp;o@wso2.com.") {
+		!strings.Contains(page, "Staging test email. In production this is sent to: <b>To:</b> the engagement creator, the finance team &amp; co. <b>CC:</b> the allocations team.") {
 		t.Errorf("staging marks: subject %q", got.Subject)
+	}
+	// Roles only: no address (real or test) appears in the notice.
+	if banner := page[strings.Index(page, "Staging test email"):strings.Index(page, "Acorn")]; strings.Contains(banner, "@") {
+		t.Errorf("staging notice shows an address: %q", banner)
 	}
 	// travel_agent_name appears only in the noContent body (the base also shows the description).
 	if strings.Index(page, "Staging test email") > strings.Index(page, "Acorn") {
@@ -251,5 +256,27 @@ func TestLogSenderNeverAudits(t *testing.T) {
 	}
 	if err := (LogSender{}).Send(context.Background(), Message{To: []string{"a@wso2.com"}}); err != nil {
 		t.Error(err)
+	}
+}
+
+// Without role labels the banner falls back to a generic line, never addresses.
+func TestStagingBanner_Fallback(t *testing.T) {
+	b := stagingBanner(Audience{})
+	if !strings.Contains(b, "the usual recipients for this email") || strings.Contains(b, "CC:") {
+		t.Errorf("banner = %q", b)
+	}
+}
+
+// Every notification type sets a non-empty To audience, so the staging
+// banner never needs the generic fallback.
+func TestMessages_AudienceSet(t *testing.T) {
+	_, samples := previewSamples()
+	if len(samples) == 0 {
+		t.Fatal("no samples")
+	}
+	for _, s := range samples {
+		if len(s.m.Audience.To) == 0 {
+			t.Errorf("%s (%s): empty To audience", s.name, s.m.NotificationType)
+		}
 	}
 }

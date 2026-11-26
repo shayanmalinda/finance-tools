@@ -128,8 +128,7 @@ func renderSample(s previewSample, now time.Time) (page, subject string, err err
 	content["CURRENT_YEAR"] = strconv.Itoa(now.Year())
 	banner, subject := "", subjectLine(s.m.Subject)
 	if s.staging {
-		to, cc := FilterRecipients(s.m.To, s.m.CC, nil)
-		banner, subject = stagingBanner(to, cc), stagingSubjectPrefix+subject
+		banner, subject = stagingBanner(s.m.Audience), stagingSubjectPrefix+subject
 	}
 	page, err = Render(s.m.TemplateID, content, banner)
 	return page, subject, err

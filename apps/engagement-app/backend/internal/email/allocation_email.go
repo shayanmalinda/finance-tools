@@ -165,13 +165,20 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 	}
 
 	var to []string
+	roles := []string{}
 	if AllocationIsPartnerEmail(email) {
 		to = append(to, g.PartnerAllocationsGroup)
+		roles = append(roles, "the partner allocations team")
 	} else {
 		to = append(to, g.AllocationsGroup, email)
 		to = append(to, d.Leads...)
+		roles = append(roles, "the allocations team", "the allocated consultant")
+		if len(d.Leads) > 0 {
+			roles = append(roles, "the consultant's leads")
+		}
 	}
 	to = append(to, d.Actor)
+	roles = append(roles, "the person who made the change")
 
 	c, prev := d.ClearanceStatus, d.PrevClearanceStatus
 	travelArranged := d.TravelRequired && (prev == allocConfirmed || prev == allocConfirmedVisaPending)
@@ -190,6 +197,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 	case c == allocRejectedByConsultant || c == allocRejectedOther:
 		if travelArranged {
 			to = append(to, g.TravelGroup)
+			roles = append(roles, "the travel team")
 		}
 		toKey = "All"
 		title = pick("Allocation Declined for Marketing Event", "Allocation Declined for Internal Engagement", "Allocation Declined for Customer Engagement")
@@ -197,6 +205,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 	case prev != allocReadyForClearance && c == allocAllocationCancelled:
 		if travelArranged {
 			to = append(to, g.TravelGroup)
+			roles = append(roles, "the travel team")
 		}
 		toKey = email
 		title = pick("Allocation Cancelled for Marketing Event", "Allocation Cancelled for Internal Engagement", "Allocation Cancelled for Customer Engagement")
@@ -208,6 +217,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 	case c == allocRejectedVisaIssues:
 		if travelArranged {
 			to = append(to, g.TravelGroup)
+			roles = append(roles, "the travel team")
 		}
 		toKey = "All"
 		title = pick("Allocation Cancelled for Marketing Event", "Allocation Cancelled for Internal Engagement", "Allocation Cancelled for Customer Engagement")
@@ -215,6 +225,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 	case AllocationIsConfirmation(c, prev):
 		if d.TravelRequired {
 			to = append(to, g.TravelGroup)
+			roles = append(roles, "the travel team")
 		}
 		if isEvent {
 			title = "Allocation Confirmed for Marketing Event"
@@ -279,6 +290,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 		App:              AppAllocations,
 		To:               to,
 		CC:               []string{},
+		Audience:         Audience{To: roles},
 		Subject:          "Re: [Engagement App] Consultant request for " + d.EngagementID + " : " + d.CustomerName + " - " + d.OpportunityName,
 		TemplateID:       templateID,
 		Content:          content,
