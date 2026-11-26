@@ -83,6 +83,9 @@ type EngagementRecipients struct {
 	// those recipients ("Allocations Team", or a first name): "" when unknown
 	// or when several people share the To line.
 	RoutingName, ConsultantName, ActorName string
+	// ApproverName is the first name of the approver when the approvers list
+	// holds one person; "" keeps the approvers' team label.
+	ApproverName string
 	// Consultants are the cancelled allocations' consultants.
 	Consultants []string
 	// TravelAffected copies the Travel group on a cancellation: a cancelled
@@ -143,6 +146,9 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 			if marketing {
 				to, toName, toRoles = r.MarketingApprovers, "Marketing Approvers", []string{"the marketing event approvers"}
 			}
+			if r.ApproverName != "" && len(to) == 1 {
+				toName = r.ApproverName
+			}
 			reason = "you approve " + what + "s"
 			cc = append(cc, r.Routing...)
 			ccRoles = append(ccRoles, "whoever allocates (per allocation type)")
@@ -176,6 +182,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		reason = "you were allocated to this " + what
 		if len(to) == 0 {
 			to, toName, toRoles = r.Routing, r.RoutingName, []string{"whoever allocates (per allocation type)"}
+			reason = "you allocate consultants for this " + what
 		} else {
 			cc = append(cc, r.Routing...)
 			ccRoles = append(ccRoles, "whoever allocates (per allocation type)")
@@ -189,6 +196,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 	// Nobody to act: the person who made the change gets it.
 	if len(to) == 0 {
 		to, toName, toRoles = []string{actor}, r.ActorName, []string{"the person who made the change"}
+		reason = "you made this change"
 	} else {
 		cc = append(cc, actor)
 		ccRoles = append(ccRoles, "the person who made the change")

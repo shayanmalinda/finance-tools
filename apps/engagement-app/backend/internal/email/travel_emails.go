@@ -161,7 +161,7 @@ func TravelAssigned(s TravelSettings, t TravelTrip, v TravelVisa, agentName stri
 	if !emptyValue(agentName) {
 		assigned = "This travel request was assigned to " + agentName + "."
 	}
-	c := travelContent(s, t, "Travel Agent Assigned", assigned+" Review it and arrange the trip.", "Travel Logistics Team", "Review Travel Request", "info", "you arrange travel")
+	c := travelContent(s, t, "Travel Agent Assigned", assigned+" Review it and arrange the trip.", travelGreeting(agentName), "Review Travel Request", "info", "you arrange travel")
 	c["details_html"] = travelDetails(t, v, agentName)
 	return Message{
 		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, t.TravellerEmail),
@@ -174,7 +174,7 @@ func TravelAssigned(s TravelSettings, t TravelTrip, v TravelVisa, agentName stri
 // TravelVisaChanged is "Visa Updated" (legacy sendVisaChangeEmail).
 func TravelVisaChanged(s TravelSettings, t TravelTrip, v TravelVisa, agentName string) Message {
 	c := travelContent(s, t, "Visa Updated", "The visa for this trip was changed. Check the new visa and update the travel plans.",
-		"Travel Logistics Team", "Review Visa Details", "info", "you arrange travel")
+		travelGreeting(agentName), "Review Visa Details", "info", "you arrange travel")
 	c["details_html"] = travelDetails(t, v, agentName)
 	return Message{
 		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, t.TravellerEmail),
@@ -184,11 +184,23 @@ func TravelVisaChanged(s TravelSettings, t TravelTrip, v TravelVisa, agentName s
 	}
 }
 
+// travelGreeting is the greeting name of a travel email: the agency that must
+// act when one is named, else the travel logistics team. The email still goes
+// To the logistics team either way.
+func travelGreeting(agency string) string {
+	if a := strings.TrimSpace(agency); a != "" {
+		return a
+	}
+	return "Travel Logistics Team"
+}
+
 // TravelNotice is the noContent email (legacy sendNoContentTravelEmail
 // without the finance group): On Hold, Cancelled, In Progress, and the
-// notice to a replaced agent. title is also the subject's action.
-func TravelNotice(s TravelSettings, t TravelTrip, title, description string) Message {
-	c := travelContent(s, t, title, description, "Travel Logistics Team", "View Travel Request", "info", "you arrange travel")
+// notice to a replaced agent. title is also the subject's action. agency is
+// the agency the notice asks to act (the replaced agent); empty greets the
+// travel logistics team.
+func TravelNotice(s TravelSettings, t TravelTrip, title, description, agency string) Message {
+	c := travelContent(s, t, title, description, travelGreeting(agency), "View Travel Request", "info", "you arrange travel")
 	c["details_html"] = travelDetails(t, TravelVisa{}, "")
 	return Message{
 		App: AppTravel, To: []string{s.LogisticsGroup}, CC: travelCC(s, t.TravellerEmail),

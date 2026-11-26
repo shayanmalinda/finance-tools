@@ -100,7 +100,8 @@ func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany
 		ccRoles = append(ccRoles, "the company's finance contacts or finance team")
 	}
 	if kind == FinanceInvoicesRejected {
-		to, cc, name = []string{r.TravelLogisticsGroup}, append(append([]string{}, finTo...), finCC...), "Travel Logistics Team"
+		// The agency fixes and re-adds its invoice: greet it, still To the logistics team.
+		to, cc, name = []string{r.TravelLogisticsGroup}, append(append([]string{}, finTo...), finCC...), travelGreeting(rejectedAgency(items))
 		toRole, reason = "the travel logistics team", "you arrange travel"
 		ccRoles = []string{"the finance contacts for the traveller's company (the finance team if none)"}
 	}
@@ -128,6 +129,26 @@ func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany
 	}
 }
 
+// rejectedAgency is the agency of the rejected invoices when they share one,
+// the trip's agency when they name none, else "" (several agencies).
+func rejectedAgency(items FinanceItems) string {
+	agency := ""
+	for _, inv := range items.Invoices {
+		a := strings.TrimSpace(inv.Agency)
+		switch {
+		case a == "":
+		case agency == "":
+			agency = a
+		case agency != a:
+			return ""
+		}
+	}
+	if agency == "" {
+		return strings.TrimSpace(items.AgencyName)
+	}
+	return agency
+}
+
 // FinanceItems are the records a travel finance email is about: the per
 // diem that was added, the invoice that was added, or the invoices that were
 // approved or rejected (with the rejection reason). Empty renders nothing.
@@ -138,6 +159,9 @@ type FinanceItems struct {
 	Reason string
 	// TravellerName and Country name the trip in the subject ("Jane Doe to Sri Lanka").
 	TravellerName, Country string
+	// AgencyName is the trip's travel agency, the greeting of a rejection
+	// when the rejected invoices name no agency of their own.
+	AgencyName string
 }
 
 // FinancePerDiemItem is a per diem. From and To are "YYYY-MM-DD HH:MM:SS".
@@ -151,11 +175,13 @@ type FinancePerDiemItem struct {
 
 // FinanceInvoiceItem is a travel invoice. Paid is shown only when PaidAmount > 0.
 type FinanceInvoiceItem struct {
-	Number       string
-	CostType     string
-	Month        string
-	Currency     string
-	Amount       float64
+	Number   string
+	CostType string
+	Month    string
+	Currency string
+	Amount   float64
+	// Agency is the invoice's travel agency ("" when none).
+	Agency       string
 	PaidCurrency string
 	PaidAmount   float64
 }

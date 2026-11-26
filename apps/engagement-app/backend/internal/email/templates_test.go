@@ -150,6 +150,28 @@ func TestAllocationMessage_Buttons(t *testing.T) {
 // The finance emails carry the records they are about, every value escaped:
 // the per diem, the added invoice (paid amount only when set), and the
 // decided invoices with the rejection reason.
+// A rejection asks the invoice's agency to fix it: greet that agency (the
+// trip's when the invoices name none, the team when several), To logistics.
+func TestFinanceTravelMessage_RejectedGreeting(t *testing.T) {
+	r := FinanceRecipients{TravelLogisticsGroup: "l@wso2.com", FinanceGroup: "f@wso2.com", AppBaseURL: "https://one.example"}
+	greet := func(items FinanceItems) string {
+		m := FinanceTravelMessage(r, FinanceInvoicesRejected, "TRV-1", "", "invoices", items)
+		if m.To[0] != "l@wso2.com" {
+			t.Errorf("To = %v", m.To)
+		}
+		return m.Content["greeting_name"]
+	}
+	if g := greet(FinanceItems{Invoices: []FinanceInvoiceItem{{Agency: "Classic Travels"}, {Agency: "Classic Travels"}}}); g != "Classic Travels" {
+		t.Errorf("one agency = %q", g)
+	}
+	if g := greet(FinanceItems{AgencyName: "Acorn Travels", Invoices: []FinanceInvoiceItem{{}}}); g != "Acorn Travels" {
+		t.Errorf("trip agency = %q", g)
+	}
+	if g := greet(FinanceItems{Invoices: []FinanceInvoiceItem{{Agency: "A"}, {Agency: "B"}}}); g != "Travel Logistics Team" {
+		t.Errorf("several agencies = %q", g)
+	}
+}
+
 func TestFinanceTravelMessage_Items(t *testing.T) {
 	r := FinanceRecipients{TravelLogisticsGroup: "l@wso2.com", FinanceGroup: "f@wso2.com", AppBaseURL: "https://one.example"}
 	render := func(kind string, items FinanceItems) string {

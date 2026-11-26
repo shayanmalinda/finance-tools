@@ -61,12 +61,12 @@ func TestTravelEmails_Shape(t *testing.T) {
 	m := TravelAssigned(s, trip, TravelVisa{}, "Acorn Travels")
 	if m.App != AppTravel || m.TemplateID != "assignRequests" || m.CC[0] != "traveller@wso2.com" ||
 		m.Subject != "[Engagement App] Travel Agent Assigned: TRV-2026-10-1246 Jane Doe to United Kingdom" ||
-		m.Content["greeting_name"] != "Travel Logistics Team" || m.Content["action_label"] != "Review Travel Request" ||
+		m.Content["greeting_name"] != "Acorn Travels" || m.Content["action_label"] != "Review Travel Request" ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
 		t.Errorf("assigned = %+v", m)
 	}
 	page := renderMessage(t, m)
-	for _, want := range []string{"Acme &amp; Sons", "&lt;London&gt;", "6&#8211;16 Oct 2026", "Acorn Travels", "Hi Travel Logistics Team,"} {
+	for _, want := range []string{"Acme &amp; Sons", "&lt;London&gt;", "6&#8211;16 Oct 2026", "Acorn Travels", "Hi Acorn Travels,"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("assigned page lacks %q", want)
 		}
@@ -74,9 +74,22 @@ func TestTravelEmails_Shape(t *testing.T) {
 	if strings.Contains(page, "N/A") || strings.Contains(page, ">Visa<") {
 		t.Error("empty visa block or N/A shown")
 	}
-	n := TravelNotice(s, trip, "Travel Cancelled", "x")
+	n := TravelNotice(s, trip, "Travel Cancelled", "x", "")
 	if len(n.CC) != 1 || n.TemplateID != "noContent" || n.Subject != "[Engagement App] Travel Cancelled: TRV-2026-10-1246 Jane Doe to United Kingdom" {
 		t.Errorf("notice = %+v", n)
+	}
+	// The agency greeted must act; the email still goes To the logistics team.
+	if v := TravelVisaChanged(s, trip, TravelVisa{}, "Acorn Travels"); v.Content["greeting_name"] != "Acorn Travels" || v.To[0] != "logistics@wso2.com" {
+		t.Errorf("visa changed = %+v", v)
+	}
+	if v := TravelAssigned(s, trip, TravelVisa{}, ""); v.Content["greeting_name"] != "Travel Logistics Team" {
+		t.Errorf("no agency greeting = %q", v.Content["greeting_name"])
+	}
+	if r := TravelNotice(s, trip, "Travel Reassigned", "x", "Classic Travels"); r.Content["greeting_name"] != "Classic Travels" || r.To[0] != "logistics@wso2.com" {
+		t.Errorf("reassigned = %+v", r)
+	}
+	if n.Content["greeting_name"] != "Travel Logistics Team" {
+		t.Errorf("notice greeting = %q", n.Content["greeting_name"])
 	}
 	// Completed goes To the company's finance contacts, with logistics and the traveller copied.
 	c := TravelCompleted(s, trip, TravelVisa{VisaType: "Work Permit", StartDate: "2026-01-01 00:00:00"}, "Acorn", "WSO2 - UK", nil)

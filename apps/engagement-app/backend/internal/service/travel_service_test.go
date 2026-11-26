@@ -611,7 +611,7 @@ func TestTravelAssign_InProgressSendsAssignedEmail(t *testing.T) {
 	m := f.mail.sent[0]
 	if m.TemplateID != "assignRequests" || !strings.HasPrefix(m.Subject, "[Engagement App] Travel Agent Assigned: TRV-2026-10-1246 ") ||
 		m.To[0] != "travel-logistics@wso2.com" || len(m.CC) != 0 || m.Content["title"] != "Travel Agent Assigned" ||
-		m.Content["greeting_name"] != "Travel Logistics Team" || !strings.Contains(m.Content["details_html"], "Business/Visit") ||
+		m.Content["greeting_name"] != "Acorn Travels" || !strings.Contains(m.Content["details_html"], "Business/Visit") ||
 		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-requests/TRV-2026-10-1246/info" {
 		t.Errorf("email = %+v", m)
 	}

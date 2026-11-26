@@ -658,6 +658,6 @@ func financeInvoiceItem(inv engagemententity.FinanceInvoice, names map[int]strin
 		costType = names[inv.CostTypeID]
 	}
 	return email.FinanceInvoiceItem{Number: inv.InvoiceNumber, CostType: costType, Month: inv.Month,
-		Currency: inv.InvoiceCurrency, Amount: inv.InvoiceAmount,
+		Currency: inv.InvoiceCurrency, Amount: inv.InvoiceAmount, Agency: financeDeref(inv.AgencyName),
 		PaidCurrency: inv.ConvertedCurrency, PaidAmount: inv.ConvertedAmount}
 }

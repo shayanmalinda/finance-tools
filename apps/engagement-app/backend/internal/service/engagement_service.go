@@ -1132,6 +1132,15 @@ func (s *engagementService) sendEmail(ctx context.Context, actor string, ev emai
 		}
 	}
 	rcpt.ActorName = s.firstName(ctx, actor)
+	if ev == email.EngagementCreated {
+		approvers := s.recipients.InternalApprovers
+		if data.EngagementTypeID == 5 {
+			approvers = s.recipients.MarketingApprovers
+		}
+		if len(approvers) == 1 {
+			rcpt.ApproverName = s.firstName(ctx, approvers[0])
+		}
+	}
 	rcpt.RoutingName = s.groupOrFirstName(ctx, rcpt.Routing)
 	if len(rcpt.Consultants) == 1 {
 		rcpt.ConsultantName = s.firstName(ctx, rcpt.Consultants[0])

@@ -126,9 +126,9 @@ func previewSamples() (time.Time, []previewSample) {
 		{"assignRequests-assigned", TravelAssigned(ts, trip, visa, "Classic Travels"), false},
 		{"assignRequests-visa-updated", TravelVisaChanged(ts, trip, visa, "Classic Travels"), false},
 		{"completeTravel", TravelCompleted(ts, trip, visa, "Classic Travels", "WSO2 - LK", perDiems), false},
-		{"noContent-on-hold", TravelNotice(ts, trip, "Travel On Hold", "This travel request is on hold."), false},
-		{"noContent-cancelled", TravelNotice(ts, trip, "Travel Cancelled", "This travel request was cancelled."), false},
-		{"noContent-reassigned", TravelNotice(ts, trip, "Travel Reassigned", "This travel request is no longer assigned to Classic Travels."), false},
+		{"noContent-on-hold", TravelNotice(ts, trip, "Travel On Hold", "This travel request is on hold.", ""), false},
+		{"noContent-cancelled", TravelNotice(ts, trip, "Travel Cancelled", "This travel request was cancelled.", ""), false},
+		{"noContent-reassigned", TravelNotice(ts, trip, "Travel Reassigned", "This travel request is no longer assigned to Classic Travels.", "Classic Travels"), false},
 		{"travelFinanceUpdate-perdiems-added", FinanceTravelMessage(fin, FinancePerDiemsAdded, trip.JobNumber, "WSO2 - LK", "per-diems", items(FinanceItems{PerDiem: &FinancePerDiemItem{
 			Currency: "USD", Rate: 50, Total: 100, From: "2026-12-10 09:00:00", To: "2026-12-11 18:00:00", Days: 2}})), false},
 		{"travelFinanceUpdate-invoices-added", FinanceTravelMessage(fin, FinanceInvoicesAdded, trip.JobNumber, "WSO2 - LK", "invoices", items(FinanceItems{Invoices: []FinanceInvoiceItem{inv1}})), true},

@@ -675,7 +675,7 @@ func (s *travelService) assignEmails(ctx context.Context, r engagemententity.Tra
 			s.send(ctx, email.TravelAssigned(set, s.travelEmailTrip(ctx, r), travelEmailVisa(r), agentName))
 		}
 	case domain.TravelStatusCancelled:
-		s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, r), "Travel Cancelled", "This travel request was cancelled."))
+		s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, r), "Travel Cancelled", "This travel request was cancelled.", ""))
 	}
 }
 
@@ -688,11 +688,11 @@ func (s *travelService) updateEmails(ctx context.Context, before, after engageme
 	if statusChanged {
 		switch after.Status {
 		case domain.TravelStatusOnHold:
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel On Hold", "This travel request is on hold."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel On Hold", "This travel request is on hold.", ""))
 		case domain.TravelStatusCancelled:
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Cancelled", "This travel request was cancelled."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Cancelled", "This travel request was cancelled.", ""))
 		case domain.TravelStatusInProgress:
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel In Progress", "This travel request is now in progress."))
+			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel In Progress", "This travel request is now in progress.", ""))
 		case domain.TravelStatusCompleted:
 			s.completedEmail(ctx, after, agentName)
 		}
@@ -700,7 +700,8 @@ func (s *travelService) updateEmails(ctx context.Context, before, after engageme
 	if agentChanged {
 		if before.TravelAgentID != nil {
 			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Reassigned",
-				"This travel request is no longer assigned to "+travelDeref(before.TravelAgentName)+"."))
+				"This travel request is no longer assigned to "+travelDeref(before.TravelAgentName)+".",
+				travelDeref(before.TravelAgentName)))
 		}
 		s.send(ctx, email.TravelAssigned(set, s.travelEmailTrip(ctx, after), travelEmailVisa(after), agentName))
 	} else if visaChanged && after.TravelAgentID != nil {

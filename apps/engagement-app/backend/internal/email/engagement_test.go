@@ -46,6 +46,11 @@ func TestEngagementMessage_CreatedEvent(t *testing.T) {
 		c["action_link"] != "https://one.wso2.com/finance/engagement-app/engagements/EVT00509/details" {
 		t.Errorf("content = %v", c)
 	}
+	one := r
+	one.ApproverName = "Kasun"
+	if m := EngagementMessage(EngagementCreated, engagementTestData(5), one, "me@wso2.com"); m.Content["greeting_name"] != "Kasun" {
+		t.Errorf("single approver greeting = %q", m.Content["greeting_name"])
+	}
 	page := renderMessage(t, m)
 	for _, want := range []string{"Hi Marketing Approvers,", "WSO2Con &lt;Asia&gt;", "20 Nov 2026", ">Review and Approve</a>"} {
 		if !strings.Contains(page, want) {
