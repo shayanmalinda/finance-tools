@@ -37,7 +37,7 @@ func TestRender_EveryTemplate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"<title>Choreo Labs</title>", "© 2026 Choreo Labs. All Rights Reserved", "Choreo Labs Digital Team", "Body text",
+			for _, want := range []string{"<title>Choreo Labs</title>", "&#169; 2026 Choreo Labs. All Rights Reserved", "Choreo Labs Digital Team", "Body text",
 				"https://wso2.cachefly.net/wso2/sites/all/image_resources/choreo-labs-logo-light-400px.png", "https://wso2.cachefly.net/wso2/sites/all/image_resources/choreo-labs-logo-navy-400px.png", `href="https://choreolabs.com/"`, `alt="Choreo Labs"`,
 				// Responsive: a viewport, a 600px card that goes full width on small screens.
 				`<meta name="viewport" content="width=device-width, initial-scale=1">`, "max-width: 600px;", "@media only screen and (max-width: 620px)"} {
@@ -192,7 +192,7 @@ func TestFinanceTravelMessage_Items(t *testing.T) {
 
 	two := []FinanceInvoiceItem{{Number: "A-1", CostType: "Hotel", Currency: "USD", Amount: 980}, {Number: "A-2", Currency: "LKR", Amount: 45000}}
 	page = render(FinanceInvoicesApproved, FinanceItems{Invoices: two})
-	for _, want := range []string{">Invoices<", "class=\"ea-table\"", ">A-1<", ">Hotel<", "USD 980.00", ">A-2<", "LKR 45000.00", ">—<"} {
+	for _, want := range []string{">Invoices<", "class=\"ea-table\"", ">A-1<", ">Hotel<", "USD 980.00", ">A-2<", "LKR 45000.00", ">&#8212;<"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("approved: lacks %q", want)
 		}
@@ -205,5 +205,11 @@ func TestFinanceTravelMessage_Items(t *testing.T) {
 	}
 	if page = render(FinanceInvoicesApproved, FinanceItems{}); strings.Contains(page, ">Invoices<") || strings.Contains(page, ">Invoice<") {
 		t.Error("no items: a section was rendered")
+	}
+}
+
+func TestAsciiHTML_EncodesNonASCII(t *testing.T) {
+	if got := asciiHTML("10–11 Dec, José"); got != "10&#8211;11 Dec, Jos&#233;" {
+		t.Fatalf("asciiHTML = %q", got)
 	}
 }

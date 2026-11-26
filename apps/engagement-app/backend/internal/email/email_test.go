@@ -82,7 +82,7 @@ func TestHTTPSender(t *testing.T) {
 		!reflect.DeepEqual(got.CC, []string{"f@wso2.com"}) || page != want {
 		t.Errorf("payload = to %v cc %v from %q (path %s), html matches render: %v", got.To, got.CC, got.From, path, page == want)
 	}
-	for _, s := range []string{"Choreo Labs Digital Team", "© 2026 Choreo Labs. All Rights Reserved", "Trip <b>assigned</b>", "Hi Acorn,"} {
+	for _, s := range []string{"Choreo Labs Digital Team", "&#169; 2026 Choreo Labs. All Rights Reserved", "Trip <b>assigned</b>", "Hi Acorn,"} {
 		if !strings.Contains(page, s) {
 			t.Errorf("rendered email lacks %q", s)
 		}

@@ -66,7 +66,7 @@ func TestTravelEmails_Shape(t *testing.T) {
 		t.Errorf("assigned = %+v", m)
 	}
 	page := renderMessage(t, m)
-	for _, want := range []string{"Acme &amp; Sons", "&lt;London&gt;", "6–16 Oct 2026", "Acorn Travels", "Hi Travel Logistics Team,"} {
+	for _, want := range []string{"Acme &amp; Sons", "&lt;London&gt;", "6&#8211;16 Oct 2026", "Acorn Travels", "Hi Travel Logistics Team,"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("assigned page lacks %q", want)
 		}

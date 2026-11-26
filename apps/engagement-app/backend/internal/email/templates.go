@@ -98,7 +98,23 @@ func Render(templateID string, content map[string]string, banner string) (string
 	for _, k := range keys {
 		page = strings.ReplaceAll(page, "<!-- ["+strings.ToUpper(k)+"] -->", content[k])
 	}
-	return page, nil
+	return asciiHTML(page), nil
+}
+
+// asciiHTML writes every non-ASCII character as a numeric HTML entity. The
+// Email Service decodes the base64 body without UTF-8, so a raw "–" or "é"
+// arrives as "?"; entities survive any decoding.
+func asciiHTML(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 128 {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, "&#%d;", r)
+	}
+	return b.String()
 }
 
 // bannerRow is the staging notice above the body; empty when banner is.
