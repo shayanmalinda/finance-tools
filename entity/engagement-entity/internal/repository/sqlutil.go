@@ -20,6 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -73,4 +74,34 @@ func Args[T any](vals []T) []any {
 func LikeContains(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return "%" + r.Replace(s) + "%"
+}
+
+// SortColumns maps each whitelisted sort key (without the leading "-") to the
+// fixed column expressions it orders by. The expressions are written in the
+// code, never taken from a request, so a sort can never reach the SQL text.
+type SortColumns map[string][]string
+
+// Order returns the ORDER BY clause (with its leading space) for sort, a key
+// with an optional leading "-" for descending: every column of the key gets
+// DESC when descending, and tiebreak is appended last so pages stay stable
+// (left out when the key already orders by that column).
+// It reports false for an empty or unknown sort, and the caller then uses
+// its own default order.
+func (c SortColumns) Order(sort, tiebreak string) (string, bool) {
+	key, desc := strings.CutPrefix(sort, "-")
+	cols, ok := c[key]
+	if !ok {
+		return "", false
+	}
+	parts := make([]string, 0, len(cols)+1)
+	for _, col := range cols {
+		if desc {
+			col += " DESC"
+		}
+		parts = append(parts, col)
+	}
+	if !slices.Contains(cols, tiebreak) {
+		parts = append(parts, tiebreak)
+	}
+	return " ORDER BY " + strings.Join(parts, ", "), true
 }

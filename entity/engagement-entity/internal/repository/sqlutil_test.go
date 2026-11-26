@@ -49,3 +49,34 @@ func TestAgencyOf(t *testing.T) {
 		t.Errorf("not an agent: %+v, %v", a, err)
 	}
 }
+
+func TestSortColumnsOrder(t *testing.T) {
+	cols := SortColumns{
+		"id":      {`x.id`},
+		"country": {`x.country`, `x.city`},
+	}
+	tests := []struct {
+		sort   string
+		want   string
+		wantOK bool
+	}{
+		{"id", ` ORDER BY x.id`, true},
+		{"-id", ` ORDER BY x.id DESC`, true},
+		{"country", ` ORDER BY x.country, x.city, x.id`, true},
+		{"-country", ` ORDER BY x.country DESC, x.city DESC, x.id`, true},
+		{"", "", false},
+		{"-", "", false},
+		{"--id", "", false},
+		{"unknown", "", false},
+		{"ID", "", false},
+		{"id; DROP TABLE engagement", "", false},
+		{"id, (SELECT SLEEP(5))", "", false},
+		{"-id --", "", false},
+	}
+	for _, tc := range tests {
+		got, ok := cols.Order(tc.sort, `x.id`)
+		if got != tc.want || ok != tc.wantOK {
+			t.Errorf("Order(%q) = %q, %v; want %q, %v", tc.sort, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
