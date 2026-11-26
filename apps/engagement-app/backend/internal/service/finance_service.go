@@ -234,6 +234,7 @@ func (s *FinanceService) notify(ctx context.Context, kind string, trip engagemen
 	items.TravellerName = financeDeref(s.people.get(ctx, trip.TravellerEmail).Name)
 	items.Country = financeDeref(trip.Country)
 	items.AgencyName = financeDeref(trip.AgencyName)
+	items.TravellerEmail = trip.TravellerEmail
 	m := email.FinanceTravelMessage(s.recipients, kind, trip.JobNumber, s.travellerCompany(ctx, trip.TravellerEmail), tab, items)
 	ctx = context.WithoutCancel(ctx)
 	if err := s.mail.Send(ctx, m); err != nil {

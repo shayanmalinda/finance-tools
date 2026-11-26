@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/hrentity"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/rest"
 )
 
@@ -101,7 +102,7 @@ func previewSamples() (time.Time, []previewSample) {
 	fin := FinanceRecipients{TravelLogisticsGroup: "travel-logistics@example.com", FinanceGroup: "finance@example.com",
 		CompanyRecipients: map[string][]string{"WSO2 - LK": {"finance-lk@example.com"}}, AppBaseURL: base}
 	items := func(f FinanceItems) FinanceItems {
-		f.TravellerName, f.Country = trip.TravellerName, trip.Country
+		f.TravellerName, f.Country, f.TravellerEmail = trip.TravellerName, trip.Country, trip.TravellerEmail
 		return f
 	}
 	inv1 := FinanceInvoiceItem{Number: "EMAILTEST-001", CostType: "Air Ticket", Month: "December", Currency: "USD", Amount: 100}
@@ -218,7 +219,8 @@ func TestWritePreviews(t *testing.T) {
 //
 //	EMAIL_SEND_SAMPLES=true IS_LIVE_EMAILS=false EMAIL_TEST_RECIPIENTS=me@wso2.com \
 //	EMAIL_SERVICE_URL=... OUTBOUND_TOKEN_URL=... OUTBOUND_CLIENT_ID=... OUTBOUND_CLIENT_SECRET=... \
-//	EMAIL_ALLOCATIONS_FROM=... EMAIL_TRAVEL_FROM=... go test ./internal/email -run TestSendSamples -v
+//	EMAIL_ALLOCATIONS_FROM=... EMAIL_TRAVEL_FROM=... \
+//	[HR_ENTITY_URL=... EMAIL_SAMPLE_PHOTO_EMAIL=someone@wso2.com] go test ./internal/email -run TestSendSamples -v
 func TestSendSamples(t *testing.T) {
 	if os.Getenv("EMAIL_SEND_SAMPLES") != "true" {
 		t.Skip("EMAIL_SEND_SAMPLES is not true")
@@ -242,6 +244,18 @@ func TestSendSamples(t *testing.T) {
 		From:           map[App]string{AppAllocations: os.Getenv("EMAIL_ALLOCATIONS_FROM"), AppTravel: os.Getenv("EMAIL_TRAVEL_FROM")},
 		TestRecipients: recipients,
 	}, rest.New("email", url, oauth))
+	// EMAIL_SAMPLE_PHOTO_EMAIL (with HR_ENTITY_URL) shows that person's real
+	// photo, read from the HR Entity, for the sample consultant. Nothing is
+	// stored or committed: the photo is fetched for each run.
+	if who := strings.TrimSpace(os.Getenv("EMAIL_SAMPLE_PHOTO_EMAIL")); who != "" {
+		hr := hrentity.New(strings.TrimSpace(os.Getenv("HR_ENTITY_URL")), oauth)
+		sender.WithPhotos(NewPhotoFetcher(func(ctx context.Context, addr string) (string, error) {
+			if addr == "consultant@example.com" {
+				addr = who
+			}
+			return hr.Thumbnail(ctx, addr)
+		}))
+	}
 	// EMAIL_SAMPLES_ONLY (comma-separated sample names) sends just those.
 	only := map[string]bool{}
 	for _, n := range strings.Split(os.Getenv("EMAIL_SAMPLES_ONLY"), ",") {

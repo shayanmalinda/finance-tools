@@ -132,7 +132,7 @@ const travelCCRole = "the traveller, when traveller copies are on"
 // travelDetails is the summary of a trip and its visa (empty rows are left out).
 func travelDetails(t TravelTrip, v TravelVisa, agentName string) string {
 	return detailsSection("Trip",
-		row{"Job Number", t.JobNumber}, row{"Traveller", joinNonEmpty(" ", t.TravellerName)},
+		row{"Job Number", t.JobNumber}, personRow("Traveller", joinNonEmpty(" ", t.TravellerName), t.TravellerEmail),
 		row{"Dates", dateRange(t.StartDate, t.EndDate)},
 		row{"Destination", joinNonEmpty(", ", t.City, t.Country)},
 		row{"Customer", t.Customer}, row{"Travel Agent", agentName}) +

@@ -106,7 +106,7 @@ func FinanceTravelMessage(r FinanceRecipients, kind, jobNumber, travellerCompany
 		ccRoles = []string{"the finance contacts for the traveller's company (the finance team if none)"}
 	}
 	link := strings.TrimRight(r.AppBaseURL, "/") + "/finance/engagement-app/travel-requests/" + url.PathEscape(jobNumber) + "/" + tab
-	details := detailsSection("Trip", row{"Job Number", jobNumber}, row{"Traveller", items.TravellerName},
+	details := detailsSection("Trip", row{"Job Number", jobNumber}, personRow("Traveller", items.TravellerName, items.TravellerEmail),
 		row{"Destination", items.Country}, row{"Traveller Company", strings.TrimSpace(strings.Trim(strings.TrimSpace(travellerCompany), `"`))}) + financeItemsHTML(items)
 	return Message{
 		App:        AppTravel,
@@ -159,6 +159,8 @@ type FinanceItems struct {
 	Reason string
 	// TravellerName and Country name the trip in the subject ("Jane Doe to Sri Lanka").
 	TravellerName, Country string
+	// TravellerEmail picks the traveller's photo in the details.
+	TravellerEmail string
 	// AgencyName is the trip's travel agency, the greeting of a rejection
 	// when the rejected invoices name no agency of their own.
 	AgencyName string

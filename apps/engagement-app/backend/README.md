@@ -114,6 +114,14 @@ EMAIL_ALLOCATIONS_FROM=... EMAIL_TRAVEL_FROM=... \
 go test -count=1 -run TestSendSamples -v ./internal/email
 ```
 
+Emails show the person's profile photo before their name (Traveller and
+Consultant rows). The backend reads the HR Entity's `employeeThumbnail`
+(a data URI or an https URL), downloads it (4 s, at most 200 KB, PNG, JPEG or
+GIF, public https hosts only) and attaches it inline; any failure leaves the
+photo out and the email is still sent. To see a real photo in the samples, add
+`HR_ENTITY_URL=...` and `EMAIL_SAMPLE_PHOTO_EMAIL=someone@wso2.com` (their photo
+stands in for the sample consultant).
+
 ## Dashboard cache
 
 The dashboard keeps what is slow to build in memory, in each pod, so when one user loads it the next users get it at once (`DASHBOARD_CACHE_TTL`, default 1 hour, `0` turns it off).

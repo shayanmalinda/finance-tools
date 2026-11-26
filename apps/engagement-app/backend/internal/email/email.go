@@ -111,6 +111,8 @@ type HTTPSender struct {
 	rest  *rest.Client
 	now   func() time.Time
 	audit AuditFunc
+	// photos finds the profile photos shown in the details (nil: none).
+	photos PhotoSource
 }
 
 // New returns an HTTPSender. client authenticates to the email service
@@ -127,7 +129,8 @@ type payload struct {
 	From     string   `json:"from"`
 	Subject  string   `json:"subject"`
 	Template string   `json:"template"`
-	// Attachments carries the inline logos (see logoAttachments).
+	// Attachments carries the inline logos (see logoAttachments) and the
+	// profile photos the email shows.
 	Attachments []attachment `json:"attachments,omitempty"`
 }
 
@@ -136,6 +139,13 @@ type payload struct {
 // emails are disabled, never records.
 func (s *HTTPSender) WithAudit(f AuditFunc) *HTTPSender {
 	s.audit = f
+	return s
+}
+
+// WithPhotos shows the profile photos src finds before the names in the
+// details. A photo that cannot be found never stops an email.
+func (s *HTTPSender) WithPhotos(src PhotoSource) *HTTPSender {
+	s.photos = src
 	return s
 }
 
@@ -176,7 +186,9 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 		return err
 	}
 	p.Template = base64.StdEncoding.EncodeToString([]byte(page))
-	p.Attachments = logoAttachments()
+	page, photoAtts := inlinePhotos(ctx, s.photos, page)
+	p.Template = base64.StdEncoding.EncodeToString([]byte(page))
+	p.Attachments = append(logoAttachments(), photoAtts...)
 	if err := s.rest.Post(ctx, "/send-email", p, nil); err != nil {
 		slog.ErrorContext(ctx, "email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
 		s.record(ctx, m, err)

@@ -276,7 +276,7 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 		facts.BusinessUnit, facts.ProductUnit, facts.SubRegion = f.BusinessUnit, f.ProductUnit, f.SubRegion
 	}
 	details := detailsSection("Allocation",
-		row{"Consultant", who}, row{"Dates", dateRange(d.StartDate, d.EndDate)},
+		personRow("Consultant", who, email), row{"Dates", dateRange(d.StartDate, d.EndDate)},
 		row{"Allocation Remarks", d.AllocationComment}, row{"Travel Readiness", readiness})
 	if visaData != "" {
 		details += sectionTitle("Visa") + visaData

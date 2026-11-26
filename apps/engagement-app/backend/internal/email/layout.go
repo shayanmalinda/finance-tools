@@ -49,6 +49,15 @@ const (
 // row is one label and value of a details block; value is plain text.
 type row struct{ label, value string }
 
+// personRow is a row naming a person. Its value starts with the photo marker
+// (see inlinePhotos), which detailsSection keeps out of the HTML escaping.
+func personRow(label, name, addr string) row {
+	if emptyValue(name) {
+		return row{label, name}
+	}
+	return row{label, personMarker(addr) + name}
+}
+
 // emptyValue reports a value a block leaves out instead of showing "N/A".
 func emptyValue(v string) bool {
 	v = strings.TrimSpace(v)
@@ -81,10 +90,20 @@ func detailsSection(title string, rows ...row) string {
 			rule = ""
 		}
 		fmt.Fprintf(&b, "\t<tr class=\"ea-row\">\n\t\t<td class=\"ea-label\" width=\"38%%\" style=\"%s%s\">%s</td>\n\t\t<td class=\"ea-value\" style=\"%s%s\">%s</td>\n\t</tr>\n",
-			layLabel, rule, html.EscapeString(r.label), layValue, rule, html.EscapeString(strings.TrimSpace(r.value)))
+			layLabel, rule, html.EscapeString(r.label), layValue, rule, valueHTML(r.value))
 	}
 	b.WriteString("</table>\n")
 	return b.String()
+}
+
+// valueHTML escapes a row value, keeping a leading photo marker as it is.
+func valueHTML(v string) string {
+	v = strings.TrimSpace(v)
+	marker := ""
+	if loc := photoMarkerRe.FindStringIndex(v); loc != nil && loc[0] == 0 {
+		marker, v = v[:loc[1]], v[loc[1]:]
+	}
+	return marker + html.EscapeString(v)
 }
 
 // greetingHTML is "Hi Name," ("Hi," when the name is unknown).

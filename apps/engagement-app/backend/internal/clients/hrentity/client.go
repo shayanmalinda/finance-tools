@@ -153,6 +153,33 @@ func (c *HTTPClient) SearchEmployees(ctx context.Context, search string, statuse
 	return data.Employees, nil
 }
 
+const thumbnailQuery = `query employeeThumbnail($email: String!) { employee(email: $email) { employeeThumbnail } }`
+
+// ThumbnailReader is the optional part of Client that reads an employee's
+// profile photo (a data URI or an https URL; "" when HR has none). It is a
+// separate query, so the other employee reads stay as light as they were.
+type ThumbnailReader interface {
+	Thumbnail(ctx context.Context, email string) (string, error)
+}
+
+var _ ThumbnailReader = (*HTTPClient)(nil)
+
+// Thumbnail implements ThumbnailReader.
+func (c *HTTPClient) Thumbnail(ctx context.Context, email string) (string, error) {
+	var data struct {
+		Employee *struct {
+			EmployeeThumbnail *string `json:"employeeThumbnail"`
+		} `json:"employee"`
+	}
+	if err := c.query(ctx, thumbnailQuery, map[string]any{"email": strings.TrimSpace(email)}, &data); err != nil {
+		return "", err
+	}
+	if data.Employee == nil || data.Employee.EmployeeThumbnail == nil {
+		return "", nil
+	}
+	return *data.Employee.EmployeeThumbnail, nil
+}
+
 const reportsToQuery = `query employeeQuery($email: String!) { employee(email: $email) { reportsToEmail } }`
 
 // orgDataQuery is the allocation BFF orgDataQuery (three levels).
