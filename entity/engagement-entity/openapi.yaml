@@ -1129,20 +1129,9 @@ paths:
       - name: sort
         in: query
         description: One column sort, optional; a leading `-` is descending, every sort ends
-          with the id as a tiebreak. Empty or unknown keeps the expiry-ascending order.
+          with the id as a tiebreak. Empty or unknown keeps the expiry-ascending order. Recognized keys are traveller, country, visaType, validFrom, expiry.
         schema:
           type: string
-          enum:
-          - traveller
-          - -traveller
-          - country
-          - -country
-          - visaType
-          - -visaType
-          - validFrom
-          - -validFrom
-          - expiry
-          - -expiry
       - name: limit
         in: query
         schema:
@@ -1292,20 +1281,9 @@ paths:
       - name: sort
         in: query
         description: One column sort, optional; a leading `-` is descending, every sort ends
-          with the id as a tiebreak. Empty or unknown keeps the expiry-ascending order.
+          with the id as a tiebreak. Empty or unknown keeps the expiry-ascending order. Recognized keys are traveller, type, country, issued, expiry.
         schema:
           type: string
-          enum:
-          - traveller
-          - -traveller
-          - type
-          - -type
-          - country
-          - -country
-          - issued
-          - -issued
-          - expiry
-          - -expiry
       - name: limit
         in: query
         schema:
@@ -1753,20 +1731,9 @@ paths:
       - name: sort
         in: query
         description: One column sort, optional; a leading `-` is descending, every sort ends
-          with the id as a tiebreak. Empty or unknown keeps the newest-first order.
+          with the id as a tiebreak. Empty or unknown keeps the newest-first order. Recognized keys are invoiceNumber, jobNumber, costType, addedDate, status.
         schema:
           type: string
-          enum:
-          - invoiceNumber
-          - -invoiceNumber
-          - jobNumber
-          - -jobNumber
-          - costType
-          - -costType
-          - addedDate
-          - -addedDate
-          - status
-          - -status
       - name: limit
         in: query
         description: 0 or absent - every match (up to 10000).
@@ -2018,18 +1985,9 @@ paths:
       - name: sort
         in: query
         description: One column sort, optional; a leading `-` is descending, every sort ends
-          with the id as a tiebreak. Empty or unknown keeps the newest-first order.
+          with the id as a tiebreak. Empty or unknown keeps the newest-first order. Recognized keys are number, jobNumber, addedDate, status.
         schema:
           type: string
-          enum:
-          - number
-          - -number
-          - jobNumber
-          - -jobNumber
-          - addedDate
-          - -addedDate
-          - status
-          - -status
       - name: limit
         in: query
         schema:
@@ -2429,13 +2387,15 @@ paths:
       - name: from
         in: query
         description: Required unless `jobNumber` is given. With `jobNumber` and neither `from` nor `to`,
-          every date of those jobs is read.
+          every date of those jobs is read. Supply `from` and `to` together or omit both; one
+          without the other is rejected.
         schema:
           type: string
           format: date
       - name: to
         in: query
-        description: Required unless `jobNumber` is given (see `from`). At most 731 days after from.
+        description: Required unless `jobNumber` is given (see `from`); supply with `from` or omit both.
+          At most 731 days after from.
         schema:
           type: string
           format: date
@@ -3243,24 +3203,6 @@ components:
             sort with an optional leading `-` for descending: engagements take id, type, country, startDate,
             requestStatus, engagementStatus, created; approvals (pendingApproval) take id, type, country,
             startDate, businessUnit, created. Unknown values keep the default order.'
-          enum:
-          - current
-          - id
-          - -id
-          - type
-          - -type
-          - country
-          - -country
-          - startDate
-          - -startDate
-          - requestStatus
-          - -requestStatus
-          - engagementStatus
-          - -engagementStatus
-          - created
-          - -created
-          - businessUnit
-          - -businessUnit
         today:
           type: string
           format: date
@@ -3881,21 +3823,6 @@ components:
           type: string
           description: Optional column sort, a leading `-` is descending; unknown values keep the
             current-first order.
-          enum:
-          - id
-          - -id
-          - consultant
-          - -consultant
-          - engagement
-          - -engagement
-          - type
-          - -type
-          - startDate
-          - -startDate
-          - status
-          - -status
-          - created
-          - -created
         limit:
           type: integer
           minimum: 1
@@ -4286,19 +4213,7 @@ components:
           type: boolean
         sort:
           type: string
-          enum:
-          - current
-          - startDesc
-          - jobNumber
-          - -jobNumber
-          - startDate
-          - -startDate
-          - destination
-          - -destination
-          - agency
-          - -agency
-          - status
-          - -status
+          description: Optional column sort, a leading `-` is descending. Recognized keys are current, startDesc, jobNumber, startDate, destination, agency, status.
           default: current
           description: >-
             `current` lists trips ending today or later first (start date
