@@ -115,8 +115,7 @@ func main() {
 			From:           map[email.App]string{email.AppAllocations: e.AllocationsFrom, email.AppTravel: e.TravelFrom},
 			TestRecipients: testRecipients(e),
 			Suppressed:     e.Suppressed,
-		}, rest.New("email", e.ServiceURL, oauth)).WithAudit(service.EmailAuditor(entity, nil)).
-			WithPhotos(email.NewPhotoFetcher(thumbnailLookup(hr)))
+		}, rest.New("email", e.ServiceURL, oauth)).WithAudit(service.EmailAuditor(entity, nil))
 	} else {
 		slog.Warn("EMAIL_DISABLED is set: emails are logged, not sent")
 	}
@@ -193,16 +192,4 @@ func testRecipients(e config.EmailConfig) []string {
 		return nil
 	}
 	return e.TestRecipients
-}
-
-// thumbnailLookup reads profile photos from the HR Entity; without one (HR not
-// configured) no email shows photos.
-func thumbnailLookup(hr hrentity.Client) email.ThumbnailLookup {
-	tr, ok := hr.(hrentity.ThumbnailReader)
-	return func(ctx context.Context, addr string) (string, error) {
-		if !ok {
-			return "", nil
-		}
-		return tr.Thumbnail(ctx, addr)
-	}
 }

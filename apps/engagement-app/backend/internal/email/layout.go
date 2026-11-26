@@ -38,8 +38,8 @@ const (
 	layText    = layFont + ` font-size: 15px; line-height: 24px; color: ` + colInk + `;`
 	laySection = `margin: 28px 0 12px; ` + layFont + ` font-size: 13px; line-height: 16px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: ` + colBurn + `;`
 	layDetails = `width: 100%; border-collapse: separate; border-radius: 6px; background-color: ` + colPaper + `;`
-	layLabel   = `padding: 11px 16px; ` + layFont + ` font-size: 14px; line-height: 20px; color: ` + colSlate + `; vertical-align: top;`
-	layValue   = `padding: 11px 16px; ` + layFont + ` font-size: 15px; line-height: 20px; font-weight: 500; color: ` + colInk + `; vertical-align: top; word-break: break-word;`
+	layLabel   = `padding: 11px 16px; ` + layFont + ` font-size: 14px; line-height: 20px; color: ` + colSlate + `; vertical-align: middle;`
+	layValue   = `padding: 11px 16px; ` + layFont + ` font-size: 15px; line-height: 20px; font-weight: 500; color: ` + colInk + `; vertical-align: middle; word-break: break-word;`
 	layRule    = ` border-bottom: 2px solid ` + colWhite + `;`
 	layTable   = `width: 100%; border-collapse: collapse; ` + layFont + ` font-size: 14px; line-height: 20px; color: ` + colInk + `;`
 	layTh      = `padding: 9px 10px; background-color: ` + colPaper + `; font-size: 13px; font-weight: 600; color: ` + colSlate + `; text-align: left; border-bottom: 2px solid ` + colWhite + `;`
@@ -47,18 +47,18 @@ const (
 )
 
 // row is one label and value of a details block. value is plain text (a
-// string, always HTML-escaped) or a person (see personRow); only a person
-// gets an avatar, so no text can ever add markup or an image.
+// string) or a person (see personRow); every text in either is HTML-escaped,
+// so no value can add markup.
 type row struct {
 	label string
 	value any
 }
 
-// person is a person shown with an avatar, their name and their address.
+// person is a person shown with their name and their address.
 type person struct{ name, addr string }
 
-// personRow is a row naming a person: avatar on the left, the full name and
-// the address below it on the right. Either may be unknown.
+// personRow is a row naming a person: the full name, with the address below
+// it. Either may be unknown.
 func personRow(label, name, addr string) row {
 	name, addr = strings.TrimSpace(name), strings.TrimSpace(addr)
 	if emptyValue(name) || strings.EqualFold(name, addr) {
@@ -89,23 +89,17 @@ func (r row) valueHTML() string {
 	return ""
 }
 
-// html is the person block: a small table (no flex) with the avatar on the
-// left and the name over the address on the right. The avatar is a marker
-// that inlinePhotos turns into the photo or the initials circle.
+// html is the person block: the name, and under it the address in a smaller
+// Slate line (the address alone when the name is unknown). Both are escaped.
 func (p person) html() string {
-	avatar := initialsCircle(initialsOf(p.name, p.addr))
+	if p.name == "" {
+		return html.EscapeString(p.addr)
+	}
+	out := html.EscapeString(p.name)
 	if !emptyValue(p.addr) {
-		avatar = personMarker(p.addr, initialsOf(p.name, p.addr))
+		out += `<br><span style="font-size: 13px; line-height: 18px; font-weight: 400; color: ` + colSlate + `;">` + html.EscapeString(p.addr) + `</span>`
 	}
-	main, sub := p.name, ""
-	if main == "" {
-		main = p.addr
-	} else if !emptyValue(p.addr) {
-		sub = `<br><span style="font-size: 13px; line-height: 18px; font-weight: 400; color: ` + colSlate + `;">` + html.EscapeString(p.addr) + `</span>`
-	}
-	return `<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>` +
-		fmt.Sprintf(`<td width="%d" valign="middle" style="width: %dpx; padding: 0 10px 0 0;">%s</td>`, photoSize+10, photoSize+10, avatar) +
-		`<td valign="middle" style="` + layValue + ` padding: 0;">` + html.EscapeString(main) + sub + `</td></tr></table>`
+	return out
 }
 
 // emptyValue reports a value a block leaves out instead of showing "N/A".
@@ -139,7 +133,7 @@ func detailsSection(title string, rows ...row) string {
 		if i == len(keep)-1 {
 			rule = ""
 		}
-		fmt.Fprintf(&b, "\t<tr class=\"ea-row\">\n\t\t<td class=\"ea-label\" width=\"38%%\" style=\"%s%s\">%s</td>\n\t\t<td class=\"ea-value\" style=\"%s%s\">%s</td>\n\t</tr>\n",
+		fmt.Fprintf(&b, "\t<tr class=\"ea-row\">\n\t\t<td class=\"ea-label\" width=\"38%%\" valign=\"middle\" style=\"%s%s\">%s</td>\n\t\t<td class=\"ea-value\" valign=\"middle\" style=\"%s%s\">%s</td>\n\t</tr>\n",
 			layLabel, rule, html.EscapeString(r.label), layValue, rule, r.valueHTML())
 	}
 	b.WriteString("</table>\n")

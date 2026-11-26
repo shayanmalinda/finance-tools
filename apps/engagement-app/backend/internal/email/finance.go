@@ -159,7 +159,7 @@ type FinanceItems struct {
 	Reason string
 	// TravellerName and Country name the trip in the subject ("Jane Doe to Sri Lanka").
 	TravellerName, Country string
-	// TravellerEmail picks the traveller's photo in the details.
+	// TravellerEmail is shown under the traveller's name in the details.
 	TravellerEmail string
 	// AgencyName is the trip's travel agency, the greeting of a rejection
 	// when the rejected invoices name no agency of their own.
