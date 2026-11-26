@@ -114,8 +114,8 @@ EMAIL_ALLOCATIONS_FROM=... EMAIL_TRAVEL_FROM=... \
 go test -count=1 -run TestSendSamples -v ./internal/email
 ```
 
-Emails show the person's profile photo before their name (Traveller and
-Consultant rows). The backend reads the HR Entity's `employeeThumbnail`
+Emails show a person block (photo or initials circle, the name and the address) for the
+Traveller, Consultant and Requested By rows. The backend reads the HR Entity's `employeeThumbnail`
 (a data URI or an https URL), downloads it (4 s, at most 200 KB, PNG, JPEG or
 GIF, public https hosts only) and attaches it inline; any failure leaves the
 photo out and the email is still sent. To see a real photo in the samples, add

@@ -209,7 +209,7 @@ func EngagementMessage(ev EngagementEvent, e EngagementEmailData, r EngagementRe
 		Address: e.Address, Start: e.StartDate, End: e.EndDate, Contact: e.CustomerContact, Domain: e.BusinessDomain,
 		OpportunityOwner: e.OpportunityOwner, TechnicalOwner: e.TechnicalOwner, Scope: e.EngagementScope,
 		Comment: e.Comment, BusinessUnit: e.BusinessUnit, ProductUnit: e.ProductUnit, SubRegion: e.SubRegion,
-		ContractsSigned: e.ContractsSigned, Kind: e.EngagementTypeID}
+		ContractsSigned: e.ContractsSigned, Kind: e.EngagementTypeID, Requester: e.Requester}
 	content := map[string]string{
 		"title":         action,
 		"description":   html.EscapeString(description),

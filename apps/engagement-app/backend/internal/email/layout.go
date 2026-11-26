@@ -46,16 +46,66 @@ const (
 	layTd      = `padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid ` + colPaper + `;`
 )
 
-// row is one label and value of a details block; value is plain text.
-type row struct{ label, value string }
+// row is one label and value of a details block. value is plain text (a
+// string, always HTML-escaped) or a person (see personRow); only a person
+// gets an avatar, so no text can ever add markup or an image.
+type row struct {
+	label string
+	value any
+}
 
-// personRow is a row naming a person. Its value starts with the photo marker
-// (see inlinePhotos), which detailsSection keeps out of the HTML escaping.
+// person is a person shown with an avatar, their name and their address.
+type person struct{ name, addr string }
+
+// personRow is a row naming a person: avatar on the left, the full name and
+// the address below it on the right. Either may be unknown.
 func personRow(label, name, addr string) row {
-	if emptyValue(name) {
-		return row{label, name}
+	name, addr = strings.TrimSpace(name), strings.TrimSpace(addr)
+	if emptyValue(name) || strings.EqualFold(name, addr) {
+		name = ""
 	}
-	return row{label, personMarker(addr) + name}
+	return row{label, person{name, addr}}
+}
+
+// empty reports a row a block leaves out.
+func (r row) empty() bool {
+	switch v := r.value.(type) {
+	case string:
+		return emptyValue(v)
+	case person:
+		return v.name == "" && emptyValue(v.addr)
+	}
+	return true
+}
+
+// valueHTML is the content of a row's value cell, every text HTML-escaped.
+func (r row) valueHTML() string {
+	switch v := r.value.(type) {
+	case string:
+		return html.EscapeString(strings.TrimSpace(v))
+	case person:
+		return v.html()
+	}
+	return ""
+}
+
+// html is the person block: a small table (no flex) with the avatar on the
+// left and the name over the address on the right. The avatar is a marker
+// that inlinePhotos turns into the photo or the initials circle.
+func (p person) html() string {
+	avatar := initialsCircle(initialsOf(p.name, p.addr))
+	if !emptyValue(p.addr) {
+		avatar = personMarker(p.addr, initialsOf(p.name, p.addr))
+	}
+	main, sub := p.name, ""
+	if main == "" {
+		main = p.addr
+	} else if !emptyValue(p.addr) {
+		sub = `<br><span style="font-size: 13px; line-height: 18px; font-weight: 400; color: ` + colSlate + `;">` + html.EscapeString(p.addr) + `</span>`
+	}
+	return `<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>` +
+		fmt.Sprintf(`<td width="%d" valign="middle" style="width: %dpx; padding: 0 10px 0 0;">%s</td>`, photoSize+10, photoSize+10, avatar) +
+		`<td valign="middle" style="` + layValue + ` padding: 0;">` + html.EscapeString(main) + sub + `</td></tr></table>`
 }
 
 // emptyValue reports a value a block leaves out instead of showing "N/A".
@@ -74,7 +124,7 @@ func sectionTitle(title string) string {
 func detailsSection(title string, rows ...row) string {
 	var keep []row
 	for _, r := range rows {
-		if !emptyValue(r.value) {
+		if !r.empty() {
 			keep = append(keep, r)
 		}
 	}
@@ -90,20 +140,10 @@ func detailsSection(title string, rows ...row) string {
 			rule = ""
 		}
 		fmt.Fprintf(&b, "\t<tr class=\"ea-row\">\n\t\t<td class=\"ea-label\" width=\"38%%\" style=\"%s%s\">%s</td>\n\t\t<td class=\"ea-value\" style=\"%s%s\">%s</td>\n\t</tr>\n",
-			layLabel, rule, html.EscapeString(r.label), layValue, rule, valueHTML(r.value))
+			layLabel, rule, html.EscapeString(r.label), layValue, rule, r.valueHTML())
 	}
 	b.WriteString("</table>\n")
 	return b.String()
-}
-
-// valueHTML escapes a row value, keeping a leading photo marker as it is.
-func valueHTML(v string) string {
-	v = strings.TrimSpace(v)
-	marker := ""
-	if loc := photoMarkerRe.FindStringIndex(v); loc != nil && loc[0] == 0 {
-		marker, v = v[:loc[1]], v[loc[1]:]
-	}
-	return marker + html.EscapeString(v)
 }
 
 // greetingHTML is "Hi Name," ("Hi," when the name is unknown).
@@ -179,7 +219,7 @@ func subjectFor(action, id, name string) string {
 type engFacts struct {
 	ID, Customer, Project, Product, AllocationType, Code, Nature, Country, Address string
 	Start, End, Contact, Domain, OpportunityOwner, TechnicalOwner, Scope, Comment  string
-	BusinessUnit, ProductUnit, SubRegion                                           string
+	BusinessUnit, ProductUnit, SubRegion, Requester                                string
 	ContractsSigned                                                                bool
 	// Kind: 1 internal engagement, 5 marketing event, else customer.
 	Kind int
@@ -215,7 +255,7 @@ func (f engFacts) rows(withDates bool) []row {
 			row{"Opportunity Owner", f.OpportunityOwner}, row{"Technical Owner", f.TechnicalOwner},
 			row{"Contracts Signed", map[bool]string{true: "Yes", false: "No"}[f.ContractsSigned]})
 	}
-	return append(rows, row{"Scope", f.Scope}, row{"Comments", f.Comment})
+	return append(rows, personRow("Requested By", "", f.Requester), row{"Scope", f.Scope}, row{"Comments", f.Comment})
 }
 
 // title of the block: "Marketing Event" or "Engagement".

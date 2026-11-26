@@ -66,16 +66,65 @@ type PhotoSource interface {
 	Photo(ctx context.Context, addr string) (Photo, bool)
 }
 
-var photoMarkerRe = regexp.MustCompile(`<!-- \[PHOTO:([0-9a-f]+)\] -->`)
+var photoMarkerRe = regexp.MustCompile(`<!-- \[PHOTO:([0-9a-f]+):([A-Z0-9?]{1,2})\] -->`)
 
-// personMarker is the placeholder a person row carries in front of the name;
-// the address is hex-encoded so it can never break out of the comment.
-func personMarker(addr string) string {
+// personMarker is the avatar placeholder of a person block: the address is
+// hex-encoded so it can never break out of the comment, and the initials are
+// what shows when the person has no photo.
+func personMarker(addr, initials string) string {
 	addr = strings.ToLower(strings.TrimSpace(addr))
 	if addr == "" {
 		return ""
 	}
-	return "<!-- [PHOTO:" + hex.EncodeToString([]byte(addr)) + "] -->"
+	return "<!-- [PHOTO:" + hex.EncodeToString([]byte(addr)) + ":" + initials + "] -->"
+}
+
+// initialsOf is up to two ASCII capitals from the name (else the address),
+// "?" when there is none.
+func initialsOf(name, addr string) string {
+	var out []rune
+	letter := func(r rune) bool { return r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' }
+	words := strings.Fields(name)
+	for _, w := range []string{first(words), last(words)} {
+		if r := []rune(w); len(r) > 0 && letter(r[0]) {
+			out = append(out, []rune(strings.ToUpper(string(r[0])))[0])
+		}
+		if len(words) < 2 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		if r := []rune(strings.TrimSpace(addr)); len(r) > 0 && (letter(r[0]) || r[0] >= '0' && r[0] <= '9') {
+			out = append(out, []rune(strings.ToUpper(string(r[0])))[0])
+		}
+	}
+	if len(out) == 0 {
+		return "?"
+	}
+	return string(out)
+}
+
+func first(w []string) string {
+	if len(w) == 0 {
+		return ""
+	}
+	return w[0]
+}
+
+func last(w []string) string {
+	if len(w) == 0 {
+		return ""
+	}
+	return w[len(w)-1]
+}
+
+// initialsCircle is the avatar of a person without a photo: a Midnight Ink
+// circle with white initials (square in a client that ignores the radius).
+func initialsCircle(initials string) string {
+	return fmt.Sprintf(`<table role="presentation" width="%[1]d" height="%[1]d" cellspacing="0" cellpadding="0" border="0" style="width: %[1]dpx;">`+
+		`<tr><td width="%[1]d" height="%[1]d" align="center" valign="middle" bgcolor="%[2]s" style="width: %[1]dpx; height: %[1]dpx; border-radius: 50%%; `+
+		`background-color: %[2]s; %[3]s font-size: 12px; line-height: 14px; font-weight: 600; color: %[4]s;">%[5]s</td></tr></table>`,
+		photoSize, colInk, layFont, colWhite, html.EscapeString(initials))
 }
 
 // photoCID is the content ID of a person's inline photo.
@@ -87,8 +136,8 @@ func photoCID(addr string) string {
 // photoImg is the round photo shown before a name; a client that ignores the
 // border radius shows it square.
 func photoImg(cid string) string {
-	return fmt.Sprintf(`<img src="cid:%s" width="%d" height="%d" alt="" style="display: inline-block; width: %dpx; height: %dpx; `+
-		`border: 0; border-radius: 50%%; vertical-align: middle; margin: 0 10px 0 0;">`, html.EscapeString(cid), photoSize, photoSize, photoSize, photoSize)
+	return fmt.Sprintf(`<img src="cid:%s" width="%d" height="%d" alt="" style="display: block; width: %dpx; height: %dpx; `+
+		`border: 0; border-radius: 50%%;">`, html.EscapeString(cid), photoSize, photoSize, photoSize, photoSize)
 }
 
 func photoExt(contentType string) string {
@@ -103,7 +152,7 @@ func photoExt(contentType string) string {
 
 // inlinePhotos replaces the person markers in page: a known photo becomes an
 // inline image (and an attachment, once per person), any other marker is
-// removed. It never fails; the attachments are only the photos the page uses.
+// shown as the initials circle. It never fails; the attachments are only the photos the page uses.
 func inlinePhotos(ctx context.Context, src PhotoSource, page string) (string, []attachment) {
 	if !photoMarkerRe.MatchString(page) {
 		return page, nil
@@ -116,7 +165,8 @@ func inlinePhotos(ctx context.Context, src PhotoSource, page string) (string, []
 	found := map[string]string{} // hex address -> cid ("" when no photo)
 	var atts []attachment
 	page = photoMarkerRe.ReplaceAllStringFunc(page, func(marker string) string {
-		h := photoMarkerRe.FindStringSubmatch(marker)[1]
+		m := photoMarkerRe.FindStringSubmatch(marker)
+		h, initials := m[1], m[2]
 		cid, done := found[h]
 		if !done {
 			if raw, err := hex.DecodeString(h); err == nil && src != nil {
@@ -128,7 +178,7 @@ func inlinePhotos(ctx context.Context, src PhotoSource, page string) (string, []
 			found[h] = cid
 		}
 		if cid == "" {
-			return ""
+			return initialsCircle(initials)
 		}
 		return photoImg(cid)
 	})

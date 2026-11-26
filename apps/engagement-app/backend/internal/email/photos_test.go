@@ -166,3 +166,46 @@ func TestPhotoFetcher_DataURIAndRules(t *testing.T) {
 		}
 	}
 }
+
+// A value that merely looks like the photo marker is plain text: it is
+// escaped, adds no image and no attachment (only a person row has an avatar).
+func TestPhotos_MarkerTextInAValueIsEscaped(t *testing.T) {
+	evil := "<!-- [PHOTO:" + "6a616e654077736f322e636f6d" + ":JD] --><img src=\"cid:evil\">"
+	s, got, done := photoSender(t, fakePhotos{"jane@wso2.com": {Bytes: testPNG(t), ContentType: "image/png"}})
+	defer done()
+	m := Message{App: AppTravel, To: []string{"t@wso2.com"}, TemplateID: "noContent", Subject: "x",
+		Content: map[string]string{"details_html": detailsSection("Trip", row{"Job Number", evil}, row{"Customer", "Acme"})}}
+	if err := s.Send(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	page := decoded(t, *got)
+	if strings.Contains(page, "<img src=\"cid:evil\"") || strings.Contains(page, "cid:person-") || strings.Contains(page, "<!-- [PHOTO:") ||
+		!strings.Contains(page, "&lt;!-- [PHOTO:") || len(got.Attachments) != 2 {
+		t.Errorf("marker text was not escaped (%d attachments)", len(got.Attachments))
+	}
+}
+
+// The person block: avatar on the left, the name and, smaller in Slate, the
+// address under it; the address alone when the name is unknown.
+func TestPersonRow_Block(t *testing.T) {
+	both := detailsSection("Trip", personRow("Traveller", "Shayan <Malinda>", "shayan@wso2.com"))
+	for _, want := range []string{"Shayan &lt;Malinda&gt;", "shayan@wso2.com", colSlate, "<!-- [PHOTO:", ":S] -->"} {
+		if !strings.Contains(both, want) {
+			t.Errorf("block lacks %q: %s", want, both)
+		}
+	}
+	if strings.Index(both, "Shayan") > strings.Index(both, "shayan@wso2.com") {
+		t.Error("the address is not under the name")
+	}
+	only := detailsSection("Trip", personRow("Requested By", "", "req@wso2.com"))
+	if strings.Count(only, "req@wso2.com") != 1 || !strings.Contains(only, ":R] -->") {
+		t.Errorf("email-only block = %s", only)
+	}
+	if detailsSection("Trip", personRow("Traveller", "", "")) != "" {
+		t.Error("a person with no name and no address should be left out")
+	}
+	// Without an address there is no photo to look up: the initials show at once.
+	if b := detailsSection("Trip", personRow("Traveller", "Jane Doe", "")); strings.Contains(b, "[PHOTO:") || !strings.Contains(b, ">JD<") {
+		t.Errorf("no-address block = %s", b)
+	}
+}
