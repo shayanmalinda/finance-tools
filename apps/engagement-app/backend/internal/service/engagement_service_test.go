@@ -652,3 +652,66 @@ func TestReferenceOpportunities_FirstLineItemFailureStopsTheRest(t *testing.T) {
 		t.Errorf("line item calls = %d, want at most 4", n)
 	}
 }
+
+func TestEngagementList_IncludePending(t *testing.T) {
+	entity := engagementTestEntity()
+	svc := engagementTestService(entity, &engagementFakeMail{})
+	ctx := context.Background()
+	admin := engagementPerms("a@wso2.com", engagementAdmin, nil)
+
+	// Absent flag: the query is the legacy one.
+	if _, err := svc.List(ctx, admin, EngagementListFilter{Segment: "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if entity.search.IncludePending || entity.search.PendingApproval || entity.search.PendingCreator != "" {
+		t.Errorf("absent flag: search = %+v", entity.search)
+	}
+	// engRole: every pending row of the segment.
+	if _, err := svc.List(ctx, admin, EngagementListFilter{Segment: "marketing", IncludePending: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !entity.search.IncludePending || entity.search.PendingApproval || !reflect.DeepEqual(entity.search.EngagementTypeIDs, []int{5}) {
+		t.Errorf("engRole: search = %+v", entity.search)
+	}
+	// Customer engagements are never pending: the flag changes nothing.
+	if _, err := svc.List(ctx, admin, EngagementListFilter{Segment: "customer", IncludePending: true}); err != nil {
+		t.Fatal(err)
+	}
+	if entity.search.IncludePending {
+		t.Errorf("customer: search = %+v", entity.search)
+	}
+	// Create-only (12), no engRole: only the caller's own pending events.
+	creator := engagementPerms("c@wso2.com", []int{12}, nil)
+	page, err := svc.List(ctx, creator, EngagementListFilter{Segment: "marketing", IncludePending: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := entity.search
+	if !s.PendingApproval || s.PendingCreator != "c@wso2.com" || s.IncludeConsultants || !reflect.DeepEqual(s.EngagementTypeIDs, []int{5}) {
+		t.Errorf("creator: search = %+v", s)
+	}
+	if !reflect.DeepEqual(page.SegmentCounts, map[string]int{"marketing": 1}) {
+		t.Errorf("creator counts = %v", page.SegmentCounts)
+	}
+	// Without the flag the same caller sees nothing, as today.
+	if _, err := svc.List(ctx, creator, EngagementListFilter{Segment: "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if entity.search.PendingApproval || !reflect.DeepEqual(entity.search.EngagementTypeIDs, []int{0}) {
+		t.Errorf("creator without flag: search = %+v", entity.search)
+	}
+	// Approver (29) without engRole: every pending event, not just their own.
+	if _, err := svc.List(ctx, engagementPerms("x@wso2.com", []int{12, 29}, nil), EngagementListFilter{Segment: "marketing", IncludePending: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !entity.search.PendingApproval || entity.search.PendingCreator != "" {
+		t.Errorf("approver: search = %+v", entity.search)
+	}
+	// An agent never sees the list.
+	var fe *apierror.ForbiddenError
+	agent := engagementPerms("c@agency.com", engagementAdmin, []int{18})
+	agent.Agency = &domain.TravelAgency{ID: 1, Name: "Classic"}
+	if _, err := svc.List(ctx, agent, EngagementListFilter{Segment: "marketing", IncludePending: true}); !errors.As(err, &fe) {
+		t.Errorf("agent: err %v", err)
+	}
+}

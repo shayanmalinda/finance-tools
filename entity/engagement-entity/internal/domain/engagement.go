@@ -109,7 +109,14 @@ const (
 type EngagementSearchRequest struct {
 	// PendingApproval true lists only Pending Approval engagements (the
 	// legacy approval search); false lists every other engagement.
-	PendingApproval   bool     `json:"pendingApproval"`
+	PendingApproval bool `json:"pendingApproval"`
+	// IncludePending true adds the Pending Approval engagements to the
+	// "every other engagement" list. Absent or false keeps the legacy list
+	// (no Pending Approval). Ignored when PendingApproval is true.
+	IncludePending bool `json:"includePending"`
+	// PendingCreator, with PendingApproval true, keeps only the Pending
+	// Approval engagements created by this person (the creator's own).
+	PendingCreator    string   `json:"pendingCreator"`
 	EngagementTypeIDs []int    `json:"engagementTypeIds"`
 	Search            string   `json:"search"`
 	Accounts          []string `json:"accounts"`

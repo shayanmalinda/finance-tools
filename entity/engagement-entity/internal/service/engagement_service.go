@@ -144,7 +144,7 @@ func (s *engagementService) Search(ctx context.Context, req domain.EngagementSea
 	if err := s.enrich(ctx, items, req.IncludeConsultants); err != nil {
 		return domain.EngagementSearchResponse{}, err
 	}
-	counts, err := s.repo.TypeCounts(ctx, req.PendingApproval)
+	counts, err := s.repo.TypeCounts(ctx, req)
 	if err != nil {
 		return domain.EngagementSearchResponse{}, err
 	}

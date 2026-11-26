@@ -54,9 +54,12 @@ type EngagementListFilter struct {
 	EndTo              string
 	// Sort is one of domain.EngagementSorts; empty or unknown keeps the
 	// current-first order.
-	Sort   string
-	Limit  int
-	Offset int
+	Sort string
+	// IncludePending adds the Pending Approval engagements the caller may
+	// view to the list; false keeps the legacy list without them.
+	IncludePending bool
+	Limit          int
+	Offset         int
 }
 
 // EngagementService is the engagements and approvals screens.
@@ -240,8 +243,11 @@ func engagementSegmentCounts(p domain.Perms, typeCounts map[int]int) map[string]
 	return out
 }
 
-// List is the Engagements list: one segment, Pending Approval left out (it
-// is on Approvals), only engagements the caller's engRole covers.
+// List is the Engagements list: one segment, only engagements the caller's
+// engRole covers. Pending Approval is left out (it is on Approvals) unless
+// IncludePending asks for the ones the caller may view: all of them with
+// engRole, else (internal and marketing only) all of a type the caller
+// approves (Allocations 26 / 29) or the caller's own.
 func (s *engagementService) List(ctx context.Context, p domain.Perms, f EngagementListFilter) (domain.EngagementPage, error) {
 	if err := engagementCheckKind(f.Segment); err != nil {
 		return domain.EngagementPage{}, err
@@ -275,6 +281,7 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 		}
 		types = keep
 	}
+	allowedTypes := types
 	if !engagementRole(p, f.Segment) {
 		// The segment is shown (for Create) but its rows need engRole.
 		types = []int{0}
@@ -286,17 +293,57 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 		Sort: engagementSort(f.Sort, domain.EngagementSorts, "current"), Today: s.now().UTC().Format("2006-01-02"),
 		IncludeConsultants: engagementSeesConsultants(p, f.Segment), Limit: f.Limit, Offset: f.Offset,
 	}
+	pendingOnly := false
+	if f.IncludePending && f.Segment != domain.EngagementKindCustomer {
+		if engagementRole(p, f.Segment) {
+			q.IncludePending = true
+		} else if approver, creator := engagementPendingViewer(p, f.Segment); approver || creator {
+			// No engRole, so no regular rows: only the Pending Approval ones
+			// the caller may view (a creator sees only their own).
+			pendingOnly = true
+			q.PendingApproval, q.IncludeConsultants, q.EngagementTypeIDs = true, false, allowedTypes
+			if !approver {
+				q.PendingCreator = p.Email
+			}
+		}
+	}
 	res, err := s.entity.EngagementSearch(ctx, q)
 	if err != nil {
 		return domain.EngagementPage{}, err
 	}
 	page := domain.EngagementPage{Items: make([]domain.EngagementSummary, 0, len(res.Items)), Total: res.Total,
 		SegmentCounts: engagementSegmentCounts(p, res.TypeCounts)}
+	if pendingOnly {
+		// The counts are of the pending rows only: report just this segment.
+		n := 0
+		for _, t := range engagementSegmentTypes(f.Segment) {
+			n += res.TypeCounts[t]
+		}
+		page.SegmentCounts = map[string]int{f.Segment: n}
+	}
 	for _, r := range res.Items {
 		page.Items = append(page.Items, s.summary(p, r, true))
 	}
 	s.fillCampaigns(ctx, page.Items)
 	return page, nil
+}
+
+// engagementPendingViewer says how a caller without engRole may view Pending
+// Approval engagements of an internal or marketing segment: approver (all of
+// the type) or creator (their own, the engagement rules' creator scope).
+func engagementPendingViewer(p domain.Perms, segment string) (approver, creator bool) {
+	if p.IsAgent() || p.Email == "" {
+		return false, false
+	}
+	switch segment {
+	case domain.EngagementKindMarketing:
+		approver = p.Alloc.Has(29)
+	case domain.EngagementKindInternal:
+		approver = p.Alloc.Has(26)
+	default:
+		return false, false
+	}
+	return approver, true
 }
 
 // engagementSort keeps sort when it is a known column sort, else fallback.

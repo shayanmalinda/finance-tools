@@ -45,7 +45,7 @@ type EngagementBeforeCommit func(ctx context.Context, engagementID string, engag
 // Finance Entity (entity/modules/database/engagement.bal, funding_source.bal).
 type EngagementRepository interface {
 	Search(ctx context.Context, req domain.EngagementSearchRequest) ([]domain.Engagement, int, error)
-	TypeCounts(ctx context.Context, pendingApproval bool) (map[int]int, error)
+	TypeCounts(ctx context.Context, req domain.EngagementSearchRequest) (map[int]int, error)
 	Facets(ctx context.Context, engagementTypeIDs []int) (domain.EngagementFacetsResponse, error)
 	Get(ctx context.Context, id string) (domain.Engagement, error)
 	FundingSources(ctx context.Context, ids []string) (map[string][]domain.EngagementFundingSource, error)
@@ -152,16 +152,30 @@ func engagementBool(nb sql.NullBool) *bool {
 	return &b
 }
 
+// engagementBase is the status condition every search starts from: only
+// Pending Approval (approvals, optionally the creator's own), everything but
+// Pending Approval (the legacy list), or, with IncludePending, no condition.
+func engagementBase(req domain.EngagementSearchRequest) (string, []any) {
+	switch {
+	case req.PendingApproval && req.PendingCreator != "":
+		return `e.status = 'Pending Approval' AND LOWER(e.username) = LOWER(?)`, []any{req.PendingCreator}
+	case req.PendingApproval:
+		return `e.status = 'Pending Approval'`, nil
+	case req.IncludePending:
+		return "", nil
+	}
+	return `e.status != 'Pending Approval'`, nil
+}
+
 // engagementWhere builds the search WHERE clause. The base condition is the
 // legacy one: getEngagements excludes Pending Approval, the approval search
 // lists only it.
 func engagementWhere(req domain.EngagementSearchRequest) (string, []any) {
 	conds := []string{`e.id != ''`}
 	var args []any
-	if req.PendingApproval {
-		conds = append(conds, `e.status = 'Pending Approval'`)
-	} else {
-		conds = append(conds, `e.status != 'Pending Approval'`)
+	if c, a := engagementBase(req); c != "" {
+		conds = append(conds, c)
+		args = append(args, a...)
 	}
 	in := func(col string, vals []string) {
 		if len(vals) > 0 {
@@ -288,16 +302,16 @@ func (r *engagementRepo) Search(ctx context.Context, req domain.EngagementSearch
 	return out, total, rows.Err()
 }
 
-func (r *engagementRepo) TypeCounts(ctx context.Context, pendingApproval bool) (map[int]int, error) {
-	base := `e.status != 'Pending Approval'`
-	if pendingApproval {
-		base = `e.status = 'Pending Approval'`
+func (r *engagementRepo) TypeCounts(ctx context.Context, req domain.EngagementSearchRequest) (map[int]int, error) {
+	base, args := engagementBase(req)
+	if base != "" {
+		base = ` AND ` + base
 	}
 	rows, err := r.alloc.QueryContext(ctx, `SELECT aT.engagement_type, COUNT(*)
 		FROM engagement AS e
 		JOIN allocation_type AS aT ON e.allocation_type = aT.id
-		WHERE e.id != '' AND `+base+`
-		GROUP BY aT.engagement_type`)
+		WHERE e.id != ''`+base+`
+		GROUP BY aT.engagement_type`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("engagement.TypeCounts: %w", err)
 	}

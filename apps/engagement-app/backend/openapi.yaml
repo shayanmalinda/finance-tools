@@ -795,6 +795,10 @@ paths:
         - { name: startFrom, in: query, schema: { type: string, format: date } }
         - { name: startTo, in: query, schema: { type: string, format: date } }
         - { name: endTo, in: query, schema: { type: string, format: date } }
+        - name: includePending
+          in: query
+          description: Optional. `true` also lists the Pending Approval internal engagements and marketing events the caller may view (all of the segment with engRole; otherwise all of a type the caller approves, or the caller's own). Absent or any other value keeps the list without them.
+          schema: { type: boolean }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
       responses:

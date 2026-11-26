@@ -47,6 +47,8 @@ func (h *EngagementHandler) List(w http.ResponseWriter, r *http.Request) {
 		RequestStatuses: queryList(r, "requestStatus"), EngagementStatuses: queryList(r, "engagementStatus"),
 		BusinessUnits: queryList(r, "businessUnit"), Countries: queryList(r, "country"),
 		Consultants: r.URL.Query().Get("consultants"), Sort: strings.TrimSpace(r.URL.Query().Get("sort")),
+		// Optional and additive: only the exact value "true" turns it on.
+		IncludePending: r.URL.Query().Get("includePending") == "true",
 	}
 	var err error
 	if len(f.Search) > 200 {

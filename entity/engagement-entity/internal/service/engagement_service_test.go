@@ -42,7 +42,7 @@ func (f *engagementFakeRepo) Search(_ context.Context, req domain.EngagementSear
 	f.search = req
 	return []domain.Engagement{{ID: "E1"}}, 1, nil
 }
-func (f *engagementFakeRepo) TypeCounts(context.Context, bool) (map[int]int, error) {
+func (f *engagementFakeRepo) TypeCounts(context.Context, domain.EngagementSearchRequest) (map[int]int, error) {
 	return map[int]int{3: 1}, nil
 }
 func (f *engagementFakeRepo) FundingSources(_ context.Context, ids []string) (map[string][]domain.EngagementFundingSource, error) {

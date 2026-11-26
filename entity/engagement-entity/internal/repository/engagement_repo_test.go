@@ -109,7 +109,7 @@ func TestEngagementTypeCountsAndFacets(t *testing.T) {
 	mock, _, repo := engagementMocks(t)
 	mock.ExpectQuery(re(`WHERE e.id != '' AND e.status != 'Pending Approval' GROUP BY aT.engagement_type`)).
 		WillReturnRows(sqlmock.NewRows([]string{"t", "n"}).AddRow(1, 4).AddRow(5, 2).AddRow(nil, 9))
-	counts, err := repo.TypeCounts(context.Background(), false)
+	counts, err := repo.TypeCounts(context.Background(), domain.EngagementSearchRequest{})
 	if err != nil || counts[1] != 4 || counts[5] != 2 || len(counts) != 2 {
 		t.Fatalf("counts %v, err %v", counts, err)
 	}
@@ -377,5 +377,60 @@ func TestAddressReadsDecodeLegacyLineBreaks(t *testing.T) {
 	if !strings.Contains(engagementSelect(), decode) || !strings.Contains(allocationSelect, decode) ||
 		!strings.Contains(travelRequestColumns, "REPLACE(t.city, 'BR()', CHAR(10))") {
 		t.Error("an address read does not decode BR()")
+	}
+}
+
+func TestEngagementBase(t *testing.T) {
+	cases := []struct {
+		name string
+		req  domain.EngagementSearchRequest
+		cond string
+		args []any
+	}{
+		{"absent flag keeps the legacy list", domain.EngagementSearchRequest{}, `e.status != 'Pending Approval'`, nil},
+		{"includePending drops the status condition", domain.EngagementSearchRequest{IncludePending: true}, "", nil},
+		{"approvals", domain.EngagementSearchRequest{PendingApproval: true}, `e.status = 'Pending Approval'`, nil},
+		{"approvals win over includePending", domain.EngagementSearchRequest{PendingApproval: true, IncludePending: true},
+			`e.status = 'Pending Approval'`, nil},
+		{"creator's own pending", domain.EngagementSearchRequest{PendingApproval: true, PendingCreator: "a@wso2.com"},
+			`e.status = 'Pending Approval' AND LOWER(e.username) = LOWER(?)`, []any{"a@wso2.com"}},
+		{"creator without pendingApproval is ignored", domain.EngagementSearchRequest{PendingCreator: "a@wso2.com"},
+			`e.status != 'Pending Approval'`, nil},
+	}
+	for _, c := range cases {
+		cond, args := engagementBase(c.req)
+		if cond != c.cond || len(args) != len(c.args) || (len(args) > 0 && args[0] != c.args[0]) {
+			t.Errorf("%s: got %q %v", c.name, cond, args)
+		}
+	}
+}
+
+func TestEngagementSearch_IncludePendingWhere(t *testing.T) {
+	where, _ := engagementWhere(domain.EngagementSearchRequest{IncludePending: true, EngagementTypeIDs: []int{5}})
+	if strings.Contains(where, "Pending Approval") || !strings.Contains(where, "aT.engagement_type IN (?)") {
+		t.Errorf("includePending where: %s", where)
+	}
+	where, _ = engagementWhere(domain.EngagementSearchRequest{EngagementTypeIDs: []int{5}})
+	if !strings.Contains(where, `e.status != 'Pending Approval'`) {
+		t.Errorf("default where: %s", where)
+	}
+}
+
+func TestEngagementTypeCounts_IncludePendingAndCreator(t *testing.T) {
+	mock, _, repo := engagementMocks(t)
+	mock.ExpectQuery(re(`WHERE e.id != '' GROUP BY aT.engagement_type`)).
+		WillReturnRows(sqlmock.NewRows([]string{"t", "n"}).AddRow(5, 3))
+	counts, err := repo.TypeCounts(context.Background(), domain.EngagementSearchRequest{IncludePending: true})
+	if err != nil || counts[5] != 3 {
+		t.Fatalf("counts %v, err %v", counts, err)
+	}
+	mock.ExpectQuery(re(`WHERE e.id != '' AND e.status = 'Pending Approval' AND LOWER(e.username) = LOWER(?) GROUP BY`)).
+		WithArgs("a@wso2.com").WillReturnRows(sqlmock.NewRows([]string{"t", "n"}).AddRow(5, 1))
+	counts, err = repo.TypeCounts(context.Background(), domain.EngagementSearchRequest{PendingApproval: true, PendingCreator: "a@wso2.com"})
+	if err != nil || counts[5] != 1 {
+		t.Fatalf("counts %v, err %v", counts, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }

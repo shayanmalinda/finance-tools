@@ -264,7 +264,9 @@ paths:
       - Engagements
       summary: Search engagements (legacy getEngagements / getEngagementsForApprovalProcess)
       description: 'pendingApproval false lists every engagement that is not Pending Approval; true lists
-        only those. Multi-value filters are OR within, AND across. search matches id, account, title,
+        only those. includePending (optional, default false) adds the Pending Approval ones to the
+        pendingApproval false list; pendingCreator, with pendingApproval true, keeps only the ones created
+        by that person. Multi-value filters are OR within, AND across. search matches id, account, title,
         code, country and allocation type (and the creator for pendingApproval). Sort `current` (default):
         rows ending on or after `today` first by start ascending, then the rest by start descending; `created`:
         oldest first. typeCounts counts the base set per engagement type.'
@@ -3152,6 +3154,10 @@ components:
       properties:
         pendingApproval:
           type: boolean
+        includePending:
+          type: boolean
+        pendingCreator:
+          type: string
         engagementTypeIds:
           type: array
           items:
