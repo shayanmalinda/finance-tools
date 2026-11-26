@@ -242,8 +242,18 @@ func TestSendSamples(t *testing.T) {
 		From:           map[App]string{AppAllocations: os.Getenv("EMAIL_ALLOCATIONS_FROM"), AppTravel: os.Getenv("EMAIL_TRAVEL_FROM")},
 		TestRecipients: recipients,
 	}, rest.New("email", url, oauth))
+	// EMAIL_SAMPLES_ONLY (comma-separated sample names) sends just those.
+	only := map[string]bool{}
+	for _, n := range strings.Split(os.Getenv("EMAIL_SAMPLES_ONLY"), ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			only[n] = true
+		}
+	}
 	_, samples := previewSamples()
 	for _, s := range samples {
+		if len(only) > 0 && !only[s.name] {
+			continue
+		}
 		if err := sender.Send(context.Background(), s.m); err != nil {
 			t.Errorf("%s: %v", s.name, err)
 			continue

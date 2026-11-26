@@ -97,7 +97,7 @@ func Render(templateID string, content map[string]string, banner string) (string
 	if err != nil {
 		return "", err
 	}
-	// The shared top of every email: greeting, what happened, the one button.
+	// The shared top of every email: greeting and what happened.
 	get := func(k string) string {
 		for ck, v := range content {
 			if strings.EqualFold(ck, k) {
@@ -110,8 +110,10 @@ func Render(templateID string, content map[string]string, banner string) (string
 	if d := get("description"); d != "" {
 		top += fmt.Sprintf(`<p style="margin: 0 0 16px; %s">%s</p>`+"\n", layText, d)
 	}
+	// The one button comes after the details, so people read before acting.
+	button := ""
 	if link := get("action_link"); link != "" {
-		top += buttonHTML(get("action_label"), link)
+		button = buttonHTML(get("action_label"), link)
 	}
 	reason := ""
 	if r := get("reason"); r != "" {
@@ -122,7 +124,7 @@ func Render(templateID string, content map[string]string, banner string) (string
 		merged[k] = v
 	}
 	content = merged
-	page := strings.Replace(string(base), bodyMarker, bannerRow(banner)+top+string(body), 1)
+	page := strings.Replace(string(base), bodyMarker, bannerRow(banner)+top+string(body)+button, 1)
 	// Literal replacement in a fixed order (the service used a regex
 	// replace, where a "$" in a value is special, in map order).
 	keys := make([]string, 0, len(content))

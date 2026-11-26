@@ -55,9 +55,9 @@ func TestEngagementMessage_CreatedEvent(t *testing.T) {
 	if strings.Contains(page, "N/A") {
 		t.Error("an empty row shows N/A instead of being hidden")
 	}
-	// The button comes before the details.
-	if strings.Index(page, ">Review and Approve</a>") > strings.Index(page, ">Marketing Event<") {
-		t.Error("button is below the details")
+	// The button comes after the details.
+	if strings.Index(page, ">Review and Approve</a>") < strings.Index(page, ">Marketing Event<") {
+		t.Error("button is above the details")
 	}
 }
 
