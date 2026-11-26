@@ -78,9 +78,14 @@ const dashboardTripCols = `t.job_number, t.traveller_email, ` + dashboardTripCou
 			ta.name_of_travel_agent, t.allocation_id, t.customer_name, t.engagement_type`
 
 // dashboardRangeWhere is the inclusive day range From..To: To is bound once more
-// and the database adds a day, so DATE and DATETIME columns compare alike.
-func dashboardRangeWhere(col string) string {
-	return col + ` >= ? AND ` + col + ` < DATE_ADD(?, INTERVAL 1 DAY)`
+// and the database adds a day, so DATE and DATETIME columns compare alike. It
+// returns the predicate and its bind arguments. Without a range (jobs asked
+// for by number) every date matches.
+func dashboardRangeWhere(col string, f domain.DashboardCostLinesFilter) (string, []any) {
+	if f.From == "" && f.To == "" {
+		return `1 = 1`, nil
+	}
+	return col + ` >= ? AND ` + col + ` < DATE_ADD(?, INTERVAL 1 DAY)`, []any{f.From, f.To}
 }
 
 // dashboardInClause adds ` AND col IN (...)` for a non-empty list.
@@ -131,8 +136,9 @@ func nullStr(s sql.NullString) *string {
 }
 
 // InvoiceLines lists invoices (not rejected, not of cost type Currency) added
-// in f's range, with the trip, agent and the original amount. Reads travelapp.
+// in f's range (any date when f has none), with the trip, agent and the original amount. Reads travelapp.
 func (r *dashboardRepo) InvoiceLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error) {
+	rangeSQL, args := dashboardRangeWhere("i.added_date", f)
 	var b strings.Builder
 	b.WriteString(`SELECT i.id, i.invoice_number, i.job_number, DATE_FORMAT(i.added_date, '%Y-%m-%d'),
 			UPPER(TRIM(COALESCE(i.invoice_currency, ''))), i.invoice_amount, COALESCE(NULLIF(ct.name, ''), 'Other'),
@@ -141,10 +147,9 @@ func (r *dashboardRepo) InvoiceLines(ctx context.Context, f domain.DashboardCost
 		LEFT JOIN inv_cost_type AS ct ON i.inv_cost_type_id = ct.id
 		LEFT JOIN travel AS t ON i.job_number = t.job_number
 		LEFT JOIN travel_agents AS ta ON t.travel_agent_id = ta.id
-		WHERE ` + dashboardRangeWhere("i.added_date") + `
+		WHERE ` + rangeSQL + `
 			AND COALESCE(i.status, '') NOT IN ('Rejected by travel', 'Rejected by finance')
 			AND COALESCE(ct.name, '') != 'Currency'`)
-	args := []any{f.From, f.To}
 	dashboardInClause(&b, &args, "i.job_number", f.JobNumbers)
 	dashboardInClause(&b, &args, "t.traveller_email", f.Employees)
 	b.WriteString(` ORDER BY i.added_date, i.id LIMIT ?`)
@@ -182,6 +187,7 @@ func (r *dashboardRepo) InvoiceLines(ctx context.Context, f domain.DashboardCost
 // PaymentLines lists per diem payments (every NetSuite status) added in f's
 // range, with the trip, agent and the original amount. Reads travelapp.
 func (r *dashboardRepo) PaymentLines(ctx context.Context, f domain.DashboardCostLinesFilter) ([]DashboardCostRow, error) {
+	rangeSQL, args := dashboardRangeWhere("pp.added_date", f)
 	var b strings.Builder
 	b.WriteString(`SELECT pp.id, pp.per_diem_number, pp.job_number, DATE_FORMAT(pp.added_date, '%Y-%m-%d'),
 			UPPER(TRIM(COALESCE(pp.payment_currency, ''))), pp.payment_amount,
@@ -189,8 +195,7 @@ func (r *dashboardRepo) PaymentLines(ctx context.Context, f domain.DashboardCost
 		FROM perdiem_payment AS pp
 		LEFT JOIN travel AS t ON pp.job_number = t.job_number
 		LEFT JOIN travel_agents AS ta ON t.travel_agent_id = ta.id
-		WHERE ` + dashboardRangeWhere("pp.added_date"))
-	args := []any{f.From, f.To}
+		WHERE ` + rangeSQL)
 	dashboardInClause(&b, &args, "pp.job_number", f.JobNumbers)
 	dashboardInClause(&b, &args, "t.traveller_email", f.Employees)
 	b.WriteString(` ORDER BY pp.added_date, pp.id LIMIT ?`)
@@ -247,6 +252,7 @@ func (r *dashboardRepo) expenseLines(ctx context.Context, f domain.DashboardCost
 	if source == domain.DashboardCostClaim {
 		table, prefix, refCol, status, ccCols = "expense_claims", "EC-", "c.report_seq_number", `COALESCE(c.status, '') NOT IN ('-1', '1')`, `'', 0`
 	}
+	rangeSQL, args := dashboardRangeWhere("c.txn_date", f)
 	var b strings.Builder
 	b.WriteString(`SELECT c.id, ` + refCol + `, TRIM(COALESCE(c.travel_job_number, '')), DATE_FORMAT(c.txn_date, '%Y-%m-%d'),
 			UPPER(TRIM(COALESCE(c.txn_currency, ''))), c.txn_amount, ` + ccCols + `, c.employee_email,
@@ -254,10 +260,10 @@ func (r *dashboardRepo) expenseLines(ctx context.Context, f domain.DashboardCost
 		FROM ` + table + ` AS c
 		LEFT JOIN expense_type AS et ON et.id = c.expense_type_id
 		LEFT JOIN expense_category AS ec ON ec.id = et.expense_category_id
-		WHERE ` + dashboardRangeWhere("c.txn_date") + `
+		WHERE ` + rangeSQL + `
 			AND ` + status + `
 			AND ((c.travel_job_number IS NOT NULL AND TRIM(c.travel_job_number) != '') OR ec.expense_category LIKE ?)`)
-	args := []any{f.From, f.To, dashboardTravelCategory}
+	args = append(args, dashboardTravelCategory)
 	dashboardInClause(&b, &args, "TRIM(c.travel_job_number)", f.JobNumbers)
 	dashboardInClause(&b, &args, "c.employee_email", f.Employees)
 	b.WriteString(` ORDER BY c.txn_date, c.id LIMIT ?`)

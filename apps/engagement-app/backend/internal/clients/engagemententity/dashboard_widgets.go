@@ -24,7 +24,8 @@ import (
 )
 
 // DashboardCostLinesFilter is the query of GET /dashboard/cost-lines. From
-// and To are inclusive days. Sources, JobNumbers and Employees are pushed
+// and To are inclusive days; both may be empty when JobNumbers is set, which
+// reads every date of those jobs. Sources, JobNumbers and Employees are pushed
 // down to SQL; the BFF leaves them empty in normal use.
 type DashboardCostLinesFilter struct {
 	From, To   string
@@ -164,7 +165,13 @@ func dashboardAddStrings(q url.Values, key string, vals []string) {
 
 // DashboardCostLines calls GET /dashboard/cost-lines.
 func (c *HTTPClient) DashboardCostLines(ctx context.Context, f DashboardCostLinesFilter) (*DashboardCostLines, error) {
-	q := url.Values{"from": {f.From}, "to": {f.To}}
+	q := url.Values{}
+	if f.From != "" {
+		q.Set("from", f.From)
+	}
+	if f.To != "" {
+		q.Set("to", f.To)
+	}
 	dashboardAddStrings(q, "source", f.Sources)
 	dashboardAddStrings(q, "jobNumber", f.JobNumbers)
 	dashboardAddStrings(q, "employee", f.Employees)

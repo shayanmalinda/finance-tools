@@ -381,3 +381,21 @@ func TestDaysInWindow(t *testing.T) {
 		t.Error("a bad date must fail")
 	}
 }
+
+// With job numbers and no range, every date of those jobs is read: no date
+// predicate and no date arguments.
+func TestDashboardInvoiceLines_JobNumberWithoutRange(t *testing.T) {
+	m := newDashboardMocks(t)
+	f := domain.DashboardCostLinesFilter{JobNumbers: []string{"TRV-2016-07-0002"}, Limit: 100}
+	m.travel.ExpectQuery(re(`WHERE 1 = 1
+			AND COALESCE(i.status, '') NOT IN ('Rejected by travel', 'Rejected by finance')
+			AND COALESCE(ct.name, '') != 'Currency' AND i.job_number IN (?) ORDER BY i.added_date, i.id LIMIT ?`)).
+		WithArgs("TRV-2016-07-0002", 101).
+		WillReturnRows(sqlmock.NewRows(costTripCols).
+			AddRow(1, "INV/1", "TRV-2016-07-0002", "2016-06-20", "USD", 10.0, "Other", nil, nil, nil, nil, nil, nil, nil, nil))
+	got, err := m.repo.InvoiceLines(context.Background(), f)
+	if err != nil || len(got) != 1 || got[0].Date != "2016-06-20" {
+		t.Fatalf("InvoiceLines = %+v, %v", got, err)
+	}
+	m.verify(t)
+}

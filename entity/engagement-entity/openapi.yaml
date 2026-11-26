@@ -2428,14 +2428,14 @@ paths:
       parameters:
       - name: from
         in: query
-        required: true
+        description: Required unless `jobNumber` is given. With `jobNumber` and neither `from` nor `to`,
+          every date of those jobs is read.
         schema:
           type: string
           format: date
       - name: to
         in: query
-        required: true
-        description: At most 731 days after from.
+        description: Required unless `jobNumber` is given (see `from`). At most 731 days after from.
         schema:
           type: string
           format: date

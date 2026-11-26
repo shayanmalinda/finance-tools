@@ -100,23 +100,17 @@ func TestJobCostSummary_EqualsTravelCostsFilteredToTheJob(t *testing.T) {
 	}
 }
 
-func TestJobCostSummary_AsksForTheJobAndWindowsOfAtMost731Days(t *testing.T) {
+func TestJobCostSummary_AsksForTheJobWithNoDateRange(t *testing.T) {
 	svc, f := jobCostFixture(jobCostLines())
 	p := jobCostFullPerms()
+	// A trip from long ago is still one read with no from or to, so lines
+	// dated long before the trip are not dropped.
+	f.trips[jobCostTrip] = engagemententity.TravelRequestRecord{JobNumber: jobCostTrip, TravellerEmail: "jane@wso2.com", StartDate: "2016-07-10", EndDate: "2016-07-20"}
 	if _, err := svc.JobCostSummary(context.Background(), p, jobCostTrip); err != nil {
 		t.Fatal(err)
 	}
-	if f.costCalls != 1 || f.costRanges[0] != "2026-07-12|2026-11-05" {
-		t.Errorf("calls = %d, ranges = %v", f.costCalls, f.costRanges)
-	}
-	// A trip from long ago is read in several windows.
-	f.trips[jobCostTrip] = engagemententity.TravelRequestRecord{JobNumber: jobCostTrip, TravellerEmail: "jane@wso2.com", StartDate: "2023-01-10", EndDate: "2023-01-20"}
-	f.costCalls, f.costRanges = 0, nil
-	if _, err := svc.JobCostSummary(context.Background(), p, jobCostTrip); err != nil {
-		t.Fatal(err)
-	}
-	if f.costCalls < 2 {
-		t.Errorf("calls = %d, want several windows", f.costCalls)
+	if f.costCalls != 1 || f.costRanges[0] != "|" {
+		t.Errorf("calls = %d, ranges = %v, want one read with no range", f.costCalls, f.costRanges)
 	}
 }
 
