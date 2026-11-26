@@ -406,7 +406,8 @@ func (s *FinanceService) Payments(ctx context.Context, p domain.Perms, q domain.
 		}
 		rows, total, err := s.entity.FinancePayments(ctx, engagemententity.FinancePaymentFilter{
 			NSStatuses: statuses, Search: strings.TrimSpace(q.Search), Travellers: q.Travellers,
-			ConvertedCurrency: q.ConvertedCurrency, CampaignIDs: q.CampaignIDs, Limit: q.Limit, Offset: q.Offset,
+			ConvertedCurrency: q.ConvertedCurrency, CampaignIDs: q.CampaignIDs,
+			Sort: domain.KnownSort(q.Sort, domain.PaymentSorts), Limit: q.Limit, Offset: q.Offset,
 		})
 		if err != nil {
 			return domain.PerDiemPaymentPage{}, err

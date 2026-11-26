@@ -243,6 +243,8 @@ type FinanceInvoiceFilter struct {
 	AgencyID    int
 	AddedFrom   string
 	AddedTo     string
+	// Sort is one column sort for the list; empty keeps newest first.
+	Sort string
 	// Limit 0 reads every match (up to the entity's maximum).
 	Limit  int
 	Offset int
@@ -321,6 +323,7 @@ type FinancePaymentFilter struct {
 	CampaignIDs       []string
 	AddedFrom         string
 	AddedTo           string
+	Sort              string
 	Limit             int
 	Offset            int
 }
@@ -513,6 +516,9 @@ func (c *HTTPClient) FinanceInvoices(ctx context.Context, f FinanceInvoiceFilter
 	if f.AddedTo != "" {
 		q.Set("addedTo", f.AddedTo)
 	}
+	if f.Sort != "" {
+		q.Set("sort", f.Sort)
+	}
 	financePage(q, f.Limit, f.Offset)
 	var out struct {
 		Invoices []FinanceInvoice `json:"invoices"`
@@ -604,6 +610,9 @@ func (c *HTTPClient) FinancePayments(ctx context.Context, f FinancePaymentFilter
 	}
 	if f.AddedTo != "" {
 		q.Set("addedTo", f.AddedTo)
+	}
+	if f.Sort != "" {
+		q.Set("sort", f.Sort)
 	}
 	financePage(q, f.Limit, f.Offset)
 	var out struct {

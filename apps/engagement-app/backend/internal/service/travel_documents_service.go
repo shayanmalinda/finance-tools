@@ -162,7 +162,7 @@ func (s *travelDocumentsService) ListVisas(ctx context.Context, p domain.Perms, 
 	}
 	f := engagemententity.TravelVisaFilter{
 		Emails: q.Travellers, Countries: q.Countries, Status: domain.TravelRecordActive, Validity: validity,
-		Today: s.today(), Search: q.Search, ExcludeIDs: s.hiddenVisas, Limit: q.Limit, Offset: q.Offset,
+		Today: s.today(), Search: q.Search, ExcludeIDs: s.hiddenVisas, Sort: domain.KnownSort(q.Sort, domain.VisaSorts), Limit: q.Limit, Offset: q.Offset,
 		IncludeMarkedExpired: validity == engagemententity.TravelValidityExpired,
 	}
 	if own {
@@ -393,7 +393,8 @@ func (s *travelDocumentsService) ListDocuments(ctx context.Context, p domain.Per
 	}
 	f := engagemententity.TravelDocumentFilter{
 		Emails: q.Travellers, Countries: q.Countries, DocumentTypes: q.DocumentTypes, Status: domain.TravelRecordActive,
-		Validity: validity, Today: s.today(), Search: q.Search, Limit: q.Limit, Offset: q.Offset,
+		Validity: validity, Today: s.today(), Search: q.Search, Sort: domain.KnownSort(q.Sort, domain.DocumentSorts),
+		Limit: q.Limit, Offset: q.Offset,
 	}
 	if own {
 		f.Emails, f.Limit, f.Offset = []string{p.Email}, travelOwnLimit, 0

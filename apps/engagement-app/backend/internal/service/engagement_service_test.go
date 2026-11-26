@@ -182,10 +182,34 @@ func TestEngagementList_SegmentGateRoleAndCounts(t *testing.T) {
 	}
 }
 
+func TestEngagementList_SortPassThroughAndDefault(t *testing.T) {
+	entity := engagementTestEntity()
+	svc := engagementTestService(entity, &engagementFakeMail{})
+	ctx := context.Background()
+	p := engagementPerms("a@wso2.com", engagementAdmin, nil)
+	for sort, want := range map[string]string{"": "current", "-created": "-created", "country": "country", "bogus": "current", "businessUnit": "current"} {
+		if _, err := svc.List(ctx, p, EngagementListFilter{Segment: "customer", Sort: sort}); err != nil {
+			t.Fatal(err)
+		}
+		if entity.search.Sort != want {
+			t.Errorf("list sort %q sent %q, want %q", sort, entity.search.Sort, want)
+		}
+	}
+	ap := engagementPerms("x@wso2.com", engagementApproverInt, nil)
+	for sort, want := range map[string]string{"": "created", "-businessUnit": "-businessUnit", "requestStatus": "created"} {
+		if _, err := svc.Approvals(ctx, ap, "internal", "", sort, 50, 0); err != nil {
+			t.Fatal(err)
+		}
+		if entity.search.Sort != want {
+			t.Errorf("approvals sort %q sent %q, want %q", sort, entity.search.Sort, want)
+		}
+	}
+}
+
 func TestEngagementApprovals(t *testing.T) {
 	entity := engagementTestEntity()
 	svc := engagementTestService(entity, &engagementFakeMail{})
-	page, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "internal", "", 50, 0)
+	page, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "internal", "", "", 50, 0)
 	if err != nil || len(page.Items) != 1 || page.Items[0].ID != "EL1" || !reflect.DeepEqual(page.SegmentCounts, map[string]int{"internal": 2}) {
 		t.Fatalf("page %+v err %v", page, err)
 	}
@@ -193,7 +217,7 @@ func TestEngagementApprovals(t *testing.T) {
 		t.Errorf("search = %+v", entity.search)
 	}
 	var fe *apierror.ForbiddenError
-	if _, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "events", "", 50, 0); !errors.As(err, &fe) {
+	if _, err := svc.Approvals(context.Background(), engagementPerms("x@wso2.com", engagementApproverInt, nil), "events", "", "", 50, 0); !errors.As(err, &fe) {
 		t.Fatalf("events: %v", err)
 	}
 }

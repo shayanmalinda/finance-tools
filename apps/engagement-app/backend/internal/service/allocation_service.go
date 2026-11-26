@@ -598,7 +598,8 @@ func (s *allocationService) list(ctx context.Context, p domain.Perms, f domain.A
 	res, err := s.d.Entity.SearchAllocations(ctx, engagemententity.AllocationSearchRequest{
 		EngagementTypeIDs: allocSortedInts(allowed), ClearanceStatuses: f.ClearanceStatuses, Consultants: f.Consultants,
 		AllocationTypes: f.AllocationTypes, TravelRequired: f.TravelRequired, StartFrom: f.StartFrom, EndTo: f.EndTo,
-		Search: f.Search, Today: allocToday(s.d.Now()), Limit: f.Limit, Offset: f.Offset,
+		Search: f.Search, Today: allocToday(s.d.Now()), Sort: domain.KnownSort(f.Sort, domain.AllocationSorts),
+		Limit: f.Limit, Offset: f.Offset,
 	})
 	if err != nil {
 		return page, err

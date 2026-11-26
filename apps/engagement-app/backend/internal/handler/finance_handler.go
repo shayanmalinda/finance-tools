@@ -222,7 +222,8 @@ func (h *FinanceHandler) Invoices(w http.ResponseWriter, r *http.Request) {
 		Tab: strings.TrimSpace(q.Get("tab")), Search: q.Get("search"),
 		PoApproval: queryList(r, "poApproval"), FinanceApproval: queryList(r, "financeApproval"),
 		NetSuiteStatus: queryList(r, "netsuiteStatus"), CostTypes: queryList(r, "costType"), Agencies: queryList(r, "agency"),
-		Months: queryList(r, "month"), CampaignIDs: queryList(r, "campaignId"), Limit: limit, Offset: offset,
+		Months: queryList(r, "month"), CampaignIDs: queryList(r, "campaignId"),
+		Sort: strings.TrimSpace(q.Get("sort")), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		writeServiceError(w, r, err)
@@ -328,7 +329,8 @@ func (h *FinanceHandler) Payments(w http.ResponseWriter, r *http.Request) {
 	page, err := h.svc.Payments(r.Context(), p, domain.PaymentQuery{
 		Tab: strings.TrimSpace(q.Get("tab")), Search: q.Get("search"), NetSuiteStatus: queryList(r, "netsuiteStatus"),
 		Travellers: queryList(r, "traveller"), ConvertedCurrency: queryList(r, "convertedCurrency"),
-		CampaignIDs: queryList(r, "campaignId"), Limit: limit, Offset: offset,
+		CampaignIDs: queryList(r, "campaignId"),
+		Sort:        strings.TrimSpace(q.Get("sort")), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		writeServiceError(w, r, err)

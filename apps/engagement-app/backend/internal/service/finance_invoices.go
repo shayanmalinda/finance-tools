@@ -310,7 +310,8 @@ func (s *FinanceService) Invoices(ctx context.Context, p domain.Perms, q domain.
 	}
 	f := engagemententity.FinanceInvoiceFilter{
 		Search: strings.TrimSpace(q.Search), CostTypes: q.CostTypes, Agencies: q.Agencies, Months: q.Months,
-		CampaignIDs: q.CampaignIDs, AgencyID: financeAgencyID(p), Limit: q.Limit, Offset: q.Offset,
+		CampaignIDs: q.CampaignIDs, AgencyID: financeAgencyID(p), Sort: domain.KnownSort(q.Sort, domain.InvoiceSorts),
+		Limit: q.Limit, Offset: q.Offset,
 	}
 	base := financeAllStatuses
 	switch q.Tab {

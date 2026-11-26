@@ -52,15 +52,18 @@ type EngagementListFilter struct {
 	StartFrom          string
 	StartTo            string
 	EndTo              string
-	Limit              int
-	Offset             int
+	// Sort is one of domain.EngagementSorts; empty or unknown keeps the
+	// current-first order.
+	Sort   string
+	Limit  int
+	Offset int
 }
 
 // EngagementService is the engagements and approvals screens.
 type EngagementService interface {
 	List(ctx context.Context, p domain.Perms, f EngagementListFilter) (domain.EngagementPage, error)
 	Facets(ctx context.Context, p domain.Perms, segment string) (domain.EngagementFacets, error)
-	Approvals(ctx context.Context, p domain.Perms, segment, search string, limit, offset int) (domain.EngagementPage, error)
+	Approvals(ctx context.Context, p domain.Perms, segment, search, sort string, limit, offset int) (domain.EngagementPage, error)
 	Get(ctx context.Context, p domain.Perms, id string) (domain.EngagementDetail, error)
 	Create(ctx context.Context, p domain.Perms, in domain.EngagementCreate) (domain.EngagementDetail, error)
 	Update(ctx context.Context, p domain.Perms, id string, in domain.EngagementUpdate) (domain.EngagementDetail, error)
@@ -280,7 +283,7 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 		EngagementTypeIDs: types, Search: f.Search, Accounts: f.Accounts, AllocationTypes: f.AllocationTypes,
 		RequestStatuses: f.RequestStatuses, EngagementStatuses: f.EngagementStatuses, BusinessUnits: f.BusinessUnits,
 		Countries: f.Countries, Consultants: f.Consultants, StartFrom: f.StartFrom, StartTo: f.StartTo, EndTo: f.EndTo,
-		Sort: "current", Today: s.now().UTC().Format("2006-01-02"),
+		Sort: engagementSort(f.Sort, domain.EngagementSorts, "current"), Today: s.now().UTC().Format("2006-01-02"),
 		IncludeConsultants: engagementSeesConsultants(p, f.Segment), Limit: f.Limit, Offset: f.Offset,
 	}
 	res, err := s.entity.EngagementSearch(ctx, q)
@@ -294,6 +297,14 @@ func (s *engagementService) List(ctx context.Context, p domain.Perms, f Engageme
 	}
 	s.fillCampaigns(ctx, page.Items)
 	return page, nil
+}
+
+// engagementSort keeps sort when it is a known column sort, else fallback.
+func engagementSort(sort string, keys []string, fallback string) string {
+	if s := domain.KnownSort(sort, keys); s != "" {
+		return s
+	}
+	return fallback
 }
 
 func engagementOneOfInt(v int, list []int) bool {
@@ -327,7 +338,7 @@ func (s *engagementService) Facets(ctx context.Context, p domain.Perms, segment 
 // Approvals lists the Pending Approval internal engagements (Allocations 26)
 // or marketing events (29), oldest first. Legacy did not scope the list to
 // the approver.
-func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segment, search string, limit, offset int) (domain.EngagementPage, error) {
+func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segment, search, sort string, limit, offset int) (domain.EngagementPage, error) {
 	var typeID, priv int
 	switch segment {
 	case domain.EngagementApprovalsInternal:
@@ -341,7 +352,8 @@ func (s *engagementService) Approvals(ctx context.Context, p domain.Perms, segme
 		return domain.EngagementPage{}, engagementForbidden()
 	}
 	res, err := s.entity.EngagementSearch(ctx, engagemententity.EngagementSearchQuery{
-		PendingApproval: true, EngagementTypeIDs: []int{typeID}, Search: search, Sort: "created", Limit: limit, Offset: offset,
+		PendingApproval: true, EngagementTypeIDs: []int{typeID}, Search: search,
+		Sort: engagementSort(sort, domain.ApprovalSorts, "created"), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		return domain.EngagementPage{}, err

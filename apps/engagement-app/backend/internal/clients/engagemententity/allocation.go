@@ -171,6 +171,7 @@ type AllocationSearchRequest struct {
 	EndTo             string   `json:"endTo"`
 	Search            string   `json:"search"`
 	Today             string   `json:"today"`
+	Sort              string   `json:"sort,omitempty"`
 	Limit             int      `json:"limit"`
 	Offset            int      `json:"offset"`
 }

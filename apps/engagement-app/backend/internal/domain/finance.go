@@ -295,7 +295,9 @@ type InvoiceQuery struct {
 	Agencies        []string
 	Months          []string
 	CampaignIDs     []string
-	Limit, Offset   int
+	// Sort is one of InvoiceSorts; empty or unknown keeps newest first.
+	Sort          string
+	Limit, Offset int
 }
 
 // PaymentQuery is GET /per-diem-payments.
@@ -306,5 +308,7 @@ type PaymentQuery struct {
 	Travellers        []string
 	ConvertedCurrency []string
 	CampaignIDs       []string
-	Limit, Offset     int
+	// Sort is one of PaymentSorts; empty or unknown keeps newest first.
+	Sort          string
+	Limit, Offset int
 }

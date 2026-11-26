@@ -240,6 +240,7 @@ type TravelVisaFilter struct {
 	CoversTo   string
 	Search     string
 	ExcludeIDs []int
+	Sort       string
 	Limit      int
 	Offset     int
 	// IncludeMarkedExpired also returns visas stored as Expired.
@@ -302,6 +303,7 @@ type TravelDocumentFilter struct {
 	Validity      string
 	Today         string
 	Search        string
+	Sort          string
 	Limit         int
 	Offset        int
 }
@@ -435,6 +437,7 @@ func (c *HTTPClient) SearchVisas(ctx context.Context, f TravelVisaFilter) (Trave
 	travelAddString(q, "coversFrom", f.CoversFrom)
 	travelAddString(q, "coversTo", f.CoversTo)
 	travelAddString(q, "search", f.Search)
+	travelAddString(q, "sort", f.Sort)
 	if f.IncludeMarkedExpired {
 		q.Set("includeMarkedExpired", "true")
 	}
@@ -486,6 +489,7 @@ func (c *HTTPClient) SearchTravelDocuments(ctx context.Context, f TravelDocument
 	travelAddString(q, "validity", f.Validity)
 	travelAddString(q, "today", f.Today)
 	travelAddString(q, "search", f.Search)
+	travelAddString(q, "sort", f.Sort)
 	travelAddPage(q, f.Limit, f.Offset)
 	var resp TravelDocumentPage
 	if err := c.rest.Get(ctx, withQuery("/travel-documents", q), &resp); err != nil {

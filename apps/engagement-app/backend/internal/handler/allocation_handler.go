@@ -142,7 +142,8 @@ func (h *AllocationHandler) list(w http.ResponseWriter, r *http.Request, mine bo
 	f := domain.AllocationListFilter{
 		Search: strings.TrimSpace(r.URL.Query().Get("search")), Kinds: queryList(r, "kind"),
 		ClearanceStatuses: queryList(r, "clearanceStatus"), Consultants: queryList(r, "consultant"),
-		AllocationTypes: queryList(r, "allocationType"), Limit: limit, Offset: offset,
+		AllocationTypes: queryList(r, "allocationType"), Sort: strings.TrimSpace(r.URL.Query().Get("sort")),
+		Limit: limit, Offset: offset,
 	}
 	if len([]rune(f.Search)) > 200 {
 		writeServiceError(w, r, &apierror.ValidationError{Msg: "search can have at most 200 characters."})
