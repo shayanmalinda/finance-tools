@@ -149,3 +149,18 @@ func TestAllocationMessage_BranchesAndPartner(t *testing.T) {
 		t.Errorf("confirmed = %+v", m)
 	}
 }
+
+// With no travel team address a travel-required confirmation goes To the
+// allocations team instead of being dropped for want of a recipient.
+func TestAllocationMessage_ConfirmedWithoutTravelGroup(t *testing.T) {
+	g := allocGroups
+	g.TravelGroup = ""
+	m := AllocationMessage(AllocationEmailData{
+		EngagementTypeID: 6, EngagementID: "E07201", CustomerName: "Acme", OpportunityName: "Acme",
+		ConsultantEmail: "jane@wso2.com", ClearanceStatus: "Confirmed", TravelRequired: true, Actor: "mgr@wso2.com",
+		StartDate: "2026-11-10", EndDate: "2026-11-20", Now: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+	}, g)
+	if !reflect.DeepEqual(m.To, []string{"allocations@wso2.com"}) || m.Content["greeting_name"] != "Allocations Team" {
+		t.Errorf("to = %v, greeting = %q", m.To, m.Content["greeting_name"])
+	}
+}

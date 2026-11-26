@@ -434,3 +434,21 @@ func TestEngagementTypeCounts_IncludePendingAndCreator(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// The pending-only list (a creator or approver without engRole) honours the
+// engagement sorts too, and the approvals keys still win where both have one.
+func TestEngagementOrder_PendingOnlyTakesEngagementSorts(t *testing.T) {
+	pending := func(sort string) string {
+		o, _ := engagementOrder(domain.EngagementSearchRequest{PendingApproval: true, Sort: sort})
+		return o
+	}
+	if got := pending("-engagementStatus"); got != " ORDER BY e.engagement_status DESC, e.id" {
+		t.Errorf("engagementStatus = %q", got)
+	}
+	if got := pending("requestStatus"); got != " ORDER BY e.status, e.id" {
+		t.Errorf("requestStatus = %q", got)
+	}
+	if got := pending("businessUnit"); !strings.Contains(got, "MIN(bu.name)") {
+		t.Errorf("businessUnit = %q", got)
+	}
+}

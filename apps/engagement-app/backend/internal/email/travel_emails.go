@@ -250,6 +250,11 @@ func TravelFinanceRecipients(s TravelSettings, company string) (to, cc []string)
 func TravelCompleted(s TravelSettings, t TravelTrip, v TravelVisa, agentName, company string, perDiems []TravelPerDiem) Message {
 	finTo, finCC := TravelFinanceRecipients(s, company)
 	cc := append(append([]string{s.LogisticsGroup}, finCC...), travelCC(s, t.TravellerEmail)...)
+	toRole := "the finance contacts for the traveller's company (the finance team if none)"
+	if len(finTo) == 1 && strings.TrimSpace(finTo[0]) == "" && strings.TrimSpace(s.LogisticsGroup) != "" {
+		// No finance address at all: travel logistics gets it, not nobody.
+		finTo, cc, toRole = []string{s.LogisticsGroup}, cc[1:], "the travel logistics team (no finance address is set)"
+	}
 
 	details := travelDetails(t, v, agentName)
 	if len(perDiems) > 0 {
@@ -275,7 +280,7 @@ func TravelCompleted(s TravelSettings, t TravelTrip, v TravelVisa, agentName, co
 		App: AppTravel, To: finTo, CC: cc, Subject: travelSubject("Completed", t), TemplateID: TravelTemplateCompleted,
 		Content: c, NotificationType: "travel-completed", ReferenceID: t.JobNumber,
 		Audience: Audience{
-			To: []string{"the finance contacts for the traveller's company (the finance team if none)"},
+			To: []string{toRole},
 			CC: []string{"the travel logistics team", "the company's finance contacts or finance team", travelCCRole},
 		},
 	}

@@ -647,9 +647,17 @@ func travelVisaCovers(v engagemententity.TravelVisaRecord, start, end string) bo
 
 // ── Emails ────────────────────────────────────────────────────────────────
 
+// peopleBounded is people.get with its own short deadline, so a slow HR cannot
+// use up the time the email send needs; a timeout gives an empty person.
+func (s *travelService) peopleBounded(ctx context.Context, addr string) travelPerson {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return s.people.get(ctx, addr)
+}
+
 func (s *travelService) travelEmailTrip(ctx context.Context, r engagemententity.TravelRequestRecord) email.TravelTrip {
 	return email.TravelTrip{
-		JobNumber: r.JobNumber, TravellerEmail: r.TravellerEmail, TravellerName: travelDeref(s.people.get(ctx, r.TravellerEmail).Name),
+		JobNumber: r.JobNumber, TravellerEmail: r.TravellerEmail, TravellerName: travelDeref(s.peopleBounded(ctx, r.TravellerEmail).Name),
 		Customer: r.CustomerName,
 		Country:  r.Country, City: travelDeref(r.City), StartDate: r.StartDate, EndDate: r.EndDate,
 	}
@@ -729,7 +737,7 @@ func (s *travelService) completedEmail(ctx context.Context, r engagemententity.T
 		}
 		rows = append(rows, row)
 	}
-	company := travelDeref(s.people.get(ctx, r.TravellerEmail).Company)
+	company := travelDeref(s.peopleBounded(ctx, r.TravellerEmail).Company)
 	s.send(ctx, email.TravelCompleted(s.opts.Email, s.travelEmailTrip(ctx, r), travelEmailVisa(r), agentName, company, rows))
 }
 

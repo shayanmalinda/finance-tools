@@ -1131,19 +1131,23 @@ func (s *engagementService) sendEmail(ctx context.Context, actor string, ev emai
 			rcpt.TravelAffected = true
 		}
 	}
-	rcpt.ActorName = s.firstName(ctx, actor)
+	// Greeting names are optional: bound their HR lookups so a slow HR cannot
+	// use up the time Send needs. A failed lookup leaves the name empty.
+	gctx, gcancel := context.WithTimeout(ctx, 5*time.Second)
+	defer gcancel()
+	rcpt.ActorName = s.firstName(gctx, actor)
 	if ev == email.EngagementCreated {
 		approvers := s.recipients.InternalApprovers
 		if data.EngagementTypeID == 5 {
 			approvers = s.recipients.MarketingApprovers
 		}
 		if len(approvers) == 1 {
-			rcpt.ApproverName = s.firstName(ctx, approvers[0])
+			rcpt.ApproverName = s.firstName(gctx, approvers[0])
 		}
 	}
-	rcpt.RoutingName = s.groupOrFirstName(ctx, rcpt.Routing)
+	rcpt.RoutingName = s.groupOrFirstName(gctx, rcpt.Routing)
 	if len(rcpt.Consultants) == 1 {
-		rcpt.ConsultantName = s.firstName(ctx, rcpt.Consultants[0])
+		rcpt.ConsultantName = s.firstName(gctx, rcpt.Consultants[0])
 	}
 	msg := email.EngagementMessage(ev, data, rcpt, actor)
 	if err := s.mail.Send(ctx, msg); err != nil {

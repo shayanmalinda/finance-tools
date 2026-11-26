@@ -225,6 +225,11 @@ func AllocationMessage(d AllocationEmailData, g AllocationEmailGroups) Message {
 			description = who + " is confirmed for this " + what + ". Arrange the travel."
 			to, toName, toRoles = []string{g.TravelGroup}, "Travel Team", []string{"the travel team"}
 			label, link = "Review Travel Requests", strings.TrimRight(g.AppBaseURL, "/")+"/finance/engagement-app/travel-requests/new"
+			if strings.TrimSpace(g.TravelGroup) == "" {
+				// No travel team address: the allocations team gets it, not nobody.
+				description = who + " is confirmed for this " + what + ". Check whether travel is needed."
+				forTeam("Review Allocation", "/allocations")
+			}
 		} else {
 			description = "You are confirmed for this " + what + "."
 			if partner {
@@ -315,6 +320,8 @@ func allocDateOnly(s string) string {
 	return s
 }
 
+// d.Visas are the visas the caller found for the allocation period (the
+// entity's AllocationVisas takes the dates), so any visa listed covers it.
 func allocVisaData(d AllocationEmailData) (string, string) {
 	if len(d.Visas) == 0 {
 		return "", allocVisaUnavailableComent

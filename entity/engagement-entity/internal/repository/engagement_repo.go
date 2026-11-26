@@ -269,6 +269,13 @@ func engagementOrder(req domain.EngagementSearchRequest) (string, []any) {
 	if o, ok := cols.Order(req.Sort, `e.id`); ok {
 		return o, nil
 	}
+	// The pending-only list of the Engagements screen (a creator or approver
+	// without engRole) takes the engagement sorts the approvals list lacks.
+	if req.PendingApproval {
+		if o, ok := engagementSortColumns.Order(req.Sort, `e.id`); ok {
+			return o, nil
+		}
+	}
 	return ` ORDER BY CASE WHEN DATE(e.end_date) >= ? THEN 0 ELSE 1 END,
 			CASE WHEN DATE(e.end_date) >= ? THEN e.start_date END ASC,
 			e.start_date DESC, e.id ASC`, []any{req.Today, req.Today}

@@ -18,6 +18,7 @@ package email
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -101,6 +102,14 @@ func TestTravelEmails_Shape(t *testing.T) {
 	c = TravelCompleted(s, trip, TravelVisa{}, "Acorn", "", []TravelPerDiem{{StartDate: "2026-10-06 09:00:00", NoOfDays: "11", Currency: "USD", Rate: "70.0", Total: "770.0"}})
 	if d := c.Content["details_html"]; !strings.Contains(d, "6 Oct 2026, 09:00") || !strings.Contains(d, "USD 770.00") {
 		t.Errorf("table = %s", d)
+	}
+
+	// No finance address at all: travel logistics gets it, not nobody.
+	noFin := s
+	noFin.FinanceGroup = ""
+	if c := TravelCompleted(noFin, trip, TravelVisa{}, "Acorn", "", nil); !reflect.DeepEqual(c.To, []string{"logistics@wso2.com"}) ||
+		strings.Contains(strings.Join(c.CC, ","), "logistics@wso2.com") {
+		t.Errorf("completed without finance: to %v cc %v", c.To, c.CC)
 	}
 
 	var content map[string]string
