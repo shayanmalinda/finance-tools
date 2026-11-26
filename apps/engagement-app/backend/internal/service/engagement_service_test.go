@@ -98,6 +98,16 @@ func TestEngagementRules_Scope(t *testing.T) {
 			engagementStateOf(1, "Pending Approval"), "roster"},
 		{"internal approver does not see an approved one", engagementPerms("x@wso2.com", engagementApproverInt, nil),
 			engagementStateOf(1, "Approved"), ""},
+		{"creator sees their own pending engagement, minimal scope", engagementPerms("consultant@wso2.com", nil, nil),
+			engagementStateOf(1, "Pending Approval"), "consultants"},
+		{"creator match ignores case", engagementPerms("Consultant@WSO2.com", nil, nil),
+			engagementStateOf(5, "Pending Approval"), "consultants"},
+		{"non-creator without view privileges stays forbidden", engagementPerms("other@wso2.com", nil, nil),
+			engagementStateOf(1, "Pending Approval"), ""},
+		{"creator cannot see it once approved", engagementPerms("consultant@wso2.com", nil, nil),
+			engagementStateOf(1, "Approved"), ""},
+		{"creator with view privileges keeps their wider scope", engagementPerms("consultant@wso2.com", engagementAdmin, nil),
+			engagementStateOf(1, "Pending Approval"), "roster"},
 		{"travel agent never", agent, engagementStateOf(6, "New"), ""},
 	}
 	for _, tc := range tests {

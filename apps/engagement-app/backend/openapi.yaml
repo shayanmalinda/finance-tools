@@ -879,12 +879,15 @@ paths:
         - Approvers (26 internal / 29 marketing) see a Pending Approval
           engagement in `roster` scope.
 
+        - The creator of a Pending Approval engagement sees it in `consultants`
+          scope, even without the view privileges.
+
         - Otherwise 403 (travel agents never see engagements).
 
         `actions` lists what the caller may do (Allocate, Edit, Edit Pending,
         Approve, Complete/Reopen, Change Engagement Status).
       operationId: getEngagement
-      x-privileges: { allocations: [3, 6, 9, 13, 16, 19, 26, 29, 32, 33] }
+      x-privileges: { allocations: [2, 3, 6, 9, 11, 12, 13, 16, 19, 26, 29, 32, 33] }
       parameters:
         - $ref: '#/components/parameters/EngagementId'
       responses:
@@ -2530,6 +2533,8 @@ paths:
       summary: Add New Allocation Type (unique name per engagement type; department stored upper case)
       operationId: createAllocationType
       x-privileges: { allocations: [25] }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:

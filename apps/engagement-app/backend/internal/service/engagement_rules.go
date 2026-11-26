@@ -164,7 +164,8 @@ func engagementActionsFor(p domain.Perms, e engagementState) domain.EngagementAc
 }
 
 // engagementScopeFor is engScope: "" (no access), full, roster or
-// consultants. Travel agents never see engagements.
+// consultants. Travel agents never see engagements. The creator of a Pending
+// Approval engagement gets consultants.
 func engagementScopeFor(p domain.Perms, e engagementState) string {
 	if p.IsAgent() {
 		return ""
@@ -183,6 +184,11 @@ func engagementScopeFor(p domain.Perms, e engagementState) string {
 	if e.pending() && ((e.typeID == domain.EngagementTypeMarketing && p.Alloc.Has(29)) ||
 		(e.typeID == domain.EngagementTypeInternal && p.Alloc.Has(26))) {
 		return domain.EngagementScopeRoster
+	}
+	// A creator may read the engagement they created while it waits for
+	// approval, with the minimal scope and nothing more.
+	if e.pending() && e.createdBy != "" && strings.EqualFold(e.createdBy, p.Email) {
+		return domain.EngagementScopeConsultants
 	}
 	return ""
 }
