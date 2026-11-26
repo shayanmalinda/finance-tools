@@ -35,6 +35,41 @@ import (
 //go:embed templates/*.html
 var templateFiles embed.FS
 
+//go:embed assets/logo-light.png
+var logoLight []byte
+
+//go:embed assets/logo-navy.png
+var logoNavy []byte
+
+// Inline logo content IDs, referenced from base.html as cid:<id>. The logos
+// travel inside the email, so no mail client or image proxy has to fetch them.
+const (
+	logoLightCID = "choreo-labs-logo-light"
+	logoNavyCID  = "choreo-labs-logo-navy"
+)
+
+// attachment is one Email Service attachment. Attachment is a JSON array of
+// byte values, the shape the service's Ballerina byte[] expects.
+type attachment struct {
+	ContentName string `json:"contentName"`
+	ContentType string `json:"contentType"`
+	Attachment  []int  `json:"attachment"`
+	ContentID   string `json:"contentId"`
+}
+
+// logoAttachments are the inline logos every email carries.
+func logoAttachments() []attachment {
+	return []attachment{inlinePNG(logoLightCID, logoLight), inlinePNG(logoNavyCID, logoNavy)}
+}
+
+func inlinePNG(cid string, b []byte) attachment {
+	ints := make([]int, len(b))
+	for i, v := range b {
+		ints[i] = int(v)
+	}
+	return attachment{ContentName: cid + ".png", ContentType: "image/png", Attachment: ints, ContentID: cid}
+}
+
 // bodyMarker is where the base template takes the body.
 const bodyMarker = "<!-- [EMAIL_BODY] -->"
 

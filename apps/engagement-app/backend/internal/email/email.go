@@ -127,6 +127,8 @@ type payload struct {
 	From     string   `json:"from"`
 	Subject  string   `json:"subject"`
 	Template string   `json:"template"`
+	// Attachments carries the inline logos (see logoAttachments).
+	Attachments []attachment `json:"attachments,omitempty"`
 }
 
 // WithAudit records every send attempt (Sent or Failed) with f. An email
@@ -174,6 +176,7 @@ func (s *HTTPSender) Send(ctx context.Context, m Message) error {
 		return err
 	}
 	p.Template = base64.StdEncoding.EncodeToString([]byte(page))
+	p.Attachments = logoAttachments()
 	if err := s.rest.Post(ctx, "/send-email", p, nil); err != nil {
 		slog.ErrorContext(ctx, "email not sent", "type", m.NotificationType, "ref", m.ReferenceID, "template", m.TemplateID, "err", err)
 		s.record(ctx, m, err)

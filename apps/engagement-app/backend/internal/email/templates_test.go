@@ -38,7 +38,7 @@ func TestRender_EveryTemplate(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, want := range []string{"<title>Choreo Labs</title>", "&#169; 2026 Choreo Labs. All Rights Reserved", "Choreo Labs Digital Team", "Body text",
-				"https://wso2.cachefly.net/wso2/sites/all/image_resources/choreo-labs-logo-light-400px.png", "https://wso2.cachefly.net/wso2/sites/all/image_resources/choreo-labs-logo-navy-400px.png", `href="https://choreolabs.com/"`, `alt="Choreo Labs"`,
+				`src="cid:choreo-labs-logo-light"`, `src="cid:choreo-labs-logo-navy"`, `href="https://choreolabs.com/"`, `alt="Choreo Labs"`,
 				// Responsive: a viewport, a 600px card that goes full width on small screens.
 				`<meta name="viewport" content="width=device-width, initial-scale=1">`, "max-width: 600px;", "@media only screen and (max-width: 620px)"} {
 				if !strings.Contains(page, want) {
@@ -211,5 +211,17 @@ func TestFinanceTravelMessage_Items(t *testing.T) {
 func TestAsciiHTML_EncodesNonASCII(t *testing.T) {
 	if got := asciiHTML("10–11 Dec, José"); got != "10&#8211;11 Dec, Jos&#233;" {
 		t.Fatalf("asciiHTML = %q", got)
+	}
+}
+
+func TestLogoAttachments_InlinePNGs(t *testing.T) {
+	got := logoAttachments()
+	if len(got) != 2 || got[0].ContentID != logoLightCID || got[1].ContentID != logoNavyCID {
+		t.Fatalf("logo attachments = %+v", got)
+	}
+	for _, a := range got {
+		if a.ContentType != "image/png" || len(a.Attachment) < 8 || a.Attachment[1] != 'P' || a.Attachment[2] != 'N' || a.Attachment[3] != 'G' {
+			t.Fatalf("%s is not an inline PNG", a.ContentID)
+		}
 	}
 }
