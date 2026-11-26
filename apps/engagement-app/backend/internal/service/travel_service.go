@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
@@ -656,8 +657,14 @@ func (s *travelService) peopleBounded(ctx context.Context, addr string) travelPe
 }
 
 func (s *travelService) travelEmailTrip(ctx context.Context, r engagemententity.TravelRequestRecord) email.TravelTrip {
+	return travelEmailTripOf(r, s.peopleBounded(ctx, r.TravellerEmail))
+}
+
+// travelEmailTripOf is the trip of r with its traveller already looked up, so
+// the notices of one update share a single HR lookup.
+func travelEmailTripOf(r engagemententity.TravelRequestRecord, who travelPerson) email.TravelTrip {
 	return email.TravelTrip{
-		JobNumber: r.JobNumber, TravellerEmail: r.TravellerEmail, TravellerName: travelDeref(s.peopleBounded(ctx, r.TravellerEmail).Name),
+		JobNumber: r.JobNumber, TravellerEmail: r.TravellerEmail, TravellerName: travelDeref(who.Name),
 		Customer: r.CustomerName,
 		Country:  r.Country, City: travelDeref(r.City), StartDate: r.StartDate, EndDate: r.EndDate,
 	}
@@ -693,33 +700,37 @@ func (s *travelService) assignEmails(ctx context.Context, r engagemententity.Tra
 func (s *travelService) updateEmails(ctx context.Context, before, after engagemententity.TravelRequestRecord,
 	statusChanged, agentChanged, visaChanged bool, agentName string) {
 	set := s.opts.Email
+	// The traveller is looked up at most once for all the notices of this
+	// update (the HR lookup is bounded, and a failure is not cached).
+	person := sync.OnceValue(func() travelPerson { return s.peopleBounded(ctx, after.TravellerEmail) })
+	trip := func() email.TravelTrip { return travelEmailTripOf(after, person()) }
 	if statusChanged {
 		switch after.Status {
 		case domain.TravelStatusOnHold:
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel On Hold", "This travel request is on hold.", ""))
+			s.send(ctx, email.TravelNotice(set, trip(), "Travel On Hold", "This travel request is on hold.", ""))
 		case domain.TravelStatusCancelled:
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Cancelled", "This travel request was cancelled.", ""))
+			s.send(ctx, email.TravelNotice(set, trip(), "Travel Cancelled", "This travel request was cancelled.", ""))
 		case domain.TravelStatusInProgress:
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel In Progress", "This travel request is now in progress.", ""))
+			s.send(ctx, email.TravelNotice(set, trip(), "Travel In Progress", "This travel request is now in progress.", ""))
 		case domain.TravelStatusCompleted:
-			s.completedEmail(ctx, after, agentName)
+			s.completedEmail(ctx, after, person(), agentName)
 		}
 	}
 	if agentChanged {
 		if before.TravelAgentID != nil {
-			s.send(ctx, email.TravelNotice(set, s.travelEmailTrip(ctx, after), "Travel Reassigned",
+			s.send(ctx, email.TravelNotice(set, trip(), "Travel Reassigned",
 				"This travel request is no longer assigned to "+travelDeref(before.TravelAgentName)+".",
 				travelDeref(before.TravelAgentName)))
 		}
-		s.send(ctx, email.TravelAssigned(set, s.travelEmailTrip(ctx, after), travelEmailVisa(after), agentName))
+		s.send(ctx, email.TravelAssigned(set, trip(), travelEmailVisa(after), agentName))
 	} else if visaChanged && after.TravelAgentID != nil {
-		s.send(ctx, email.TravelVisaChanged(set, s.travelEmailTrip(ctx, after), travelEmailVisa(after), agentName))
+		s.send(ctx, email.TravelVisaChanged(set, trip(), travelEmailVisa(after), agentName))
 	}
 }
 
 // completedEmail is the legacy sendTravelCompletedEmail: the Active per
 // diems and the traveller's company (HR) for the finance recipients.
-func (s *travelService) completedEmail(ctx context.Context, r engagemententity.TravelRequestRecord, agentName string) {
+func (s *travelService) completedEmail(ctx context.Context, r engagemententity.TravelRequestRecord, who travelPerson, agentName string) {
 	perDiems, err := s.entity.TravelActivePerDiems(ctx, r.JobNumber)
 	if err != nil {
 		slog.ErrorContext(ctx, "travel: Completed email not sent: per diems not read", "job", r.JobNumber, "err", err)
@@ -737,8 +748,7 @@ func (s *travelService) completedEmail(ctx context.Context, r engagemententity.T
 		}
 		rows = append(rows, row)
 	}
-	company := travelDeref(s.peopleBounded(ctx, r.TravellerEmail).Company)
-	s.send(ctx, email.TravelCompleted(s.opts.Email, s.travelEmailTrip(ctx, r), travelEmailVisa(r), agentName, company, rows))
+	s.send(ctx, email.TravelCompleted(s.opts.Email, travelEmailTripOf(r, who), travelEmailVisa(r), agentName, travelDeref(who.Company), rows))
 }
 
 // send sends m; a failure is logged only. The sender writes the

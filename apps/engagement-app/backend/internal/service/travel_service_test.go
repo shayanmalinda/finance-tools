@@ -164,9 +164,14 @@ func (f *travelFakeEntity) CreateTravelDocument(_ context.Context, in engagement
 type travelFakeHR struct {
 	hrentity.Unconfigured
 	fail bool
+	// calls, when set, counts the Employee lookups.
+	calls *int
 }
 
 func (h travelFakeHR) Employee(_ context.Context, e string) (*hrentity.Employee, error) {
+	if h.calls != nil {
+		*h.calls++
+	}
 	if h.fail {
 		return nil, errors.New("hr down")
 	}
@@ -1063,5 +1068,26 @@ func TestTravelList_SortPassesThroughAndIsValidated(t *testing.T) {
 	}
 	if len(f.entity.searches) != 0 {
 		t.Errorf("an invalid sort reached the entity: %d searches", len(f.entity.searches))
+	}
+}
+
+// The notices of one update share a single traveller lookup, even when HR
+// fails (a failed lookup is not cached).
+func TestTravelUpdate_OneTravellerLookupPerUpdate(t *testing.T) {
+	acorn := 2
+	trip := travelTrip(domain.TravelStatusInProgress, &acorn)
+	trip.VisaID = travelP(301)
+	trip.Visa = &engagemententity.TravelVisaRef{ID: 301, VisaType: travelP("Business/Visit")}
+	f := newTravelFixture(trip)
+	calls := 0
+	f.svc = NewTravelService(f.entity, travelFakeHR{fail: true, calls: &calls}, f.mail, TravelOptions{VisaNotApplicableID: 332, NoValidVisaID: 333,
+		Now: travelNow, Email: email.TravelSettings{LogisticsGroup: "travel-logistics@wso2.com", AppBaseURL: "https://one.wso2.com"}})
+	if _, err := f.svc.Update(context.Background(), travelTeam, "TRV-2026-10-1246", domain.TravelRequestUpdate{
+		Agency: travelP("Classic Travels"), Visa: travelP("Visa Not Applicable")}); err != nil {
+		t.Fatal(err)
+	}
+	// One lookup for the response and one shared by both notices (it was one per notice).
+	if len(f.mail.sent) != 2 || calls != 2 {
+		t.Errorf("sent %d emails with %d traveller lookups, want 2 and 2", len(f.mail.sent), calls)
 	}
 }
