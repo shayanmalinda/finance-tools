@@ -65,6 +65,9 @@ type AllocationDeps struct {
 	Email      email.Sender
 	Recipients config.EmailConfig
 	Now        func() time.Time
+	// Budgets is nil while travel budgets are off: nothing budget related
+	// is read, sent or answered.
+	Budgets BudgetHooks
 }
 
 // AllocationService is the Allocate page, the Engagement Allocations list,
@@ -256,12 +259,24 @@ func (s *allocationService) Create(ctx context.Context, p domain.Perms, engageme
 	if rs := allocStr(eng.RequestStatus); rs != "" && rs != allocRequestInProgress {
 		bulk.RequestStatusInProgress = &eng.ID // legacy: the page's follow-up PATCH {status: "In Progress"}
 	}
+	// The trip's budget line is decided on the server and saved with the trip.
+	var plan *TripPlan
+	if s.d.Budgets != nil && *req.TravelRequired && (clearance == domain.AllocationClearanceConfirmed || clearance == domain.AllocationClearanceConfirmedVisaPending) {
+		if plan, err = s.d.Budgets.PlanTrip(ctx, TripPlanInput{Engagement: eng, ConsultantEmail: consultant,
+			StartDate: in.start, EndDate: in.end, RequestedLineID: req.BudgetLineID}); err != nil {
+			return none, err
+		}
+		bulk.TravelBudget = plan.Payload
+	}
 	res, err := s.d.Entity.BulkAllocations(ctx, bulk)
 	if err != nil {
 		return none, err
 	}
 
 	out := domain.AllocationCreated{TravelRequest: res.TravelJobNumber}
+	if s.d.Budgets != nil {
+		out.Budget = s.tripBudget(ctx, p, plan, res.TravelJobNumber)
+	}
 	saved := engagemententity.AllocationRecord{
 		ID: allocStr(res.FirstAllocationID), Email: consultant, StartDate: in.start, EndDate: in.end,
 		ClearanceStatus: &clearance, IsTravelRequired: &travel, Comment: req.Comment, AddedBy: &p.Email,
@@ -725,12 +740,22 @@ func (s *allocationService) UpdateStatus(ctx context.Context, p domain.Perms, id
 			return none, err
 		}
 	}
-	res, err := s.d.Entity.UpdateAllocation(ctx, id, engagemententity.AllocationUpdateRequest{
-		ClearanceStatus: &next, Status: &status, Comment: req.Comment, UpdatedBy: p.Email})
+	upd := engagemententity.AllocationUpdateRequest{ClearanceStatus: &next, Status: &status, Comment: req.Comment, UpdatedBy: p.Email}
+	var plan *TripPlan
+	if s.d.Budgets != nil && allocStatusCreatesTrip(a, current, next) {
+		if plan, err = s.d.Budgets.PlanTrip(ctx, s.statusTripPlan(ctx, a, req.BudgetLineID)); err != nil {
+			return none, err
+		}
+		upd.TravelBudget = plan.Payload
+	}
+	res, err := s.d.Entity.UpdateAllocation(ctx, id, upd)
 	if err != nil {
 		return none, err
 	}
 	out := domain.AllocationCreated{Allocation: s.toAllocation(p, res.Allocation, typeID, res.TravelJobNumber), TravelRequest: res.TravelJobNumber}
+	if s.d.Budgets != nil {
+		out.Budget = s.tripBudget(ctx, p, plan, res.TravelJobNumber)
+	}
 	prev := allocStr(res.PreviousClearanceStatus)
 	if prev == "" {
 		// The entity did not echo the previous status; the one read for this
@@ -746,6 +771,29 @@ func (s *allocationService) UpdateStatus(ctx context.Context, p domain.Perms, id
 		}
 	}
 	return out, nil
+}
+
+// tripBudget is the response's budget: the trip's, or a typed nil (written as
+// null) when no trip was created or no budget year holds it.
+func (s *allocationService) tripBudget(ctx context.Context, p domain.Perms, plan *TripPlan, job *string) *domain.TripBudgetView {
+	if plan == nil || job == nil {
+		return nil
+	}
+	return s.d.Budgets.TripCreated(ctx, p, plan, *job)
+}
+
+// statusTripPlan is the trip a status change is about to create. When the
+// engagement cannot be read, the engagement of the allocation row is used: the
+// suggestion is then weaker but the allocation still goes through.
+func (s *allocationService) statusTripPlan(ctx context.Context, a engagemententity.AllocationRecord, line *int) TripPlanInput {
+	eng, err := s.d.Entity.AllocationEngagement(ctx, a.Engagement.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "budget suggestion: engagement not read", "engagement", a.Engagement.ID, "err", err)
+		r := a.Engagement
+		eng = engagemententity.AllocationEngagement{ID: r.ID, EngagementTypeID: r.EngagementTypeID, Title: r.Title,
+			AllocationTypeName: r.AllocationTypeName, Country: r.Country}
+	}
+	return TripPlanInput{Engagement: eng, ConsultantEmail: a.Email, StartDate: a.StartDate, EndDate: a.EndDate, RequestedLineID: line}
 }
 
 func (s *allocationService) checkStatusAvailability(ctx context.Context, a engagemententity.AllocationRecord) error {

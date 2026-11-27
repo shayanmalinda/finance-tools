@@ -196,6 +196,9 @@ type EngagementDetail struct {
 	Allocations           []EngagementAllocation    `json:"allocations"`
 	CascadePreview        *EngagementCascadePreview `json:"cascadePreview,omitempty"`
 	TentativeDates        bool                      `json:"tentativeDates"`
+	// BudgetLine is the *EngagementBudgetLine set on the engagement (null
+	// when none). It is left out entirely while travel budgets are off.
+	BudgetLine any `json:"budgetLine,omitempty"`
 }
 
 // EngagementCreate is the body of POST /engagements.
@@ -224,6 +227,10 @@ type EngagementCreate struct {
 	Comments              string                    `json:"comments"`
 	// TentativeDates: customer engagements only (legacy checkbox).
 	TentativeDates bool `json:"tentativeDates"`
+	// BudgetLineCode is the travel budget line of every trip on the
+	// engagement (internal engagements and events only; "" sets none).
+	// Ignored while travel budgets are off.
+	BudgetLineCode *string `json:"budgetLineCode"`
 }
 
 // EngagementUpdate is the body of PATCH /engagements/{id}: only the fields
@@ -249,6 +256,8 @@ type EngagementUpdate struct {
 	RefreshDatesFromSalesforce *bool                     `json:"refreshDatesFromSalesforce"`
 	Approve                    *bool                     `json:"approve"`
 	TentativeDates             *bool                     `json:"tentativeDates"`
+	// BudgetLineCode: see EngagementCreate; absent means no change.
+	BudgetLineCode *string `json:"budgetLineCode"`
 }
 
 // EngagementRequestStatusChange is the body of POST /engagements/{id}/request-status.

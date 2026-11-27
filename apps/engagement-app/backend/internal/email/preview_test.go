@@ -135,6 +135,9 @@ func previewSamples() (time.Time, []previewSample) {
 		{"travelFinanceUpdate-invoices-approved", FinanceTravelMessage(fin, FinanceInvoicesApproved, trip.JobNumber, "", "invoices", items(FinanceItems{Invoices: []FinanceInvoiceItem{inv1, inv2}})), false},
 		{"travelFinanceUpdate-invoices-rejected", FinanceTravelMessage(fin, FinanceInvoicesRejected, trip.JobNumber, "WSO2 - LK", "invoices", items(FinanceItems{
 			Reason: "The hotel invoice covers two extra nights.", Invoices: []FinanceInvoiceItem{inv2}})), false},
+		{"travelFinanceUpdate-budget-line-needed", BudgetLineNeededMessage(BudgetSettings{Recipients: []string{"budget-owner@example.com"}, AppBaseURL: base},
+			BudgetLineTrip{JobNumber: trip.JobNumber, TravellerName: trip.TravellerName, TravellerEmail: trip.TravellerEmail, Country: trip.Country,
+				StartDate: trip.StartDate, EndDate: trip.EndDate, Engagement: "INT00118 Bug Bash - Q4", AllocationType: "Bug Busting"}), false},
 	}
 	return now, samples
 }

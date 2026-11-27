@@ -35,6 +35,7 @@ func travelOptions(a *area) service.TravelOptions {
 		},
 		Campaigns: a.Campaigns,
 		Now:       a.Now,
+		Budgets:   budgetHooks(a.budgets),
 	}
 }
 

@@ -202,6 +202,16 @@ func allocPartnerName(email string) (name, partner *string) {
 	return &n, &p
 }
 
+// allocStatusCreatesTrip reports whether moving allocation a from current to
+// next makes the entity create its travel request (the entity's updateTravel
+// rule: travel required, not a partner, and a change to Confirmed - Visa
+// Pending, or to Confirmed from anything but Confirmed - Visa Pending).
+func allocStatusCreatesTrip(a engagemententity.AllocationRecord, current, next string) bool {
+	cvp := domain.AllocationClearanceConfirmedVisaPending
+	return a.Engagement != nil && !allocIsPartner(a.Email) && allocStr(a.IsTravelRequired) == "Yes" && next != current &&
+		(next == cvp || (current != cvp && next == domain.AllocationClearanceConfirmed))
+}
+
 func allocStr(s *string) string {
 	if s == nil {
 		return ""

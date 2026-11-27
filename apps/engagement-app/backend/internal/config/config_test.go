@@ -33,6 +33,7 @@ var allKeys = []string{
 	"EMAIL_COMPANY_RECIPIENTS", "EMAIL_INTERNAL_APPROVERS",
 	"CURRENCY_CONVERT_SERVICE_URL", "CURRENCY_CONVERT_CLIENT_ID", "CURRENCY_CONVERT_CLIENT_SECRET",
 	"REPORT_MAX_CONCURRENT", "OUTBOUND_SCOPES", "ACCESS_REQUEST_EMAIL",
+	"BUDGETS_ENABLED", "BUDGET_LINE_RECIPIENTS", "BUDGETS_CACHE_TTL",
 }
 
 func setMinimalEnv(t *testing.T) {
@@ -426,5 +427,49 @@ func TestLoadDashboardCacheTTL(t *testing.T) {
 		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "DASHBOARD_CACHE_TTL") {
 			t.Errorf("DASHBOARD_CACHE_TTL=%q: err = %v, want a startup error", bad, err)
 		}
+	}
+}
+
+// Travel budgets are off by default, with no recipients and a 10 minute cache.
+func TestLoadBudgetDefaults(t *testing.T) {
+	setMinimalEnv(t)
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Budgets.Enabled || len(c.Budgets.LineRecipients) != 0 || c.Budgets.CacheTTL != DefaultBudgetsCacheTTL {
+		t.Errorf("Budgets = %+v, want off, no recipients, %v", c.Budgets, DefaultBudgetsCacheTTL)
+	}
+}
+
+func TestLoadBudgetSettings(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BUDGETS_ENABLED", "true")
+	t.Setenv("BUDGET_LINE_RECIPIENTS", "a@example.com, b@example.com")
+	t.Setenv("BUDGETS_CACHE_TTL", "0")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if !c.Budgets.Enabled || !slices.Equal(c.Budgets.LineRecipients, []string{"a@example.com", "b@example.com"}) || c.Budgets.CacheTTL != 0 {
+		t.Errorf("Budgets = %+v", c.Budgets)
+	}
+
+	t.Setenv("BUDGET_LINE_RECIPIENTS", "not-an-address")
+	c, _ = Load()
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "BUDGET_LINE_RECIPIENTS") {
+		t.Errorf("Validate() = %v, want a BUDGET_LINE_RECIPIENTS error", err)
+	}
+	t.Setenv("BUDGETS_ENABLED", "perhaps")
+	if _, err := Load(); err == nil {
+		t.Error("Load accepted BUDGETS_ENABLED=perhaps")
+	}
+	t.Setenv("BUDGETS_ENABLED", "")
+	t.Setenv("BUDGETS_CACHE_TTL", "-1m")
+	if _, err := Load(); err == nil {
+		t.Error("Load accepted a negative BUDGETS_CACHE_TTL")
 	}
 }

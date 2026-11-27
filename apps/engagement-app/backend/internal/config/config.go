@@ -47,6 +47,10 @@ const (
 	// DefaultDashboardCacheTTL is how long a pod keeps the shared dashboard
 	// data when DASHBOARD_CACHE_TTL is not set.
 	DefaultDashboardCacheTTL = time.Hour
+
+	// DefaultBudgetsCacheTTL is how long a pod keeps the travel budget
+	// summary when BUDGETS_CACHE_TTL is not set.
+	DefaultBudgetsCacheTTL = 10 * time.Minute
 )
 
 // Config holds all environment-driven settings for the Engagement App Backend.
@@ -96,6 +100,23 @@ type Config struct {
 	// 0 turns the cache off) is how long each pod keeps the dashboard data that
 	// is the same for every user. Defaults to DefaultDashboardCacheTTL.
 	DashboardCacheTTL time.Duration
+
+	// Budgets is the FY27 Travel Budgets feature (off by default).
+	Budgets BudgetConfig
+}
+
+// BudgetConfig is the Travel Budgets feature.
+type BudgetConfig struct {
+	// Enabled (BUDGETS_ENABLED, default false) turns the feature on. Off, the
+	// /budgets routes are not registered, budget fields on existing endpoints
+	// are ignored and left out, and nothing budget related goes to the entity.
+	Enabled bool
+	// LineRecipients (BUDGET_LINE_RECIPIENTS, comma separated) get the "needs
+	// a budget line" email. Empty sends none.
+	LineRecipients []string
+	// CacheTTL (BUDGETS_CACHE_TTL, default 10m, 0 turns it off) is how long a
+	// pod keeps the budget summary and the budget reference data.
+	CacheTTL time.Duration
 }
 
 // JWTConfig is how the caller's token is verified. There is no switch that
@@ -234,6 +255,16 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	budgetsTTL, err := getDuration("BUDGETS_CACHE_TTL", DefaultBudgetsCacheTTL)
+	if err != nil {
+		return nil, err
+	}
+	budgetsEnabled := false
+	if v := strings.TrimSpace(os.Getenv("BUDGETS_ENABLED")); v != "" {
+		if budgetsEnabled, err = strconv.ParseBool(v); err != nil {
+			return nil, errors.New("BUDGETS_ENABLED must be true or false")
+		}
+	}
 	emailDisabled := false
 	if v := strings.TrimSpace(os.Getenv("EMAIL_DISABLED")); v != "" {
 		if emailDisabled, err = strconv.ParseBool(v); err != nil {
@@ -319,6 +350,7 @@ func Load() (*Config, error) {
 		ReportMaxConcurrent: reportMax,
 		AccessRequestEmail:  strings.TrimSpace(getEnvOrDefault("ACCESS_REQUEST_EMAIL", DefaultAccessRequestEmail)),
 		DashboardCacheTTL:   cacheTTL,
+		Budgets:             BudgetConfig{Enabled: budgetsEnabled, LineRecipients: getList("BUDGET_LINE_RECIPIENTS"), CacheTTL: budgetsTTL},
 	}, nil
 }
 
@@ -403,6 +435,11 @@ func (c *Config) Validate() error {
 		}
 		if err := requireHTTPS(u.key, u.val); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	for _, r := range c.Budgets.LineRecipients {
+		if !strings.Contains(r, "@") || strings.ContainsAny(r, " \t\r\n<>;") {
+			errs = append(errs, fmt.Errorf("BUDGET_LINE_RECIPIENTS: %q is not an email address", r))
 		}
 	}
 	if c.AccessRequestEmail != "" {

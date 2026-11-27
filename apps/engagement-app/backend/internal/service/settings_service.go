@@ -56,10 +56,17 @@ func NewSettingsServiceWithRoleHook(entity EngagementEntityAPI, refs ReferenceSe
 	return &settingsService{entity: entity, refs: refs, onRolesChanged: onRolesChanged}
 }
 
+// bothSuperAdmins reports whether the caller is in both the Allocations and
+// the Travel super admin groups: Role Settings and Travel Budgets settings
+// are for such a person only.
+func bothSuperAdmins(p domain.Perms) bool {
+	return domain.HasRole(p.AllocRoles, domain.AllocationsSuperAdminGroup) && domain.HasRole(p.TravelRoles, domain.TravelSuperAdminGroup)
+}
+
 // settingsRolePrivilege is each app's Role Settings privilege: Allocations
 // 23, Travel 29, and only for a person in both super admin groups.
 func settingsRoleAccess(p domain.Perms, app domain.App) error {
-	if !domain.HasRole(p.AllocRoles, domain.AllocationsSuperAdminGroup) || !domain.HasRole(p.TravelRoles, domain.TravelSuperAdminGroup) {
+	if !bothSuperAdmins(p) {
 		return engagementForbidden()
 	}
 	switch app {

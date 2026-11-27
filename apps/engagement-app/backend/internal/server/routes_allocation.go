@@ -31,7 +31,8 @@ func registerAllocationRoutes(a *area) {
 	if org == nil {
 		org = hrentity.Unconfigured{}
 	}
-	deps := service.AllocationDeps{Entity: a.Entity, HR: a.HR, Org: org, Email: a.Email, Recipients: a.Recipients, Now: a.Now}
+	deps := service.AllocationDeps{Entity: a.Entity, HR: a.HR, Org: org, Email: a.Email, Recipients: a.Recipients, Now: a.Now,
+		Budgets: budgetHooks(a.budgets)}
 	a.allocations = service.NewAllocationService(deps)
 	h := handler.NewAllocationHandler(a.allocations, service.NewTeamAllocationService(deps),
 		service.NewConsultantReportService(deps))

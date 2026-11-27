@@ -224,6 +224,9 @@ type AllocationBulkRequest struct {
 	AllocationLogs          []AllocationUploadLog  `json:"allocationLogs"`
 	RequestStatusInProgress *string                `json:"requestStatusInProgress"`
 	CreatedBy               string                 `json:"createdBy"`
+	// TravelBudget is the budget line of the trip this write creates; nil
+	// (budgets off) leaves it out, so the payload is what it always was.
+	TravelBudget *AllocationTravelBudget `json:"travelBudget,omitempty"`
 }
 
 // AllocationBulkResult is the outcome of a bulk write.
@@ -242,6 +245,8 @@ type AllocationUpdateRequest struct {
 	StartDate       *string `json:"startDate,omitempty"`
 	EndDate         *string `json:"endDate,omitempty"`
 	UpdatedBy       string  `json:"updatedBy"`
+	// TravelBudget is the budget line of the trip this update creates (nil: none sent).
+	TravelBudget *AllocationTravelBudget `json:"travelBudget,omitempty"`
 }
 
 // AllocationUpdateResult is the updated allocation and its travel outcome.

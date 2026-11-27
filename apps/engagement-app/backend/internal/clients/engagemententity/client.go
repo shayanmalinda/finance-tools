@@ -44,6 +44,7 @@ type Client interface {
 	FinanceAPI
 	DashboardAPI
 	AuditAPI
+	BudgetAPI
 }
 
 // AccessAPI is the roles, privileges and lookups shared by every area.

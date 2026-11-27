@@ -231,6 +231,37 @@ func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) 
 	return v, true
 }
 
+// usdOn converts amount of currency at the rate of date (YYYY-MM-DD). USD is
+// used as recorded. ok is false when no rate was resolved for the pair.
+func (rs rateSet) usdOn(currency string, amount float64, date string) (float64, bool) {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	switch currency {
+	case "USD":
+		return dashboardRound(amount), true
+	case "":
+		return 0, false
+	}
+	rate, ok := rs[ratePair{currency, date}]
+	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return 0, false
+	}
+	v := dashboardRound(amount / rate)
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, false
+	}
+	return v, true
+}
+
+// RateCache is the NetSuite rate cache the dashboard and the travel budgets
+// share, so a rate is looked up once.
+type RateCache = dashboardRates
+
+// NewRateCache returns a rate cache over conv, which may be nil (then nothing
+// resolves). now may be nil (time.Now).
+func NewRateCache(conv FinanceCurrencyConverter, now func() time.Time) *RateCache {
+	return newDashboardRates(conv, now)
+}
+
 // dashboardUSD is one amount in USD with how it was got. USD is already
 // rounded to cents (see usd), so sums of it are sums of cents.
 type dashboardUSD struct {

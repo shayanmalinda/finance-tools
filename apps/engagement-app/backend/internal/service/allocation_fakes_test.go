@@ -52,6 +52,8 @@ type allocFakeEntity struct {
 	deleted  []string
 	searched []engagemententity.AllocationSearchRequest
 	timeReqs []engagemententity.AllocationTimelineRequest
+	// travelJob is the job number UpdateAllocation reports as created.
+	travelJob *string
 }
 
 func allocNotFound() error {
@@ -107,7 +109,7 @@ func (f *allocFakeEntity) UpdateAllocation(_ context.Context, id string, req eng
 	if req.StartDate != nil {
 		a.StartDate = *req.StartDate
 	}
-	return engagemententity.AllocationUpdateResult{Allocation: a, PreviousClearanceStatus: prev}, nil
+	return engagemententity.AllocationUpdateResult{Allocation: a, PreviousClearanceStatus: prev, TravelJobNumber: f.travelJob}, nil
 }
 
 func (f *allocFakeEntity) DeleteAllocation(_ context.Context, id string) error {

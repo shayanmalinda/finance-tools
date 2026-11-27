@@ -161,6 +161,9 @@ type TravelRequestDetail struct {
 	FundingSources []TravelFundingSource `json:"fundingSources"`
 	Tabs           TravelRequestTabs     `json:"tabs"`
 	Counts         *TravelRequestCounts  `json:"counts,omitempty"`
+	// Budget is the trip's *TripBudgetView (null when none). It is left out
+	// entirely while travel budgets are off, so the response is unchanged.
+	Budget any `json:"budget,omitempty"`
 }
 
 // TravelRequestUpdate is the PATCH /travel-requests/{jobNumber} body. Nil

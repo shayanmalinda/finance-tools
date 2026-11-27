@@ -83,6 +83,7 @@ tags:
   - name: Reports
   - name: Visas & Documents
   - name: Settings
+  - name: Budgets
 
 paths:
   /health:
@@ -1233,6 +1234,7 @@ paths:
               properties:
                 clearanceStatus: { $ref: '#/components/schemas/ClearanceStatus' }
                 comment: { type: string, maxLength: 255 }
+                budgetLineId: { type: integer, nullable: true, description: "optional, ignored unless BUDGETS_ENABLED; the travel budget line of the trip this write creates (an Active line of the trip's year, else 400)." }
       responses:
         '200':
           description: Updated
@@ -2591,6 +2593,233 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  # ── Travel budgets (BUDGETS_ENABLED; not registered, so 404, when off) ───
+
+  /budgets/preview:
+    get:
+      tags: [Budgets]
+      summary: Suggested budget line, its figures and the typical trip cost for a trip about to be allocated
+      operationId: previewBudget
+      x-privileges: { allocations: [6, 16, 20, 21, 32, 33] }
+      parameters:
+        - { name: engagementId, in: query, required: true, schema: { type: string } }
+        - { name: travellerEmail, in: query, required: true, schema: { type: string } }
+        - { name: startDate, in: query, required: true, schema: { type: string, format: date } }
+        - { name: endDate, in: query, required: true, schema: { type: string, format: date } }
+        - { name: country, in: query, schema: { type: string }, description: "Default: the engagement's country." }
+        - { name: allocationTypeId, in: query, schema: { type: integer }, description: "Default: the engagement's." }
+      responses:
+        '200':
+          description: 'When no budget year holds startDate only `inScope: false` is written.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /budgets/summary:
+    get:
+      tags: [Budgets]
+      summary: Budget, spent, committed and left per line for a year
+      description: >-
+        Needs Travel 1, 4, 5, 6, 35 or both super admin groups with Allocations
+        23 and Travel 29. Costs convert to USD at NetSuite's rate on the day
+        each trip was allocated. Not cached while some rate is missing
+        (`ratesPending`).
+      operationId: getBudgetSummary
+      x-privileges: { allocations: [23], travel: [1, 4, 5, 6, 29, 35] }
+      parameters:
+        - { name: year, in: query, schema: { type: integer }, description: 'Default: the active year containing today, else the latest.' }
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /budgets/lines:
+    get:
+      tags: [Budgets]
+      summary: Budget lines of a year (pickers and Settings)
+      operationId: listBudgetLines
+      x-privileges: { allocations: [6, 11, 12, 15, 16, 20, 21, 23, 25, 27, 30, 32, 33], travel: [1, 4, 5, 6, 29, 35] }
+      parameters:
+        - { name: year, in: query, schema: { type: integer } }
+        - { name: includeRetired, in: query, schema: { type: boolean }, description: 'Honoured for the budget admin only.' }
+      responses:
+        '200':
+          description: Lines in display order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lines]
+                properties:
+                  lines: { type: array, items: { $ref: '#/components/schemas/BudgetLine' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [Budgets]
+      summary: Add a budget line (budget admin)
+      description: 'The code is upper-cased with other characters turned into underscores. A duplicate year and code is 409.'
+      operationId: createBudgetLine
+      x-privileges: { allocations: [23], travel: [29] }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetLineInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetLine' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /budgets/lines/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    put:
+      tags: [Budgets]
+      summary: Change a budget line (budget admin; code and year never change, status is required)
+      operationId: updateBudgetLine
+      x-privileges: { allocations: [23], travel: [29] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetLineInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetLine' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [Budgets]
+      summary: Retire a budget line (budget admin; trips already on it keep it)
+      operationId: retireBudgetLine
+      x-privileges: { allocations: [23], travel: [29] }
+      responses:
+        '204': { description: Retired }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /budgets/allocation-type-rules:
+    get:
+      tags: [Budgets]
+      summary: Every Active allocation type with the rule that picks its budget line
+      operationId: listBudgetAllocationTypeRules
+      x-privileges: { allocations: [23, 25], travel: [29] }
+      responses:
+        '200':
+          description: Rules (kind NONE when a type has none)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules: { type: array, items: { $ref: '#/components/schemas/BudgetAllocationTypeRule' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /budgets/allocation-type-rules/{allocationTypeId}:
+    put:
+      tags: [Budgets]
+      summary: Set the rule of an allocation type (budget admin)
+      operationId: saveBudgetAllocationTypeRule
+      x-privileges: { allocations: [23], travel: [29] }
+      parameters:
+        - { name: allocationTypeId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ruleKind]
+              properties:
+                ruleKind: { type: string, enum: [LINE, REGION, TEAM, ENGAGEMENT, NONE] }
+                lineCode: { type: string, nullable: true, description: 'Required for LINE, refused for the others.' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetAllocationTypeRule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /budgets/needs-line:
+    get:
+      tags: [Budgets]
+      summary: Trips of a year with no budget line
+      operationId: listBudgetNeedsLine
+      x-privileges: { allocations: [23], travel: [1, 4, 5, 6, 29, 35] }
+      parameters:
+        - { name: year, in: query, schema: { type: integer } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/BudgetNeedsLineItem' } }
+                  total: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /travel-requests/{jobNumber}/budget-line:
+    put:
+      tags: [Budgets]
+      summary: Choose or clear the budget line of a trip
+      operationId: setTripBudgetLine
+      x-privileges: { travel: [1, 4, 5, 6, 29] }
+      parameters:
+        - { name: jobNumber, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                budgetLineId: { type: integer, nullable: true }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TripBudgetView' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
   securitySchemes:
     bearer:
@@ -3650,6 +3879,13 @@ components:
           properties:
             scope: { type: string, enum: [full, roster, consultants] }
             tentativeDates: { type: boolean }
+            budgetLine:
+              type: object
+              nullable: true
+              description: 'Only when BUDGETS_ENABLED. The travel budget line set on the engagement.'
+              properties:
+                code: { type: string }
+                name: { type: string }
             accountId: { type: string, nullable: true }
             opportunityId: { type: string, nullable: true }
             opportunityLineItemId: { type: string, nullable: true }
@@ -3702,6 +3938,7 @@ components:
         engagementScope: { type: string }
         comments: { type: string }
         tentativeDates: { type: boolean, description: 'Tentative Dates (customer engagements, legacy checkbox). Paid types (2, 6, 7) take it from the line item''s isTentativeDates; the request value is ignored.' }
+        budgetLineCode: { type: string, description: 'Optional, ignored unless BUDGETS_ENABLED. Travel budget line code of every trip on the engagement. Types 1 and 5 only. Unknown code is 400.' }
     EngagementUpdate:
       type: object
       description: Only the fields sent are changed.
@@ -3714,6 +3951,7 @@ components:
         engagementScope: { type: string }
         comments: { type: string }
         tentativeDates: { type: boolean, description: Customer engagements. }
+        budgetLineCode: { type: string, description: 'Optional, ignored unless BUDGETS_ENABLED. Types 1 and 5 only. "" clears the line, absent leaves it.' }
         startDate: { type: string, format: date }
         endDate: { type: string, format: date }
         description: { type: string }
@@ -3817,6 +4055,7 @@ components:
         preparationStart: { type: string, format: date, description: 'Paid types; adds an Engagement Overhead team allocation.' }
         postEngagementEnd: { type: string, format: date, description: 'Paid types; adds an Engagement Overhead team allocation.' }
         trimDefaultAllocations: { type: boolean, description: 'Confirms trimming or splitting the overlapped default allocations.' }
+        budgetLineId: { type: integer, nullable: true, description: "optional, ignored unless BUDGETS_ENABLED; the travel budget line of the trip this write creates (an Active line of the trip's year, else 400)." }
     AllocationCreated:
       type: object
       required: [allocation]
@@ -3824,6 +4063,10 @@ components:
         allocation: { $ref: '#/components/schemas/Allocation' }
         travelRequest: { type: string, nullable: true, description: 'Job number of the travel request created.' }
         emailsSent: { type: boolean }
+        budget:
+          allOf: [{ $ref: '#/components/schemas/TripBudgetView' }]
+          nullable: true
+          description: 'Only when BUDGETS_ENABLED. null when no trip was created or no budget year holds it.'
     OverlapError:
       allOf:
         - $ref: '#/components/schemas/Error'
@@ -3949,6 +4192,10 @@ components:
           required: [scope, tabs]
           properties:
             scope: { type: string, enum: [full, agency, own] }
+            budget:
+              allOf: [{ $ref: '#/components/schemas/TripBudgetView' }]
+              nullable: true
+              description: 'Only when BUDGETS_ENABLED, for Travel 1, 4, 5, 6, 29 or 35. null otherwise or when no budget year holds the trip.'
             allocationId: { type: string, nullable: true }
             visaId: { type: integer, nullable: true }
             engagementCode: { type: string, nullable: true }
@@ -4315,3 +4562,174 @@ components:
               id: { type: integer }
               name: { type: string }
               description: { type: string, nullable: true }
+
+    BudgetLine:
+      type: object
+      properties:
+        id: { type: integer }
+        year: { type: integer }
+        code: { type: string }
+        functionName: { type: string }
+        subFunction: { type: string }
+        name: { type: string, description: '"Sales: EU", "R&D: ...", "G&A: ..." or the bare sub-function.' }
+        holderName: { type: string, nullable: true }
+        holderEmail: { type: string, nullable: true }
+        amountUsd: { type: number }
+        status: { type: string, enum: [Active, Retired] }
+        sortOrder: { type: integer }
+        updatedBy: { type: string, nullable: true }
+        updatedAt: { type: string, nullable: true }
+    BudgetLineInput:
+      type: object
+      properties:
+        year: { type: integer, description: Create only. }
+        code: { type: string, description: 'Create only, 1 to 40 of A-Z, 0-9 and underscore after normalising.' }
+        functionName: { type: string, maxLength: 100 }
+        subFunction: { type: string, maxLength: 150 }
+        holderName: { type: string, nullable: true }
+        holderEmail: { type: string, nullable: true }
+        amountUsd: { type: number, minimum: 0 }
+        sortOrder: { type: integer }
+        status: { type: string, enum: [Active, Retired], description: Update only and required there. }
+    BudgetAllocationTypeRule:
+      type: object
+      properties:
+        allocationTypeId: { type: integer }
+        allocationTypeName: { type: string }
+        engagementTypeId: { type: integer }
+        engagementTypeName: { type: string }
+        ruleKind: { type: string, enum: [LINE, REGION, TEAM, ENGAGEMENT, NONE] }
+        lineCode: { type: string, nullable: true }
+        lineName: { type: string, nullable: true }
+    BudgetLineRef:
+      type: object
+      properties:
+        lineId: { type: integer }
+        name: { type: string }
+    TripBudgetView:
+      type: object
+      properties:
+        jobNumber: { type: string }
+        year: { type: integer, nullable: true }
+        line: { allOf: [{ $ref: '#/components/schemas/BudgetLineRef' }], nullable: true }
+        suggested: { allOf: [{ $ref: '#/components/schemas/BudgetLineRef' }], nullable: true }
+        source: { type: string, enum: [ENGAGEMENT, ALLOCATION_TYPE, REGION, TEAM, NONE] }
+        chosenBy: { type: string, enum: [USER, SYSTEM], nullable: true }
+        needsLine: { type: boolean }
+        canEdit: { type: boolean }
+    BudgetPreview:
+      type: object
+      required: [inScope]
+      properties:
+        inScope: { type: boolean }
+        year: { type: integer }
+        country: { type: string }
+        suggested:
+          type: object
+          nullable: true
+          properties:
+            lineId: { type: integer }
+            code: { type: string }
+            name: { type: string }
+            source: { type: string }
+        source: { type: string, enum: [ENGAGEMENT, ALLOCATION_TYPE, REGION, TEAM, NONE] }
+        line:
+          type: object
+          nullable: true
+          description: Figures of the suggested line.
+          properties:
+            lineId: { type: integer }
+            name: { type: string }
+            holderName: { type: string, nullable: true }
+            budgetUsd: { type: number }
+            spentUsd: { type: number }
+            committedUsd: { type: number }
+            leftUsd: { type: number }
+            usedPercent: { type: number }
+        alternatives:
+          type: array
+          items:
+            type: object
+            properties:
+              lineId: { type: integer }
+              code: { type: string }
+              name: { type: string }
+              leftUsd: { type: number }
+        typicalCost:
+          type: object
+          properties:
+            usd: { type: number, nullable: true }
+            basis: { type: string, enum: [country, global, none] }
+            sampleSize: { type: integer }
+        warning: { type: boolean, description: 'The typical cost is over what the line has left.' }
+        ratesPending: { type: boolean }
+    BudgetSummary:
+      type: object
+      properties:
+        year: { type: integer }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        years: { type: array, items: { type: integer }, description: 'Budget years that can be read, ascending.' }
+        asOf: { type: string, format: date-time }
+        ratesPending: { type: boolean }
+        expenseAvailable: { type: boolean }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              lineId: { type: integer }
+              code: { type: string }
+              functionName: { type: string }
+              name: { type: string }
+              holderName: { type: string, nullable: true }
+              status: { type: string }
+              budgetUsd: { type: number }
+              spentUsd: { type: number }
+              committedUsd: { type: number }
+              leftUsd: { type: number }
+              usedPercent: { type: number }
+              trips: { type: integer }
+              openTripsWithoutCost: { type: integer }
+        totals:
+          type: object
+          description: 'spentUsd includes the unassigned spend.'
+          properties:
+            budgetUsd: { type: number }
+            spentUsd: { type: number }
+            committedUsd: { type: number }
+            leftUsd: { type: number }
+            usedPercent: { type: number }
+        unassigned:
+          type: object
+          properties:
+            spentUsd: { type: number }
+            tripsWithoutLine: { type: integer }
+            noTripSpendUsd: { type: number }
+        needsLineCount: { type: integer }
+        unconverted:
+          type: object
+          properties:
+            count: { type: integer }
+            currencies: { type: array, items: { type: string } }
+    BudgetNeedsLineItem:
+      type: object
+      properties:
+        jobNumber: { type: string }
+        travellerEmail: { type: string, nullable: true }
+        travellerName: { type: string, nullable: true }
+        country: { type: string, nullable: true }
+        startDate: { type: string, nullable: true }
+        endDate: { type: string, nullable: true }
+        status: { type: string, nullable: true }
+        engagementId: { type: string, nullable: true }
+        engagementType: { type: string, nullable: true }
+        customerName: { type: string, nullable: true }
+        budgetYear: { type: integer, nullable: true }
+        budgetLineId: { type: integer, nullable: true }
+        suggestedLineId: { type: integer, nullable: true }
+        suggested: { allOf: [{ $ref: '#/components/schemas/BudgetLineRef' }], nullable: true }
+        suggestionSource: { type: string, nullable: true }
+        chosenBy: { type: string, nullable: true }
+        rateDate: { type: string, nullable: true }
+        hasRow: { type: boolean }

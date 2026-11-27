@@ -47,6 +47,9 @@ type TravelOptions struct {
 	Now func() time.Time
 	// Campaigns resolves campaign names; nil leaves them unset.
 	Campaigns *CampaignNames
+	// Budgets is nil while travel budgets are off: the page then has no
+	// budget field at all.
+	Budgets BudgetHooks
 }
 
 func (o TravelOptions) now() time.Time {
@@ -369,11 +372,18 @@ func (s *travelService) detail(ctx context.Context, p domain.Perms, r engagement
 	var (
 		wg     sync.WaitGroup
 		person travelPerson
+		budget *domain.TripBudgetView
 	)
 	goSafe(ctx, &wg, nil, func() { person = s.people.get(ctx, r.TravellerEmail) })
 	goSafe(ctx, &wg, nil, func() { s.opts.Campaigns.Fill(ctx, d.Campaign) })
 	goSafe(ctx, &wg, nil, func() { d.Counts = s.counts(ctx, p, r.JobNumber, d.Tabs) })
+	if s.opts.Budgets != nil {
+		goSafe(ctx, &wg, nil, func() { budget = s.opts.Budgets.TripView(ctx, p, r.JobNumber) })
+	}
 	wg.Wait()
+	if s.opts.Budgets != nil {
+		d.Budget = budget // a typed nil is written as null
+	}
 	d.Traveller.Name, d.BaseLocation = person.Name, person.Location
 	if travelSees(scope, "allocation") {
 		d.AllocationID = r.AllocationID

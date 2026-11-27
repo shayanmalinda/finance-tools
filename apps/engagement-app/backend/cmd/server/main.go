@@ -134,6 +134,7 @@ func main() {
 		CORSAllowedOrigins:  cfg.CORSAllowedOrigins,
 		ReportMaxConcurrent: cfg.ReportMaxConcurrent,
 		DashboardCacheTTL:   cfg.DashboardCacheTTL,
+		Budgets:             cfg.Budgets,
 		AccessRequestEmail:  cfg.AccessRequestEmail,
 	})
 	srv := server.New(":"+cfg.ServerPort, handler)

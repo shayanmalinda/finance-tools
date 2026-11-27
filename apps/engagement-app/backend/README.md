@@ -176,6 +176,9 @@ committed files.
 | `GATEWAY_JWT_AUDIENCES` | Only if the gateway's JWT names another audience | `JWT_AUDIENCES` | The `aud` of the gateway's JWT (comma-separated list allowed) |
 | `JWT_CLOCK_SKEW_SECONDS` | No | `60` | – |
 | `DASHBOARD_CACHE_TTL` | No | `1h` | How long each pod keeps the dashboard data that is the same for every user (Go duration such as `1h` or `30m`; `0` turns the cache off; negative or unparsable stops startup). See Dashboard cache below |
+| `BUDGETS_ENABLED` | No | `false` | Turns on FY27 Travel Budgets. Off, the `/budgets/*` routes and `PUT /travel-requests/{jobNumber}/budget-line` are not registered (404), budget fields on existing requests are ignored, answers have no budget fields, and nothing budget related goes to the entity. Turn it on only after the entity has the budget tables |
+| `BUDGET_LINE_RECIPIENTS` | No | – | Comma-separated addresses for the "Budget Line Needed" email, sent when a trip is created that no budget line could be chosen for. Empty sends none. Locally use `shayan@wso2.com`. Staging still redirects every email to `EMAIL_TEST_RECIPIENTS` |
+| `BUDGETS_CACHE_TTL` | No | `10m` | How long each pod keeps the budget summary and budget reference data (Go duration, `0` turns it off) |
 | `REPORT_MAX_CONCURRENT` | No | `2` | Unpaged report downloads one pod builds at once (each is held in memory); one more answers 503 with `Retry-After: 10` |
 | `ACCESS_REQUEST_EMAIL` | No | `wso2-digital-team@wso2.com` | Plain email address (for example `wso2-digital-team@wso2.com`) that people with no Engagement App access are told to write to; returned as `accessRequestEmail` by `GET /user-info`. A malformed value stops startup |
 | `CORS_ALLOWED_ORIGINS` | Locally | – (none) | `http://localhost:3000`; behind the gateway CORS is the gateway's |

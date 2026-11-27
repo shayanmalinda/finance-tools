@@ -70,6 +70,15 @@ func WithNoValidVisaID(id int) DashboardOption {
 	return func(s *dashboardService) { s.noValidVisaID = id }
 }
 
+// WithRateCache makes the dashboard use rc, shared with the travel budgets.
+func WithRateCache(rc *RateCache) DashboardOption {
+	return func(s *dashboardService) {
+		if rc != nil {
+			s.rates = rc
+		}
+	}
+}
+
 // WithCacheTTL sets how long this pod keeps the shared dashboard data (cost
 // line sets and entity aggregates). Zero or negative keeps nothing. The default
 // is config.DefaultDashboardCacheTTL.

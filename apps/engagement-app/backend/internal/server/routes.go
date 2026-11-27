@@ -52,6 +52,8 @@ type Deps struct {
 	// Travel holds the legacy visa sentinel ids. Zero values fall back to
 	// the production ids.
 	Travel config.TravelConfig
+	// Budgets is the FY27 Travel Budgets feature (off by default).
+	Budgets config.BudgetConfig
 	// CORSAllowedOrigins are the webapp origins allowed from a browser.
 	CORSAllowedOrigins []string
 	// ReportMaxConcurrent caps unpaged report downloads per pod; 0 means 2.
@@ -77,6 +79,10 @@ type area struct {
 	Converter service.FinanceCurrencyConverter
 	// Reports is the per-pod cap on unpaged report downloads.
 	Reports func(http.Handler) http.Handler
+	// Rates is the NetSuite rate cache the dashboard and the budgets share.
+	Rates *service.RateCache
+	// budgets is the Travel Budgets service, nil when the feature is off.
+	budgets *service.BudgetService
 	// Travel, Finance, Engagements and Allocations are the list services each
 	// area builds, kept for global search (nil when the area is not registered).
 	travel      service.TravelService
@@ -137,12 +143,15 @@ func NewRouter(d Deps) http.Handler {
 
 	a := &area{Deps: d, Access: accessSvc, Idem: middleware.NewIdempotency(), Campaigns: service.NewCampaignNames(d.Sales),
 		Reports: middleware.Limit(d.ReportMaxConcurrent), Converter: financeCurrency(d.Currency), mux: api}
+	a.Rates = service.NewRateCache(a.Converter, d.Now)
+	a.budgets = newBudgets(a)
 	registerEngagementRoutes(a)
 	registerAllocationRoutes(a)
 	registerTravelRoutes(a)
 	registerFinanceRoutes(a)
 	registerDashboardRoutes(a)
 	registerSearchRoutes(a)
+	registerBudgetRoutes(a)
 
 	// ── Root ─────────────────────────────────────────────────────────────────
 	root := http.NewServeMux()

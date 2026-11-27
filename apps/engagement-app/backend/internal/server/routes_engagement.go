@@ -42,7 +42,8 @@ func registerEngagementRoutes(a *area) {
 		return
 	}
 	refs := service.NewReferenceService(entity, a.Sales, a.HR)
-	engagements := service.NewEngagementService(entity, refs, a.Sales, a.HR, a.Email, a.Recipients, a.Now)
+	engagements := service.NewEngagementService(entity, refs, a.Sales, a.HR, a.Email, a.Recipients, a.Now,
+		service.WithEngagementBudgets(budgetHooks(a.budgets)))
 	a.engagements = engagements
 	settings := service.NewSettingsServiceWithRoleHook(entity, refs, a.Access.InvalidateRoles)
 

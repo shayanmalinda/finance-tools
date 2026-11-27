@@ -118,6 +118,9 @@ type AllocationCreateRequest struct {
 	PreparationStart       *string           `json:"preparationStart"`
 	PostEngagementEnd      *string           `json:"postEngagementEnd"`
 	TrimDefaultAllocations *bool             `json:"trimDefaultAllocations"`
+	// BudgetLineID is the travel budget line the allocator chose; ignored
+	// while travel budgets are off or no trip is created.
+	BudgetLineID *int `json:"budgetLineId"`
 }
 
 // AllocationCreated is the result of an allocation or a status change.
@@ -125,12 +128,17 @@ type AllocationCreated struct {
 	Allocation    Allocation `json:"allocation"`
 	TravelRequest *string    `json:"travelRequest"`
 	EmailsSent    bool       `json:"emailsSent"`
+	// Budget is the trip's *TripBudgetView (null when no trip was created).
+	// It is left out entirely while travel budgets are off.
+	Budget any `json:"budget,omitempty"`
 }
 
 // AllocationStatusUpdate is PATCH /allocations/{id}/status.
 type AllocationStatusUpdate struct {
 	ClearanceStatus *string `json:"clearanceStatus"`
 	Comment         *string `json:"comment"`
+	// BudgetLineID: see AllocationCreateRequest.
+	BudgetLineID *int `json:"budgetLineId"`
 }
 
 // AllocationEmployee is a person row of a timeline (openapi Employee).

@@ -27,7 +27,7 @@ import (
 // live here, each behind a.handle / a.handleIdem with its legacy gate.
 func registerDashboardRoutes(a *area) {
 	svc := service.NewDashboardService(a.Entity, a.HR, a.Converter, a.Now, service.WithNoValidVisaID(a.Travel.NoValidVisaID),
-		service.WithCacheTTL(a.DashboardCacheTTL))
+		service.WithCacheTTL(a.DashboardCacheTTL), service.WithRateCache(a.Rates))
 	if inv, ok := svc.(service.CacheInvalidator); ok {
 		a.invalidateDashboard = inv.InvalidateCache
 	}

@@ -94,17 +94,51 @@ type engagementService struct {
 	now        func() time.Time
 	names      *cache.Cache[string, string]
 	campaigns  *CampaignNames
+	// budgets is nil while travel budgets are off.
+	budgets BudgetHooks
+}
+
+// EngagementOption configures an EngagementService.
+type EngagementOption func(*engagementService)
+
+// WithEngagementBudgets turns on the engagement's travel budget line. nil
+// leaves it off.
+func WithEngagementBudgets(b BudgetHooks) EngagementOption {
+	return func(s *engagementService) { s.budgets = b }
 }
 
 // NewEngagementService constructs an EngagementService. refs must be built
 // over the same Sales client (it resolves accounts and campaigns).
 func NewEngagementService(entity EngagementEntityAPI, refs ReferenceService, sales salesentity.Client, hr hrentity.Client,
-	mail email.Sender, recipients config.EmailConfig, now func() time.Time) EngagementService {
+	mail email.Sender, recipients config.EmailConfig, now func() time.Time, opts ...EngagementOption) EngagementService {
 	if now == nil {
 		now = time.Now
 	}
-	return &engagementService{entity: entity, refs: refs, sales: sales, hr: hr, mail: mail, recipients: recipients,
+	s := &engagementService{entity: entity, refs: refs, sales: sales, hr: hr, mail: mail, recipients: recipients,
 		now: now, names: cache.New[string, string](engagementNameTTL), campaigns: NewCampaignNames(sales)}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// budgetKind reports whether the engagement's travel budget line applies: it
+// is set on internal engagements and marketing events only.
+func budgetKind(typeID int) bool {
+	return typeID == domain.EngagementTypeInternal || typeID == domain.EngagementTypeMarketing
+}
+
+// fillBudgetLine adds the engagement's travel budget line to its page (null
+// when none). Nothing is added while travel budgets are off.
+func (s *engagementService) fillBudgetLine(ctx context.Context, d *domain.EngagementDetail) {
+	if s.budgets == nil {
+		return
+	}
+	var line *domain.EngagementBudgetLine
+	if budgetKind(d.EngagementTypeID) {
+		line = s.budgets.EngagementLine(ctx, d.ID)
+	}
+	d.BudgetLine = line
 }
 
 // fillCampaigns resolves the campaign names of a page of engagements.
@@ -553,6 +587,7 @@ func (s *engagementService) written(ctx context.Context, p domain.Perms,
 	scope, _ := detailScope(p, st, false)
 	d = s.detailBase(p, r, st, scope)
 	s.campaigns.Fill(ctx, d.Campaign)
+	s.fillBudgetLine(ctx, &d)
 	return d
 }
 
@@ -624,6 +659,7 @@ func (s *engagementService) detail(ctx context.Context, p domain.Perms, r engage
 		d.CascadePreview = &preview
 	}
 	s.campaigns.Fill(ctx, d.Campaign)
+	s.fillBudgetLine(ctx, &d)
 	return d, nil
 }
 
@@ -847,6 +883,14 @@ func (s *engagementService) Create(ctx context.Context, p domain.Perms, in domai
 		return domain.EngagementDetail{}, engagementValidation("The address can have at most 300 characters.")
 	}
 
+	budgetCode := ""
+	if s.budgets != nil && in.BudgetLineCode != nil && budgetKind(in.EngagementTypeID) {
+		budgetCode = strings.TrimSpace(*in.BudgetLineCode)
+		if err := s.budgets.CheckEngagementLine(ctx, budgetCode); err != nil {
+			return domain.EngagementDetail{}, err
+		}
+	}
+
 	c := engagemententity.EngagementCreateInput{
 		AllocationTypeID: at.ID, Address: in.Address, StartDate: in.StartDate, EndDate: in.EndDate,
 		EngagementScope: in.EngagementScope, EngagementStatus: domain.EngagementStatusPending, EngagementNature: in.Nature,
@@ -901,6 +945,13 @@ func (s *engagementService) Create(ctx context.Context, p domain.Perms, in domai
 	rec, err := s.entity.EngagementCreate(ctx, c)
 	if err != nil {
 		return domain.EngagementDetail{}, err
+	}
+	if budgetCode != "" {
+		// The engagement exists now: a failure here leaves it without a line
+		// (the page shows none) rather than failing a saved engagement.
+		if err := s.budgets.SetEngagementLine(ctx, p, rec.ID, budgetCode); err != nil {
+			slog.WarnContext(ctx, "engagement created but its budget line was not saved", "engagement", rec.ID, "err", err)
+		}
 	}
 	s.sendEmail(ctx, p.Email, email.EngagementCreated, rec, at, nil)
 	return s.written(ctx, p, rec), nil
@@ -1192,6 +1243,22 @@ func (s *engagementService) Update(ctx context.Context, p domain.Perms, id strin
 	if err != nil {
 		return domain.EngagementDetail{}, err
 	}
+	// The travel budget line is saved apart from the engagement's own fields:
+	// "" clears it, absent leaves it.
+	var budgetCode *string
+	if s.budgets != nil && in.BudgetLineCode != nil && budgetKind(r.EngagementTypeID) {
+		c := strings.TrimSpace(*in.BudgetLineCode)
+		if err := s.budgets.CheckEngagementLine(ctx, c); err != nil {
+			return domain.EngagementDetail{}, err
+		}
+		budgetCode = &c
+	}
+	saveBudget := func() error {
+		if budgetCode == nil {
+			return nil
+		}
+		return s.budgets.SetEngagementLine(ctx, p, id, *budgetCode)
+	}
 
 	u := engagemententity.EngagementUpdateInput{UpdatedBy: p.Email}
 	changed := false
@@ -1373,6 +1440,9 @@ func (s *engagementService) Update(ctx context.Context, p domain.Perms, id strin
 	}
 
 	if !changed && !approve {
+		if err := saveBudget(); err != nil {
+			return domain.EngagementDetail{}, err
+		}
 		return s.detail(ctx, p, r, false)
 	}
 	switch {
@@ -1392,6 +1462,12 @@ func (s *engagementService) Update(ctx context.Context, p domain.Perms, id strin
 		s.sendEmail(ctx, p.Email, email.EngagementApproved, res.Engagement, nil, nil)
 	case changed:
 		s.sendEmail(ctx, p.Email, email.EngagementUpdated, res.Engagement, nil, nil)
+	}
+	if err := saveBudget(); err != nil {
+		// The engagement's own change is saved and its email sent, so only
+		// the line is lost: the caller sees the error and retries it.
+		slog.WarnContext(ctx, "engagement updated but its budget line was not saved", "engagement", id, "err", err)
+		return domain.EngagementDetail{}, err
 	}
 	return s.written(ctx, p, res.Engagement), nil
 }
