@@ -175,6 +175,18 @@ wait:
 	return out, pending
 }
 
+// isPending is whether p has neither an answer nor a failure yet, so a lookup is still running.
+func (r *dashboardRates) isPending(p ratePair) bool {
+	if r == nil || r.conv == nil || p.Currency == "" || p.Currency == "USD" {
+		return false
+	}
+	if _, ok := r.cacheFor(p).Get(r.key(p)); ok {
+		return false
+	}
+	_, bad := r.failed.Get(r.key(p))
+	return !bad
+}
+
 // start makes sure p is being looked up and returns a channel that closes when
 // that lookup ends. A lookup already running for p is joined. The lookup is
 // detached from ctx, so it outlives the request that asked and still fills the

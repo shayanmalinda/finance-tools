@@ -92,6 +92,7 @@ type costLine struct {
 	traveller *domain.Person
 	usd       dashboardUSD
 	converted bool
+	pending   bool   // unconverted and its rate is still being looked up
 	job       string // upper-cased job number, blank when none
 	month     string // YYYY-MM
 }
@@ -162,6 +163,9 @@ func (s *dashboardService) buildCostSet(ctx context.Context, res *engagemententi
 			l.traveller = persons[strings.ToLower(strings.TrimSpace(*e.TravellerEmail))]
 		}
 		l.usd, l.converted = rs.usd(e.OriginalCurrency, e.OriginalAmount, e.CCCurrency, e.CCAmount, l.month, today)
+		if !l.converted && pending && usdNeedsRate(e.OriginalCurrency, e.CCCurrency) {
+			l.pending = s.rates.isPending(ratePair{strings.ToUpper(strings.TrimSpace(e.OriginalCurrency)), dashboardRateDate(l.month, today)})
+		}
 		set.lines = append(set.lines, l)
 	}
 	sort.SliceStable(set.lines, func(i, j int) bool {
@@ -972,7 +976,7 @@ func (c *costPrepared) comparable() bool {
 	if c.prevSet == nil {
 		return true
 	}
-	return len(c.prevFailed()) == 0 && !c.prevSet.truncated && len(c.currentFailed()) == 0 && !c.set.truncated
+	return len(c.prevFailed()) == 0 && !c.prevSet.truncated && !c.prevSet.ratesPending && len(c.currentFailed()) == 0 && !c.set.truncated
 }
 
 // incompleteText names what is missing from the data in one short phrase, or is empty when nothing is.
@@ -989,7 +993,7 @@ func (c *costPrepared) incompleteText() string {
 	if c.set.ratesPending {
 		parts = append(parts, "Exchange rates still loading")
 	}
-	if len(c.prevFailed()) > 0 || (c.prevSet != nil && c.prevSet.truncated) {
+	if len(c.prevFailed()) > 0 || (c.prevSet != nil && (c.prevSet.truncated || c.prevSet.ratesPending)) {
 		parts = append(parts, "Last year incomplete")
 	}
 	return strings.Join(parts, ", ")
@@ -1052,7 +1056,12 @@ func (s *dashboardService) TravelCosts(ctx context.Context, p domain.Perms, q Co
 	}
 	sum.DataAsOf = pr.set.asOf.Format(time.RFC3339)
 	sum.Truncated = pr.set.truncated
-	sum.RatesPending = pr.set.ratesPending && len(sum.NotConverted) > 0
+	for _, l := range pr.cur {
+		if l.pending {
+			sum.RatesPending = true
+			break
+		}
+	}
 	for _, f := range pr.set.failed {
 		if contains(pr.allowed, f) {
 			sum.FailedSources = append(sum.FailedSources, f)

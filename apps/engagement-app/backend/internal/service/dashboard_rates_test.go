@@ -109,7 +109,13 @@ func TestDashboardRates_SlowLookupFillsCachePastBudget(t *testing.T) {
 	if len(got) != 0 || !pending {
 		t.Fatalf("resolve = %v pending=%v, want none and pending", got, pending)
 	}
+	if !r.isPending(p[0]) {
+		t.Error("a pair still being looked up is pending")
+	}
 	time.Sleep(400 * time.Millisecond)
+	if r.isPending(p[0]) {
+		t.Error("a settled pair is not pending")
+	}
 	got, pending = r.resolve(context.Background(), p)
 	if got[p[0]] != 300 || pending || f.count() != 1 {
 		t.Errorf("resolve = %v pending=%v after %d calls, want 300 from cache, one call", got, pending, f.count())
