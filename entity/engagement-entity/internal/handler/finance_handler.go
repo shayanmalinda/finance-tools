@@ -174,6 +174,17 @@ func (h *FinanceHandler) TripExpenses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// TripCounts handles GET /finance/travel-requests/{jobNumber}/counts?agencyId=&include=.
+func (h *FinanceHandler) TripCounts(w http.ResponseWriter, r *http.Request) {
+	agencyID, _ := strconv.Atoi(r.URL.Query().Get("agencyId"))
+	out, err := h.svc.TripCounts(r.Context(), r.PathValue("jobNumber"), agencyID, financeList(r, "include"))
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
 // AddTravelCard handles POST /finance/travel-requests/{jobNumber}/travel-cards.
 func (h *FinanceHandler) AddTravelCard(w http.ResponseWriter, r *http.Request) {
 	var in domain.FinanceTravelCardCreate

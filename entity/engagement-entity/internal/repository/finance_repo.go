@@ -39,6 +39,11 @@ type FinanceRepository interface {
 	Trip(ctx context.Context, jobNumber string) (*domain.FinanceTrip, error)
 
 	PerDiems(ctx context.Context, jobNumber string) ([]domain.FinancePerDiem, error)
+	// PerDiemCount, InvoiceCount and TripPaymentCount are the number of rows the
+	// trip's lists return (same filters and row cap), without reading them.
+	PerDiemCount(ctx context.Context, jobNumber string) (int, error)
+	InvoiceCount(ctx context.Context, jobNumber string, agencyID int) (int, error)
+	TripPaymentCount(ctx context.Context, jobNumber string) (int, error)
 	PerDiem(ctx context.Context, jobNumber string, id int) (*domain.FinancePerDiem, error)
 	InsertPerDiem(ctx context.Context, jobNumber, engagementCode string, in domain.FinancePerDiemCreate) (int, error)
 	DeletePerDiem(ctx context.Context, jobNumber string, id int) (bool, error)
@@ -238,6 +243,16 @@ func (r *financeRepo) PerDiems(ctx context.Context, jobNumber string) ([]domain.
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// PerDiemCount counts what PerDiems returns.
+func (r *financeRepo) PerDiemCount(ctx context.Context, jobNumber string) (int, error) {
+	var n int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM perdiem_allocation WHERE job_number = ? AND status = ?`,
+		jobNumber, domain.PerDiemStatusActive).Scan(&n); err != nil {
+		return 0, fmt.Errorf("finance.PerDiemCount: %w", err)
+	}
+	return min(n, financeMaxRows), nil
 }
 
 // PerDiem ports GET /per-diems/{id} (id = ? LIMIT 1), also requiring the
@@ -698,6 +713,16 @@ func (r *financeRepo) Invoices(ctx context.Context, f domain.FinanceInvoiceFilte
 	return out, total, rows.Err()
 }
 
+// InvoiceCount counts what Invoices returns for a job number (and agency).
+func (r *financeRepo) InvoiceCount(ctx context.Context, jobNumber string, agencyID int) (int, error) {
+	where, args := financeInvoiceWhere(domain.FinanceInvoiceFilter{JobNumber: jobNumber, AgencyID: agencyID})
+	var n int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*)`+financeInvoiceFrom+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("finance.InvoiceCount: %w", err)
+	}
+	return min(n, financeMaxRows), nil
+}
+
 // Invoice ports getTravelInvoices({id}) (legacy travelInvoice).
 func (r *financeRepo) Invoice(ctx context.Context, id int) (*domain.FinanceInvoice, error) {
 	inv, err := scanFinanceInvoice(r.db.QueryRowContext(ctx, financeInvoiceSelect+` WHERE i.id = ?`, id))
@@ -979,6 +1004,16 @@ func (r *financeRepo) Payments(ctx context.Context, f domain.FinancePaymentFilte
 		out = append(out, p)
 	}
 	return out, total, rows.Err()
+}
+
+// TripPaymentCount counts what Payments returns for a job number.
+func (r *financeRepo) TripPaymentCount(ctx context.Context, jobNumber string) (int, error) {
+	where, args := financePaymentWhere(domain.FinancePaymentFilter{JobNumber: jobNumber})
+	var n int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*)`+financePaymentFrom+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("finance.TripPaymentCount: %w", err)
+	}
+	return min(n, financeMaxRows), nil
 }
 
 // Payment reads one payment by its per diem number (the first, by id: the

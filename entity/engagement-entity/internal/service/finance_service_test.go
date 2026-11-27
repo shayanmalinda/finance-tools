@@ -62,6 +62,12 @@ type fakeFinanceRepo struct {
 	resolveLost     bool
 }
 
+func (f *fakeFinanceRepo) PerDiemCount(context.Context, string) (int, error) { return 2, nil }
+func (f *fakeFinanceRepo) InvoiceCount(_ context.Context, _ string, agencyID int) (int, error) {
+	return 10 + agencyID, nil
+}
+func (f *fakeFinanceRepo) TripPaymentCount(context.Context, string) (int, error) { return 5, nil }
+
 func (f *fakeFinanceRepo) log(s string) { f.calls = append(f.calls, s) }
 
 func (f *fakeFinanceRepo) AuditPush(_ context.Context, e audit.Event) error {
@@ -216,6 +222,11 @@ func (fakeFinanceAlloc) Campaigns(context.Context, []string) (map[string]domain.
 }
 
 type fakeFinanceExpense struct{}
+
+func (fakeFinanceExpense) CardExpenseCount(context.Context, string) (int, error) { return 3, nil }
+func (fakeFinanceExpense) ExpenseClaimCount(context.Context, string) (int, error) {
+	return 0, errors.New("boom")
+}
 
 func (fakeFinanceExpense) TripExpenses(_ context.Context, job string) (domain.FinanceTripExpenses, error) {
 	return domain.FinanceTripExpenses{CardExpenses: []domain.FinanceCardExpense{{ID: 1}}, ExpenseClaims: []domain.FinanceExpenseClaim{}}, nil
@@ -515,5 +526,24 @@ func TestTripExpenses_ChecksTheJobNumber(t *testing.T) {
 	got, err := s.TripExpenses(context.Background(), "TRV-2026-11-0001")
 	if err != nil || len(got.CardExpenses) != 1 {
 		t.Errorf("TripExpenses = %+v, %v", got, err)
+	}
+}
+
+func TestTripCounts(t *testing.T) {
+	s := newFinanceSvc(&fakeFinanceRepo{}, &fakeNetSuite{})
+	ctx := context.Background()
+	if _, err := s.TripCounts(ctx, "x'; DROP", 0, nil); err == nil {
+		t.Error("bad job number: want an error")
+	}
+	// A failed count (expense claims) is left out, the rest stay.
+	got, err := s.TripCounts(ctx, "TRV-2026-11-0001", 4, nil)
+	if err != nil || got.PerDiems == nil || *got.PerDiems != 2 || *got.Invoices != 14 || *got.Payments != 5 ||
+		*got.CardExpenses != 3 || got.ExpenseClaims != nil {
+		t.Errorf("TripCounts = %+v, %v", got, err)
+	}
+	// Only the counts asked for run.
+	got, err = s.TripCounts(ctx, "TRV-2026-11-0001", 0, []string{"payments"})
+	if err != nil || got.Payments == nil || got.PerDiems != nil || got.Invoices != nil || got.CardExpenses != nil {
+		t.Errorf("TripCounts(include) = %+v, %v", got, err)
 	}
 }

@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -48,6 +50,7 @@ type FinanceService interface {
 
 	TravelCards(ctx context.Context, jobNumber string) ([]domain.FinanceTravelCard, error)
 	TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error)
+	TripCounts(ctx context.Context, jobNumber string, agencyID int, include []string) (domain.FinanceTripCounts, error)
 	AddTravelCard(ctx context.Context, jobNumber string, in domain.FinanceTravelCardCreate) (domain.FinanceTravelCard, error)
 
 	CostTypes(ctx context.Context) ([]domain.FinanceCostType, error)
@@ -252,6 +255,44 @@ func (s *financeService) TripExpenses(ctx context.Context, jobNumber string) (do
 		return domain.FinanceTripExpenses{}, err
 	}
 	return s.expense.TripExpenses(ctx, jobNumber)
+}
+
+// TripCounts counts the rows of the tabs named in include (every tab when
+// empty) with one COUNT per table, run together. A count that fails is logged
+// and left out.
+func (s *financeService) TripCounts(ctx context.Context, jobNumber string, agencyID int, include []string) (domain.FinanceTripCounts, error) {
+	if err := financeCheckJob(jobNumber); err != nil {
+		return domain.FinanceTripCounts{}, err
+	}
+	var out domain.FinanceTripCounts
+	counts := map[string]struct {
+		dst **int
+		run func() (int, error)
+	}{
+		"perDiems":      {&out.PerDiems, func() (int, error) { return s.repo.PerDiemCount(ctx, jobNumber) }},
+		"invoices":      {&out.Invoices, func() (int, error) { return s.repo.InvoiceCount(ctx, jobNumber, agencyID) }},
+		"payments":      {&out.Payments, func() (int, error) { return s.repo.TripPaymentCount(ctx, jobNumber) }},
+		"cardExpenses":  {&out.CardExpenses, func() (int, error) { return s.expense.CardExpenseCount(ctx, jobNumber) }},
+		"expenseClaims": {&out.ExpenseClaims, func() (int, error) { return s.expense.ExpenseClaimCount(ctx, jobNumber) }},
+	}
+	var wg sync.WaitGroup
+	for name, c := range counts {
+		if len(include) > 0 && !slices.Contains(include, name) {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n, err := c.run()
+			if err != nil {
+				slog.WarnContext(ctx, "finance: trip count failed", "count", name, "err", err)
+				return
+			}
+			*c.dst = &n
+		}()
+	}
+	wg.Wait()
+	return out, nil
 }
 
 // ── Travel cards ────────────────────────────────────────────────────────
