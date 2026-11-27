@@ -225,6 +225,16 @@ type FinanceTripExpenses struct {
 	ExpenseClaims []FinanceExpenseClaim `json:"expenseClaims"`
 }
 
+// FinanceTripCounts are the row counts of a travel's finance tabs; a count
+// that was not asked for or failed is left out.
+type FinanceTripCounts struct {
+	PerDiems      *int `json:"perDiems,omitempty"`
+	Invoices      *int `json:"invoices,omitempty"`
+	Payments      *int `json:"payments,omitempty"`
+	CardExpenses  *int `json:"cardExpenses,omitempty"`
+	ExpenseClaims *int `json:"expenseClaims,omitempty"`
+}
+
 // FinanceTravelCardCreate adds a travel card.
 type FinanceTravelCardCreate struct {
 	Currency  string  `json:"currency"`

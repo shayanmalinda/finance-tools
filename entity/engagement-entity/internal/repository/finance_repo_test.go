@@ -19,6 +19,7 @@ package repository
 import (
 	"context"
 	"database/sql/driver"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -415,4 +416,41 @@ func TestTripExpenses(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Error(err)
 	}
+}
+
+func TestTripCounts_MirrorTheListFilters(t *testing.T) {
+	mock, repo, _, exp := financeMock(t)
+	ctx, job := context.Background(), "TRV-2026-11-0001"
+	count := func(n int) *sqlmock.Rows { return sqlmock.NewRows([]string{"n"}).AddRow(n) }
+
+	mock.ExpectQuery(re(`SELECT COUNT(*) FROM perdiem_allocation WHERE job_number = ? AND status = ?`)).
+		WithArgs(job, domain.PerDiemStatusActive).WillReturnRows(count(3))
+	invWhere, _ := financeInvoiceWhere(domain.FinanceInvoiceFilter{JobNumber: job, AgencyID: 4})
+	mock.ExpectQuery(re("SELECT COUNT(*)"+financeInvoiceFrom+invWhere)).WithArgs(job, 4).WillReturnRows(count(financeMaxRows + 5))
+	payWhere, _ := financePaymentWhere(domain.FinancePaymentFilter{JobNumber: job})
+	mock.ExpectQuery(re("SELECT COUNT(*)" + financePaymentFrom + payWhere)).WithArgs(job).WillReturnRows(count(2))
+	mock.ExpectQuery(re(`FROM cc_txn AS t WHERE t.travel_job_number = ? AND COALESCE(t.status, '') != 'invalid'`)).
+		WithArgs(job).WillReturnRows(count(1))
+	mock.ExpectQuery(re(`FROM expense_claims AS c WHERE c.travel_job_number = ? AND COALESCE(c.status, '') != '-1'`)).
+		WithArgs(job).WillReturnRows(count(6))
+
+	got := []int{}
+	for _, f := range []func() (int, error){
+		func() (int, error) { return repo.PerDiemCount(ctx, job) },
+		func() (int, error) { return repo.InvoiceCount(ctx, job, 4) },
+		func() (int, error) { return repo.TripPaymentCount(ctx, job) },
+		func() (int, error) { return exp.CardExpenseCount(ctx, job) },
+		func() (int, error) { return exp.ExpenseClaimCount(ctx, job) },
+	} {
+		n, err := f()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, n)
+	}
+	// Invoices are capped at the row limit the list applies.
+	if want := []int{3, financeMaxRows, 2, 1, 6}; !slices.Equal(got, want) {
+		t.Errorf("counts = %v, want %v", got, want)
+	}
+	financeDone(t, mock)
 }

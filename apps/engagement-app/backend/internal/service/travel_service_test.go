@@ -50,7 +50,13 @@ type travelFakeEntity struct {
 	docWrite  *engagemententity.TravelDocumentCreate
 	visaQuery engagemententity.TravelVisaFilter
 	perDiems  []engagemententity.TravelActivePerDiem
-	writeErr  error // returned by CreateVisa, UpdateVisa and CreateTravelDocument when set
+	counts    engagemententity.TravelCounts
+	countsErr error
+	countArgs struct {
+		agencyID int
+		include  []string
+	}
+	writeErr error // returned by CreateVisa, UpdateVisa and CreateTravelDocument when set
 }
 
 func travelNotFoundErr() error {
@@ -69,6 +75,31 @@ func (f *travelFakeEntity) GetTravelRequest(_ context.Context, jn string) (engag
 		return t, nil
 	}
 	return engagemententity.TravelRequestRecord{}, travelNotFoundErr()
+}
+
+func (f *travelFakeEntity) TravelCounts(_ context.Context, _ string, agencyID int, include []string) (engagemententity.TravelCounts, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.countArgs.agencyID, f.countArgs.include = agencyID, include
+	if f.countsErr != nil {
+		return engagemententity.TravelCounts{}, f.countsErr
+	}
+	var out engagemententity.TravelCounts
+	for _, k := range include {
+		switch k {
+		case "perDiems":
+			out.PerDiems = f.counts.PerDiems
+		case "invoices":
+			out.Invoices = f.counts.Invoices
+		case "payments":
+			out.Payments = f.counts.Payments
+		case "cardExpenses":
+			out.CardExpenses = f.counts.CardExpenses
+		case "expenseClaims":
+			out.ExpenseClaims = f.counts.ExpenseClaims
+		}
+	}
+	return out, nil
 }
 
 func (f *travelFakeEntity) UpdateTravelRequest(_ context.Context, jn string, in engagemententity.TravelRequestWrite) (engagemententity.TravelRequestRecord, error) {
@@ -531,6 +562,48 @@ func TestTravelGet_HRDownStillOpens(t *testing.T) {
 	d, err := svc.Get(context.Background(), travelTeam, "TRV-2026-10-1246")
 	if err != nil || d.Traveller.Name != nil || d.BaseLocation != nil {
 		t.Errorf("detail %+v err %v", d, err)
+	}
+}
+
+func TestTravelGet_CountsFollowTheVisibleTabs(t *testing.T) {
+	acorn := 2
+	f := newTravelFixture(travelTrip(domain.TravelStatusInProgress, &acorn))
+	ctx, job := context.Background(), "TRV-2026-10-1246"
+	n := func(v int) *int { return &v }
+	f.entity.counts = engagemententity.TravelCounts{PerDiems: n(2), Invoices: n(1500), Payments: n(4), CardExpenses: n(3), ExpenseClaims: n(5)}
+
+	// Full scope with Travel 45: every tab; invoices are capped like the list.
+	d, err := f.svc.Get(ctx, travelFinance, job)
+	want := domain.TravelRequestCounts{PerDiems: n(2), Invoices: n(financeTripInvoiceLimit), Payments: n(4), CardExpenses: n(3), ExpenseClaims: n(5)}
+	if err != nil || d.Counts == nil || !reflect.DeepEqual(*d.Counts, want) {
+		t.Errorf("finance counts = %+v, %v", d.Counts, err)
+	}
+	// Agent: per diems and its agency's invoices only, scoped by its agency.
+	d, err = f.svc.Get(ctx, travelAgent(), job)
+	if err != nil || d.Counts == nil || d.Counts.Payments != nil || d.Counts.CardExpenses != nil || d.Counts.ExpenseClaims != nil ||
+		*d.Counts.PerDiems != 2 || f.entity.countArgs.agencyID != 2 {
+		t.Errorf("agent counts = %+v, args %+v, %v", d.Counts, f.entity.countArgs, err)
+	}
+	// Traveller (own scope): no expense counts.
+	d, _ = f.svc.Get(ctx, travelEmp, job)
+	if d.Counts == nil || d.Counts.CardExpenses != nil || d.Counts.ExpenseClaims != nil || d.Counts.Payments == nil {
+		t.Errorf("own counts = %+v", d.Counts)
+	}
+	// No visible tab: no call, no counts.
+	f.entity.countArgs.include = nil
+	d, err = f.svc.Get(ctx, travelPerms("ops@wso2.com", 5), job)
+	if err != nil || d.Counts != nil || f.entity.countArgs.include != nil {
+		t.Errorf("no tabs: counts %+v, include %v, %v", d.Counts, f.entity.countArgs.include, err)
+	}
+}
+
+func TestTravelGet_FailedCountsOrHROpenWithoutThem(t *testing.T) {
+	f := newTravelFixture(travelTrip(domain.TravelStatusInProgress, nil))
+	f.entity.countsErr = errors.New("entity down")
+	svc := NewTravelService(f.entity, travelFakeHR{fail: true}, f.mail, TravelOptions{Now: travelNow})
+	d, err := svc.Get(context.Background(), travelTeam, "TRV-2026-10-1246")
+	if err != nil || d.Counts != nil || d.JobNumber != "TRV-2026-10-1246" || d.Traveller.Name != nil || !d.Tabs.PerDiems {
+		t.Errorf("detail = %+v, %v", d, err)
 	}
 }
 

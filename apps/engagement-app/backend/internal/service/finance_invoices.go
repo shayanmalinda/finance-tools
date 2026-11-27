@@ -135,6 +135,9 @@ func financeAgencyID(p domain.Perms) int {
 	return 0
 }
 
+// financeTripInvoiceLimit is the most invoices the trip list returns.
+const financeTripInvoiceLimit = 1000
+
 // TripInvoices is GET /travel-requests/{jobNumber}/invoices (legacy
 // travelInvoices(filter:{jobNumber}, limit 1000)); agents see only their
 // agency's invoices.
@@ -147,7 +150,7 @@ func (s *FinanceService) TripInvoices(ctx context.Context, p domain.Perms, jobNu
 		return domain.InvoicePage{}, err
 	}
 	rows, total, err := s.entity.FinanceInvoices(ctx, engagemententity.FinanceInvoiceFilter{
-		JobNumber: jobNumber, AgencyID: financeAgencyID(p), Limit: 1000})
+		JobNumber: jobNumber, AgencyID: financeAgencyID(p), Limit: financeTripInvoiceLimit})
 	if err != nil {
 		return domain.InvoicePage{}, err
 	}

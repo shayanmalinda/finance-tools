@@ -59,6 +59,8 @@ type finEntity struct {
 	pushed     []int
 	deleted    bool
 	subsidiary string
+	subCalls   int
+	basisErr   error
 }
 
 func (f *finEntity) FinanceTrip(context.Context, string) (engagemententity.FinanceTrip, error) {
@@ -85,6 +87,9 @@ func (f *finEntity) FinanceDeletePerDiem(context.Context, string, int) error {
 	return nil
 }
 func (f *finEntity) FinancePaymentBasis(context.Context, string) (engagemententity.FinancePaymentBasis, error) {
+	if f.basisErr != nil {
+		return engagemententity.FinancePaymentBasis{}, f.basisErr
+	}
 	return f.basis, nil
 }
 func (f *finEntity) FinanceInvoices(_ context.Context, fl engagemententity.FinanceInvoiceFilter) ([]engagemententity.FinanceInvoice, int, error) {
@@ -147,6 +152,7 @@ func (f *finEntity) FinancePushPayment(_ context.Context, n, _ string, emp engag
 	return engagemententity.FinancePushResult{OK: true, Reference: fsp("7701")}, nil
 }
 func (f *finEntity) FinanceSubsidiary(context.Context, string) (engagemententity.FinanceSubsidiary, error) {
+	f.subCalls++
 	return engagemententity.FinanceSubsidiary{CurrencyCode: f.subsidiary}, nil
 }
 
@@ -599,5 +605,26 @@ func TestFinanceTripExpensesScope(t *testing.T) {
 	agent.Agency = &domain.TravelAgency{ID: 4}
 	if _, err := s.TripExpenses(ctx, agent, job); !isForbidden(err) {
 		t.Errorf("agent of the trip's agency: %v", err)
+	}
+}
+
+func TestFinanceTripPayments_ParallelReadsKeepTheirErrors(t *testing.T) {
+	ctx := context.Background()
+	e := &finEntity{trip: openTrip(), subsidiary: "GBP", payment: engagemententity.FinancePayment{PerDiemNumber: job + "-001", JobNumber: job},
+		basis: engagemententity.FinancePaymentBasis{PerDiemTotals: []engagemententity.FinancePerDiemTotal{{Currency: "USD", TotalAmount: 70}}}}
+	s, _ := newFin(e, nil)
+	got, err := s.TripPayments(ctx, perms("f@wso2.com", 42, 43), job)
+	if err != nil || len(got.Items) != 1 || got.Summary == nil || got.Summary.ConvertedCurrency == nil {
+		t.Fatalf("TripPayments = %+v, %v", got, err)
+	}
+	// The summary read failing fails the page, as when the reads were in series.
+	e.basisErr = errors.New("entity down")
+	if _, err := s.TripPayments(ctx, perms("f@wso2.com", 42, 43), job); !errors.Is(err, e.basisErr) {
+		t.Errorf("basis error = %v", err)
+	}
+	// No per diems: no summary, so the currency lookup is skipped.
+	e.basisErr, e.basis, e.subCalls = nil, engagemententity.FinancePaymentBasis{}, 0
+	if got, err := s.TripPayments(ctx, perms("f@wso2.com", 42, 43), job); err != nil || got.Summary != nil || e.subCalls != 0 {
+		t.Errorf("no per diems = %+v, %v, subsidiary calls %d", got, err, e.subCalls)
 	}
 }

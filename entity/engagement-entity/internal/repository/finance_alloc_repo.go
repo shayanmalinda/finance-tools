@@ -166,6 +166,10 @@ type FinanceExpenseRepository interface {
 	// TripExpenses is the card spend and expense claims tagged with
 	// jobNumber, except invalid card spend and deleted claims.
 	TripExpenses(ctx context.Context, jobNumber string) (domain.FinanceTripExpenses, error)
+	// CardExpenseCount and ExpenseClaimCount are the number of rows
+	// TripExpenses returns, without reading them.
+	CardExpenseCount(ctx context.Context, jobNumber string) (int, error)
+	ExpenseClaimCount(ctx context.Context, jobNumber string) (int, error)
 }
 
 type financeExpenseRepo struct{ db *sql.DB }
@@ -249,4 +253,24 @@ func (r *financeExpenseRepo) TripExpenses(ctx context.Context, jobNumber string)
 		out.ExpenseClaims = append(out.ExpenseClaims, c)
 	}
 	return out, claims.Err()
+}
+
+// CardExpenseCount counts the card spend TripExpenses returns.
+func (r *financeExpenseRepo) CardExpenseCount(ctx context.Context, jobNumber string) (int, error) {
+	var n int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM cc_txn AS t
+		WHERE t.travel_job_number = ? AND COALESCE(t.status, '') != 'invalid'`, jobNumber).Scan(&n); err != nil {
+		return 0, fmt.Errorf("finance.CardExpenseCount: %w", err)
+	}
+	return min(n, financeMaxRows), nil
+}
+
+// ExpenseClaimCount counts the expense claims TripExpenses returns.
+func (r *financeExpenseRepo) ExpenseClaimCount(ctx context.Context, jobNumber string) (int, error) {
+	var n int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM expense_claims AS c
+		WHERE c.travel_job_number = ? AND COALESCE(c.status, '') != '-1'`, jobNumber).Scan(&n); err != nil {
+		return 0, fmt.Errorf("finance.ExpenseClaimCount: %w", err)
+	}
+	return min(n, financeMaxRows), nil
 }

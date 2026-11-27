@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // TravelAPI is what the travel screen area needs from the Engagement Entity.
@@ -36,6 +37,9 @@ type TravelAPI interface {
 	UpdateTravelRequest(ctx context.Context, jobNumber string, in TravelRequestWrite) (TravelRequestRecord, error)
 	// TravelActivePerDiems calls GET /travel-requests/{jobNumber}/active-per-diems.
 	TravelActivePerDiems(ctx context.Context, jobNumber string) ([]TravelActivePerDiem, error)
+	// TravelCounts calls GET /finance/travel-requests/{jobNumber}/counts for
+	// the named tabs; a count the entity could not run is nil.
+	TravelCounts(ctx context.Context, jobNumber string, agencyID int, include []string) (TravelCounts, error)
 	// TravelAgencies calls GET /travel-agencies; status "" lists all.
 	TravelAgencies(ctx context.Context, status string) ([]TravelAgentRecord, error)
 
@@ -367,6 +371,26 @@ func (c *HTTPClient) UpdateTravelRequest(ctx context.Context, jobNumber string, 
 		return TravelRequestRecord{}, err
 	}
 	return resp, nil
+}
+
+// TravelCounts are the row counts of a travel's finance tabs.
+type TravelCounts struct {
+	PerDiems      *int `json:"perDiems"`
+	Invoices      *int `json:"invoices"`
+	Payments      *int `json:"payments"`
+	CardExpenses  *int `json:"cardExpenses"`
+	ExpenseClaims *int `json:"expenseClaims"`
+}
+
+// TravelCounts calls GET /finance/travel-requests/{jobNumber}/counts.
+func (c *HTTPClient) TravelCounts(ctx context.Context, jobNumber string, agencyID int, include []string) (TravelCounts, error) {
+	q := url.Values{"include": {strings.Join(include, ",")}}
+	if agencyID > 0 {
+		q.Set("agencyId", strconv.Itoa(agencyID))
+	}
+	var out TravelCounts
+	err := c.rest.Get(ctx, financeTripPath(jobNumber, "counts")+"?"+q.Encode(), &out)
+	return out, err
 }
 
 // TravelActivePerDiems calls GET /travel-requests/{jobNumber}/active-per-diems.

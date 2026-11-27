@@ -1565,6 +1565,32 @@ paths:
                 $ref: '#/components/schemas/FinanceTripExpenses'
         '400':
           $ref: '#/components/responses/Error'
+  /finance/travel-requests/{jobNumber}/counts:
+    get:
+      tags:
+      - Finance
+      summary: Row counts of the travel's finance tabs
+      description: One COUNT per table, with the filters and row caps of the matching lists. A count that fails is left out.
+      operationId: financeTripCounts
+      parameters:
+      - $ref: '#/components/parameters/JobNumber'
+      - name: agencyId
+        in: query
+        description: Counts only this agency's invoices (0 or absent - all).
+        schema: {type: integer}
+      - name: include
+        in: query
+        description: Comma-separated counts to run (perDiems, invoices, payments, cardExpenses, expenseClaims); absent - all.
+        schema: {type: string}
+      responses:
+        '200':
+          description: Counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceTripCounts'
+        '400':
+          $ref: '#/components/responses/Error'
   /finance/travel-requests/{jobNumber}/invoices:
     post:
       tags:
@@ -4905,6 +4931,15 @@ components:
             $ref: '#/components/schemas/FinanceAmount'
         paymentCount:
           type: integer
+    FinanceTripCounts:
+      type: object
+      description: Each key is present only when asked for and counted.
+      properties:
+        perDiems: {type: integer}
+        invoices: {type: integer}
+        payments: {type: integer}
+        cardExpenses: {type: integer}
+        expenseClaims: {type: integer}
     FinanceTripExpenses:
       type: object
       description: Card spend (expense_app.cc_txn, except invalid) and expense claims (expense_app.expense_claims, except deleted) tagged with the travel's job number.

@@ -174,6 +174,25 @@ func (h *FinanceHandler) TripExpenses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// TripCounts handles GET /finance/travel-requests/{jobNumber}/counts?agencyId=&include=.
+func (h *FinanceHandler) TripCounts(w http.ResponseWriter, r *http.Request) {
+	agencyID := 0
+	if v := r.URL.Query().Get("agencyId"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			writeServiceError(w, r, &apierror.ValidationError{Msg: "agencyId must be a positive integer"})
+			return
+		}
+		agencyID = n
+	}
+	out, err := h.svc.TripCounts(r.Context(), r.PathValue("jobNumber"), agencyID, financeList(r, "include"))
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
 // AddTravelCard handles POST /finance/travel-requests/{jobNumber}/travel-cards.
 func (h *FinanceHandler) AddTravelCard(w http.ResponseWriter, r *http.Request) {
 	var in domain.FinanceTravelCardCreate

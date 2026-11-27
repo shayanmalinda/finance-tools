@@ -3967,6 +3967,15 @@ components:
                 travelCards: { type: boolean }
                 expenses: { type: boolean, description: 'Card spend and expense claims (Travel 45, full scope only).' }
                 payments: { type: boolean }
+            counts:
+              type: object
+              description: Row counts of the visible tabs, equal to what each tab's endpoint returns. A key is absent when its tab is hidden or the count failed.
+              properties:
+                perDiems: { type: integer }
+                invoices: { type: integer }
+                payments: { type: integer }
+                cardExpenses: { type: integer }
+                expenseClaims: { type: integer }
     TravelRequestUpdate:
       type: object
       properties:

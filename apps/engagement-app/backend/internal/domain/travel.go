@@ -89,6 +89,17 @@ type TravelRequestTabs struct {
 	Expenses bool `json:"expenses"`
 }
 
+// TravelRequestCounts are the row counts of the tabs the caller sees, equal
+// to what each tab's endpoint returns; a tab that is hidden or whose count
+// failed has no key.
+type TravelRequestCounts struct {
+	PerDiems      *int `json:"perDiems,omitempty"`
+	Invoices      *int `json:"invoices,omitempty"`
+	Payments      *int `json:"payments,omitempty"`
+	CardExpenses  *int `json:"cardExpenses,omitempty"`
+	ExpenseClaims *int `json:"expenseClaims,omitempty"`
+}
+
 // TravelEngagementRef is the engagement shown with a travel request.
 type TravelEngagementRef struct {
 	ID    string `json:"id"`
@@ -149,6 +160,7 @@ type TravelRequestDetail struct {
 	// FundingSources is set for Travel 35 in scope full or own, else null.
 	FundingSources []TravelFundingSource `json:"fundingSources"`
 	Tabs           TravelRequestTabs     `json:"tabs"`
+	Counts         *TravelRequestCounts  `json:"counts,omitempty"`
 }
 
 // TravelRequestUpdate is the PATCH /travel-requests/{jobNumber} body. Nil
