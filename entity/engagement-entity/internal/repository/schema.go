@@ -61,3 +61,30 @@ func DetectEngagementCampaignColumn(ctx context.Context, db *sql.DB) (bool, erro
 var errEngagementNoCampaignColumn = &apierror.ServiceUnavailableError{
 	Msg: "engagement.campaign_id does not exist yet: run Resources/allocation_db_table_update_v1.0.0.sql",
 }
+
+// budgetTables: whether the travel budget tables exist (set at startup).
+// Without them /budgets/* answers 503 and a new trip gets no budget row.
+var budgetTables atomic.Bool
+
+// SetBudgetTables records whether the tables exist.
+func SetBudgetTables(present bool) { budgetTables.Store(present) }
+
+// HasBudgetTables reports whether the tables exist.
+func HasBudgetTables() bool { return budgetTables.Load() }
+
+// DetectBudgetTables reads information_schema for travel_budget and budget_line.
+func DetectBudgetTables(ctx context.Context, db *sql.DB) (bool, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE() AND table_name IN ('travel_budget', 'budget_line')`).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("detect budget tables: %w", err)
+	}
+	return n == 2, nil
+}
+
+// ErrBudgetNoTables refuses a /budgets/* call before the DDL has run. The
+// budget handler answers 503 with this message.
+var ErrBudgetNoTables = &apierror.ServiceUnavailableError{
+	Msg: "Travel budget tables do not exist yet: run Resources/travelapp_table_update_v1.2.0.sql",
+}

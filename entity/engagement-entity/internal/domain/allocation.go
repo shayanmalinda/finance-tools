@@ -251,6 +251,9 @@ type AllocationBulkRequest struct {
 	// page's follow-up PATCH in legacy).
 	RequestStatusInProgress *string `json:"requestStatusInProgress"`
 	CreatedBy               string  `json:"createdBy"`
+	// TravelBudget, when set, is the budget line of the trip this request
+	// creates. Absent: no budget row, as before.
+	TravelBudget *AllocationTravelBudget `json:"travelBudget"`
 }
 
 // AllocationBulkResponse is the outcome of POST /allocations/bulk.
@@ -273,6 +276,8 @@ type AllocationUpdateRequest struct {
 	StartDate       *string `json:"startDate"`
 	EndDate         *string `json:"endDate"`
 	UpdatedBy       string  `json:"updatedBy"`
+	// TravelBudget is the budget line of the trip this update creates.
+	TravelBudget *AllocationTravelBudget `json:"travelBudget"`
 }
 
 // AllocationUpdateResponse is the updated allocation and what changed on

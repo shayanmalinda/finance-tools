@@ -25,6 +25,8 @@ tags:
 - name: Settings
 - name: Finance
 - name: Audit
+- name: Budgets
+  description: FY27 travel budgets (travelapp). Every call answers 503 until Resources/travelapp_table_update_v1.2.0.sql has run.
 paths:
   /health:
     get:
@@ -2628,6 +2630,447 @@ paths:
                 $ref: '#/components/schemas/DashboardAgency'
         '400':
           $ref: '#/components/responses/DashboardBadRequest'
+  /budgets/years:
+    get:
+      tags:
+      - Budgets
+      summary: Budget years
+      operationId: budgetYears
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetYearsResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/lines:
+    get:
+      tags:
+      - Budgets
+      summary: Budget lines of a year, by sort order
+      operationId: budgetLines
+      parameters:
+      - name: year
+        in: query
+        description: Omit for every year
+        schema:
+          type: integer
+      - name: includeRetired
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLinesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags:
+      - Budgets
+      summary: Add a budget line
+      operationId: budgetCreateLine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetLineCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLine'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/lines/{id}:
+    put:
+      tags:
+      - Budgets
+      summary: Replace a budget line's editable fields (code and year never change)
+      operationId: budgetUpdateLine
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetLineUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLine'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+      - Budgets
+      summary: Retire a budget line (soft delete, status Retired, trips keep it)
+      operationId: budgetRetireLine
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: updatedBy
+        in: query
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Retired
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/allocation-type-rules:
+    get:
+      tags:
+      - Budgets
+      summary: Allocation type rules
+      operationId: budgetAllocationTypeRules
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetAllocationTypeRulesResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/allocation-type-rules/{allocationTypeId}:
+    put:
+      tags:
+      - Budgets
+      summary: Set the rule of an allocation type (upsert)
+      operationId: budgetSaveAllocationTypeRule
+      parameters:
+      - name: allocationTypeId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetAllocationTypeRuleRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetAllocationTypeRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/region-rules:
+    get:
+      tags:
+      - Budgets
+      summary: Funding region rules
+      operationId: budgetRegionRules
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetRegionRulesResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/team-rules:
+    get:
+      tags:
+      - Budgets
+      summary: Traveller team rules
+      operationId: budgetTeamRules
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetTeamRulesResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/engagements/{engagementId}/line:
+    get:
+      tags:
+      - Budgets
+      summary: Budget line set on an engagement (lineCode null when unset)
+      operationId: budgetEngagementLine
+      parameters:
+      - name: engagementId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetEngagementLine'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+      - Budgets
+      summary: Set or clear (null) the budget line of an engagement
+      operationId: budgetSetEngagementLine
+      parameters:
+      - name: engagementId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetEngagementLineRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetEngagementLine'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/trips/{jobNumber}:
+    get:
+      tags:
+      - Budgets
+      summary: A trip with its budget line
+      operationId: budgetTrip
+      parameters:
+      - name: jobNumber
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetTrip'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+      - Budgets
+      summary: Set the budget line of a trip (chosenBy USER, keeps suggestion and rateDate)
+      operationId: budgetSetTripLine
+      parameters:
+      - name: jobNumber
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetTripRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetTrip'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/needs-line:
+    get:
+      tags:
+      - Budgets
+      summary: Trips of the year, not Cancelled, with no budget line
+      operationId: budgetNeedsLine
+      parameters:
+      - name: year
+        in: query
+        required: true
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        description: Default 50, at most 200
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetNeedsLineResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /budgets/ledger:
+    get:
+      tags:
+      - Budgets
+      summary: Trips starting in a range with their costs per trip, source and currency (original currency)
+      operationId: budgetLedger
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: true
+        description: At most 731 days after from
+        schema:
+          type: string
+          format: date
+      - name: unassigned
+        in: query
+        description: Add travel card and claim spend with no job number
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLedger'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: The budget tables do not exist yet (run Resources/travelapp_table_update_v1.2.0.sql)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   parameters:
     App:
@@ -3988,6 +4431,11 @@ components:
           description: Engagement id whose request status becomes In Progress.
         createdBy:
           type: string
+        travelBudget:
+          nullable: true
+          description: Optional. The budget line of the trip this request creates. Ignored until the budget tables exist.
+          allOf:
+          - $ref: '#/components/schemas/AllocationTravelBudget'
     AllocationBulkResponse:
       type: object
       properties:
@@ -4024,6 +4472,11 @@ components:
           format: date
         updatedBy:
           type: string
+        travelBudget:
+          nullable: true
+          description: Optional. The budget line of the trip this request creates. Ignored until the budget tables exist.
+          allOf:
+          - $ref: '#/components/schemas/AllocationTravelBudget'
     AllocationUpdateResponse:
       type: object
       properties:
@@ -5641,6 +6094,389 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DashboardCount'
+    BudgetYear:
+      type: object
+      properties:
+        year:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        isActive:
+          type: boolean
+    BudgetYearsResponse:
+      type: object
+      properties:
+        years:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetYear'
+    BudgetLine:
+      type: object
+      properties:
+        id:
+          type: integer
+        year:
+          type: integer
+        code:
+          type: string
+        functionName:
+          type: string
+        subFunction:
+          type: string
+        holderName:
+          type: string
+          nullable: true
+        holderEmail:
+          type: string
+          nullable: true
+        amountUsd:
+          type: number
+        status:
+          type: string
+          enum:
+          - Active
+          - Retired
+        sortOrder:
+          type: integer
+        updatedBy:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          nullable: true
+    BudgetLinesResponse:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetLine'
+    BudgetLineCreateRequest:
+      type: object
+      required:
+      - year
+      - code
+      - functionName
+      - subFunction
+      - amountUsd
+      properties:
+        year:
+          type: integer
+        code:
+          type: string
+          maxLength: 40
+        functionName:
+          type: string
+        subFunction:
+          type: string
+        holderName:
+          type: string
+          nullable: true
+        holderEmail:
+          type: string
+          nullable: true
+        amountUsd:
+          type: number
+          minimum: 0
+        sortOrder:
+          type: integer
+        createdBy:
+          type: string
+    BudgetLineUpdateRequest:
+      type: object
+      required:
+      - functionName
+      - subFunction
+      - amountUsd
+      - status
+      properties:
+        functionName:
+          type: string
+        subFunction:
+          type: string
+        holderName:
+          type: string
+          nullable: true
+        holderEmail:
+          type: string
+          nullable: true
+        amountUsd:
+          type: number
+          minimum: 0
+        sortOrder:
+          type: integer
+        status:
+          type: string
+          enum:
+          - Active
+          - Retired
+        updatedBy:
+          type: string
+    BudgetAllocationTypeRule:
+      type: object
+      properties:
+        allocationTypeId:
+          type: integer
+        ruleKind:
+          type: string
+          enum:
+          - LINE
+          - REGION
+          - TEAM
+          - ENGAGEMENT
+          - NONE
+        lineCode:
+          type: string
+          nullable: true
+    BudgetAllocationTypeRulesResponse:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetAllocationTypeRule'
+    BudgetAllocationTypeRuleRequest:
+      type: object
+      required:
+      - ruleKind
+      properties:
+        ruleKind:
+          type: string
+          enum:
+          - LINE
+          - REGION
+          - TEAM
+          - ENGAGEMENT
+          - NONE
+        lineCode:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+    BudgetRegionRule:
+      type: object
+      properties:
+        region:
+          type: string
+          description: A trailing * is a prefix match
+        subRegion:
+          type: string
+          nullable: true
+        lineCode:
+          type: string
+          nullable: true
+    BudgetRegionRulesResponse:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetRegionRule'
+    BudgetTeamRule:
+      type: object
+      properties:
+        id:
+          type: integer
+        businessUnit:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        team:
+          type: string
+          nullable: true
+        lineCode:
+          type: string
+    BudgetTeamRulesResponse:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetTeamRule'
+    BudgetEngagementLine:
+      type: object
+      properties:
+        engagementId:
+          type: string
+        lineCode:
+          type: string
+          nullable: true
+    BudgetEngagementLineRequest:
+      type: object
+      properties:
+        lineCode:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+    BudgetTrip:
+      type: object
+      properties:
+        jobNumber:
+          type: string
+        travellerEmail:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          type: string
+          nullable: true
+        engagementId:
+          type: string
+          nullable: true
+        engagementType:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        budgetYear:
+          type: integer
+          nullable: true
+        budgetLineId:
+          type: integer
+          nullable: true
+        suggestedLineId:
+          type: integer
+          nullable: true
+        suggestionSource:
+          type: string
+          nullable: true
+        chosenBy:
+          type: string
+          nullable: true
+        rateDate:
+          type: string
+          format: date
+          description: Day the trip row was created, or its start date when it has no budget row
+        hasRow:
+          type: boolean
+    BudgetTripRequest:
+      type: object
+      properties:
+        budgetLineId:
+          type: integer
+          nullable: true
+        updatedBy:
+          type: string
+    BudgetNeedsLineResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetTrip'
+        total:
+          type: integer
+    BudgetLedgerTrip:
+      type: object
+      properties:
+        jobNumber:
+          type: string
+        budgetLineId:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        rateDate:
+          type: string
+          format: date
+    BudgetLedgerCost:
+      type: object
+      properties:
+        jobNumber:
+          type: string
+        source:
+          type: string
+          enum:
+          - invoice
+          - perDiem
+          - card
+          - claim
+        currency:
+          type: string
+        amount:
+          type: number
+    BudgetLedgerUnassigned:
+      type: object
+      properties:
+        source:
+          type: string
+          enum:
+          - card
+          - claim
+        month:
+          type: string
+          description: YYYY-MM
+        currency:
+          type: string
+        amount:
+          type: number
+    BudgetLedger:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        expenseAvailable:
+          type: boolean
+        truncated:
+          type: boolean
+        trips:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetLedgerTrip'
+        costs:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetLedgerCost'
+        unassigned:
+          type: array
+          description: Only with unassigned=true
+          items:
+            $ref: '#/components/schemas/BudgetLedgerUnassigned'
+    AllocationTravelBudget:
+      type: object
+      properties:
+        budgetLineId:
+          type: integer
+          nullable: true
+        suggestedLineId:
+          type: integer
+          nullable: true
+        suggestionSource:
+          type: string
+          nullable: true
+        chosenBy:
+          type: string
+          nullable: true
   requestBodies:
     Actor:
       required: true

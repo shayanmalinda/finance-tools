@@ -30,6 +30,18 @@ import (
 // categories are "CC-Travel", "EXP-Lanka-Travel", "EXP-USnOther-Travel").
 const dashboardTravelCategory = "%Travel%"
 
+// Cost predicates shared with the budget ledger (budget_repo.go). Aliases: i
+// invoice, ct inv_cost_type, c card or claim.
+const (
+	costInvoiceStatusSQL = `COALESCE(i.status, '') NOT IN ('Rejected by travel', 'Rejected by finance')`
+	costInvoiceTypeSQL   = `COALESCE(ct.name, '') != 'Currency'`
+	costCardStatusSQL    = `COALESCE(c.status, '') != 'invalid'`
+	costClaimStatusSQL   = `COALESCE(c.status, '') NOT IN ('-1', '1')`
+	// A card billed in USD reports that currency and its billed amount.
+	costCardCCCols  = `CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' AND c.cc_amount IS NOT NULL THEN 'USD' ELSE '' END, c.cc_amount`
+	costClaimCCCols = `'', 0`
+)
+
 // DashboardTripRef is the trip a cost line belongs to (travelapp.travel),
 // with its agent. JobNumber is nil when no trip matched.
 type DashboardTripRef struct {
@@ -148,8 +160,8 @@ func (r *dashboardRepo) InvoiceLines(ctx context.Context, f domain.DashboardCost
 		LEFT JOIN travel AS t ON i.job_number = t.job_number
 		LEFT JOIN travel_agents AS ta ON t.travel_agent_id = ta.id
 		WHERE ` + rangeSQL + `
-			AND COALESCE(i.status, '') NOT IN ('Rejected by travel', 'Rejected by finance')
-			AND COALESCE(ct.name, '') != 'Currency'`)
+			AND ` + costInvoiceStatusSQL + `
+			AND ` + costInvoiceTypeSQL)
 	dashboardInClause(&b, &args, "i.job_number", f.JobNumbers)
 	dashboardInClause(&b, &args, "t.traveller_email", f.Employees)
 	b.WriteString(` ORDER BY i.added_date, i.id LIMIT ?`)
@@ -247,10 +259,9 @@ func (r *dashboardRepo) expenseLines(ctx context.Context, f domain.DashboardCost
 	if r.expense == nil {
 		return nil, ErrDashboardNoExpenseDB
 	}
-	table, prefix, refCol, status, ccCols := "cc_txn", "CC-", "c.txn_reference_number", `COALESCE(c.status, '') != 'invalid'`,
-		`CASE WHEN UPPER(TRIM(COALESCE(c.cc_currency, ''))) = 'USD' AND c.cc_amount IS NOT NULL THEN 'USD' ELSE '' END, c.cc_amount`
+	table, prefix, refCol, status, ccCols := "cc_txn", "CC-", "c.txn_reference_number", costCardStatusSQL, costCardCCCols
 	if source == domain.DashboardCostClaim {
-		table, prefix, refCol, status, ccCols = "expense_claims", "EC-", "c.report_seq_number", `COALESCE(c.status, '') NOT IN ('-1', '1')`, `'', 0`
+		table, prefix, refCol, status, ccCols = "expense_claims", "EC-", "c.report_seq_number", costClaimStatusSQL, costClaimCCCols
 	}
 	rangeSQL, args := dashboardRangeWhere("c.txn_date", f)
 	var b strings.Builder

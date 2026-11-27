@@ -70,6 +70,11 @@ func main() {
 		cancel()
 		log.Fatalf("read allocation_db schema: %v", err)
 	}
+	hasBudget, err := repository.DetectBudgetTables(ctx, pools.Travel)
+	if err != nil {
+		cancel()
+		log.Fatalf("read travelapp schema: %v", err)
+	}
 	allocAudit, err := audit.TableExists(ctx, pools.Allocation)
 	if err != nil {
 		cancel()
@@ -90,6 +95,11 @@ func main() {
 	repository.SetEngagementCampaignColumn(hasCampaign)
 	if !hasCampaign {
 		log.Println("WARNING: allocation_db.engagement.campaign_id is missing (run Resources/allocation_db_table_update_v1.0.0.sql): campaigns read as empty and Marketing Events cannot be saved with a campaign")
+	}
+
+	repository.SetBudgetTables(hasBudget)
+	if !hasBudget {
+		log.Println("WARNING: the travel budget tables are missing (run Resources/travelapp_table_update_v1.2.0.sql): /budgets/* answers 503 and new trips get no budget row")
 	}
 
 	gate := auth.Off

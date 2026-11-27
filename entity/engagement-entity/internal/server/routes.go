@@ -97,6 +97,7 @@ func NewRouter(d Deps) http.Handler {
 	registerTravelRoutes(mux, d)
 	registerFinanceRoutes(mux, d)
 	registerDashboardRoutes(mux, d)
+	registerBudgetRoutes(mux, d)
 
 	// Logger wraps Recovery so a panicking request still gets its access
 	// line, with the 500 Recovery wrote, and wraps Auth so refused requests

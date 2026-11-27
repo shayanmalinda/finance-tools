@@ -81,6 +81,8 @@ type allocationTravelInput struct {
 	productID      *string
 	engagementID   string
 	allocationID   string
+	// budget is the optional travelBudget of the request (see insertTravelBudget).
+	budget *domain.AllocationTravelBudget
 }
 
 // insertTravel ports the legacy insertTravel in its own travelapp
@@ -109,9 +111,35 @@ func (r *allocationRepo) insertTravel(ctx context.Context, in allocationTravelIn
 		if err != nil {
 			return fmt.Errorf("allocation.insertTravel job number: %w", err)
 		}
-		return audit.Inserted("travel", "job_number", job).Record(ctx, tx, travelAuditEvent(audit.Create, in.lastUpdatedBy))
+		if err := audit.Inserted("travel", "job_number", job).Record(ctx, tx, travelAuditEvent(audit.Create, in.lastUpdatedBy)); err != nil {
+			return err
+		}
+		return insertTravelBudget(ctx, tx, job, in)
 	})
 	return job, err
+}
+
+// insertTravelBudget writes the trip's budget row in the trip's transaction,
+// so the trip and its line are all-or-nothing. A line that is not Active or
+// not of the budget year holding the start date is stored as NULL: an
+// allocation never fails over a bad line. Skipped without a travelBudget, or
+// before the budget tables exist.
+func insertTravelBudget(ctx context.Context, tx *sql.Tx, job string, in allocationTravelInput) error {
+	b := in.budget
+	if b == nil || !HasBudgetTables() {
+		return nil
+	}
+	const year = `(SELECT y.budget_year FROM budget_year AS y WHERE DATE(?) BETWEEN y.start_date AND y.end_date AND y.is_active = 1 LIMIT 1)`
+	if _, err := tx.ExecContext(ctx, `INSERT INTO travel_budget (job_number, budget_year, budget_line_id, suggested_line_id,
+			suggestion_source, chosen_by, rate_date, updated_by)
+		VALUES (?, `+year+`, (SELECT l.id FROM budget_line AS l WHERE l.id = ? AND l.status = 'Active'
+			AND l.budget_year = `+year+`), ?, ?, ?, CURDATE(), ?)`,
+		job, in.startDate, intPtr(b.BudgetLineID), in.startDate, intPtr(b.SuggestedLineID), budgetNullable(b.SuggestionSource),
+		budgetNullable(b.ChosenBy), nullableActor(in.lastUpdatedBy)); err != nil {
+		return fmt.Errorf("allocation.insertTravel budget: %w", err)
+	}
+	return audit.Inserted("travel_budget", "job_number", job).Record(ctx, tx,
+		audit.Event{Action: audit.Create, EntityType: "travel_budget", ParentType: "travel_request", ParentID: job, Actor: in.lastUpdatedBy})
 }
 
 func travelAuditEvent(action audit.Action, actor string) audit.Event {
@@ -332,7 +360,7 @@ func (r *allocationRepo) bulkTravel(ctx context.Context, tx *sql.Tx, req domain.
 			travellerEmail: a.Email, startDate: a.StartDate, endDate: a.EndDate,
 			engagementType: typeName, engagementCode: &code, country: country, city: address,
 			customerName: customerName, addedBy: req.CreatedBy, lastUpdatedBy: req.CreatedBy,
-			productID: productID, engagementID: a.EngagementID, allocationID: id,
+			productID: productID, engagementID: a.EngagementID, allocationID: id, budget: req.TravelBudget,
 		})
 		if err != nil {
 			return err
@@ -446,7 +474,7 @@ func (r *allocationRepo) updateTravel(ctx context.Context, pre domain.Allocation
 			travellerEmail: pre.Email, startDate: start, endDate: end,
 			engagementType: e.AllocationTypeName, engagementCode: e.EngagementCode, country: e.Country,
 			city: e.Address, customerName: e.CustomerName, addedBy: addedBy, lastUpdatedBy: addedBy,
-			productID: e.ProductID, engagementID: e.ID, allocationID: pre.ID,
+			productID: e.ProductID, engagementID: e.ID, allocationID: pre.ID, budget: req.TravelBudget,
 		})
 		if err != nil {
 			return err
