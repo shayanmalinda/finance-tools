@@ -39,6 +39,10 @@ type travelRouteEntity struct {
 	engagemententity.Client
 }
 
+func (travelRouteEntity) TravelCounts(context.Context, string, int, []string) (engagemententity.TravelCounts, error) {
+	return engagemententity.TravelCounts{}, nil
+}
+
 func (travelRouteEntity) RecordAuditEvent(context.Context, domain.AuditEvent) error { return nil }
 
 func (travelRouteEntity) RolePrivileges(_ context.Context, app domain.App) (map[string][]int, error) {

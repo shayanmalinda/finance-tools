@@ -362,10 +362,20 @@ func (s *travelService) Get(ctx context.Context, p domain.Perms, jobNumber strin
 
 func (s *travelService) detail(ctx context.Context, p domain.Perms, r engagemententity.TravelRequestRecord, scope string) domain.TravelRequestDetail {
 	d := domain.TravelRequestDetail{
-		TravelRequestSummary: s.summary(p, r, scope, s.people.get(ctx, r.TravellerEmail)),
+		TravelRequestSummary: s.summary(p, r, scope, travelPerson{}),
 		Scope:                scope, VisaID: r.VisaID, Address: r.City, Tabs: travelTabs(p, scope),
 	}
-	s.opts.Campaigns.Fill(ctx, d.Campaign)
+	// The HR lookup, campaign name and tab counts do not depend on each other.
+	var (
+		wg     sync.WaitGroup
+		person travelPerson
+	)
+	wg.Add(3)
+	go func() { defer wg.Done(); person = s.people.get(ctx, r.TravellerEmail) }()
+	go func() { defer wg.Done(); s.opts.Campaigns.Fill(ctx, d.Campaign) }()
+	go func() { defer wg.Done(); d.Counts = s.counts(ctx, p, r.JobNumber, d.Tabs) }()
+	wg.Wait()
+	d.Traveller.Name, d.BaseLocation = person.Name, person.Location
 	if travelSees(scope, "allocation") {
 		d.AllocationID = r.AllocationID
 	}
@@ -392,6 +402,32 @@ func (s *travelService) detail(ctx context.Context, p domain.Perms, r engagement
 		}
 	}
 	return d
+}
+
+// counts reads the row counts of the visible tabs; nil when none is visible or
+// the entity call fails (the page opens without badges).
+func (s *travelService) counts(ctx context.Context, p domain.Perms, jobNumber string, t domain.TravelRequestTabs) *domain.TravelRequestCounts {
+	var include []string
+	for name, on := range map[string]bool{"perDiems": t.PerDiems, "invoices": t.Invoices, "payments": t.Payments,
+		"cardExpenses": t.Expenses, "expenseClaims": t.Expenses} {
+		if on {
+			include = append(include, name)
+		}
+	}
+	if len(include) == 0 {
+		return nil
+	}
+	c, err := s.entity.TravelCounts(ctx, jobNumber, financeAgencyID(p), include)
+	if err != nil {
+		slog.WarnContext(ctx, "travel: tab counts failed", "err", err)
+		return nil
+	}
+	if c.Invoices != nil {
+		n := min(*c.Invoices, financeTripInvoiceLimit)
+		c.Invoices = &n
+	}
+	out := domain.TravelRequestCounts(c)
+	return &out
 }
 
 // ── Visa options ──────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/apierror"
 	"github.com/wso2-open-operations/finance-tools/apps/engagement-app/backend/internal/clients/engagemententity"
@@ -156,22 +157,43 @@ func (s *FinanceService) TripPayments(ctx context.Context, p domain.Perms, jobNu
 	if _, err := viewScope(p, trip, false, []int{domain.TravelPrivViewPerDiemPayments}, domain.TravelPrivViewOwnPayments); err != nil {
 		return domain.TravelRequestPayments{}, err
 	}
-	rows, _, err := s.entity.FinancePayments(ctx, engagemententity.FinancePaymentFilter{JobNumber: jobNumber})
-	if err != nil {
-		return domain.TravelRequestPayments{}, err
-	}
-	basis, err := s.entity.FinancePaymentBasis(ctx, jobNumber)
-	if err != nil {
-		return domain.TravelRequestPayments{}, err
-	}
-	sum, err := s.paymentBalance(ctx, basis)
-	if err != nil {
-		return domain.TravelRequestPayments{}, err
-	}
-	if sum != nil && p.Travel.Any(domain.TravelPrivAddPerDiemPayments, domain.TravelPrivEditPerDiemPayment) {
-		if sub, err := s.travellerSubsidiary(ctx, trip.TravellerEmail); err == nil && sub.CurrencyCode != "" {
-			sum.ConvertedCurrency = financeStr(sub.CurrencyCode)
+	// The rows, the summary and the traveller's currency do not depend on each other.
+	var (
+		wg              sync.WaitGroup
+		rows            []engagemententity.FinancePayment
+		sum             *domain.PaymentSummary
+		rowsErr, sumErr error
+		sub             engagemententity.FinanceSubsidiary
+		subErr          error
+		wantSub         = p.Travel.Any(domain.TravelPrivAddPerDiemPayments, domain.TravelPrivEditPerDiemPayment)
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		rows, _, rowsErr = s.entity.FinancePayments(ctx, engagemententity.FinancePaymentFilter{JobNumber: jobNumber})
+	}()
+	go func() {
+		defer wg.Done()
+		basis, err := s.entity.FinancePaymentBasis(ctx, jobNumber)
+		if err != nil {
+			sumErr = err
+			return
 		}
+		sum, sumErr = s.paymentBalance(ctx, basis)
+	}()
+	if wantSub {
+		wg.Add(1)
+		go func() { defer wg.Done(); sub, subErr = s.travellerSubsidiary(ctx, trip.TravellerEmail) }()
+	}
+	wg.Wait()
+	if rowsErr != nil {
+		return domain.TravelRequestPayments{}, rowsErr
+	}
+	if sumErr != nil {
+		return domain.TravelRequestPayments{}, sumErr
+	}
+	if sum != nil && wantSub && subErr == nil && sub.CurrencyCode != "" {
+		sum.ConvertedCurrency = financeStr(sub.CurrencyCode)
 	}
 	return domain.TravelRequestPayments{Items: s.paymentsOf(ctx, p, rows), Summary: sum}, nil
 }
