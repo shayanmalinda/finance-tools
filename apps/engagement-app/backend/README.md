@@ -129,6 +129,10 @@ The dashboard keeps what is slow to build in memory, in each pod, so when one us
 - **Writes:** any non-GET request this pod handles clears its dashboard cache (a failed write may still have changed data). Each replica has its own cache: other replicas keep their data until the TTL ends, so after a write a user on another pod can see numbers up to the TTL old.
 - **Memory:** at most 16 cost sets and 200,000 cost lines (about 100 MB at worst; a set larger than that is served but not kept) plus 256 small aggregates, least recently used first. Concurrent reads are bounded (3 cost sets, 8 aggregates) and identical concurrent reads share one load.
 
+## Travel budgets
+
+Deploy the entity before the backend: the entity decodes JSON strictly and rejects the new budget fields an older entity does not know. Run the budget DDL first, then restart the entity (it detects the tables at start-up), then set `BUDGETS_ENABLED=true`.
+
 ## Prerequisites
 
 - Go `1.25+`

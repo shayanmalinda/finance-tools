@@ -71,8 +71,11 @@ func TestBudgetNeedsLine(t *testing.T) {
 	if err != nil || page.Total != 7 || len(page.Items) != 1 || *page.Items[0].TravellerName != "Jane Doe" || page.Items[0].Suggested.Name != "Sales: EU" {
 		t.Errorf("page = %+v %v", page, err)
 	}
-	if _, err := svc.NeedsLine(context.Background(), budgetPerms(29), 0, 50, 0); !errorsIsForbidden(err) {
+	if _, err := svc.NeedsLine(context.Background(), budgetPerms(29), 0, 50, 0); err != nil {
 		t.Errorf("travel 29 view: %v", err)
+	}
+	if _, err := svc.NeedsLine(context.Background(), budgetPerms(), 0, 50, 0); !errorsIsForbidden(err) {
+		t.Errorf("no travel privilege: %v", err)
 	}
 }
 

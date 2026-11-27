@@ -100,6 +100,12 @@ type BudgetService struct {
 	ref      *loadCache[any]
 	summary  *loadCache[*domain.BudgetSummary]
 	typicals *loadCache[*budgetTypical]
+	// held serves the last result while its rates are being fetched, so a
+	// preview does not rebuild it.
+	held struct {
+		summary *staleHold[*domain.BudgetSummary]
+		typical *staleHold[*budgetTypical]
+	}
 	// bg tracks the background work (emails, rate warm-up).
 	bg sync.WaitGroup
 }
@@ -127,6 +133,7 @@ func NewBudgetService(entity BudgetEntityAPI, hr hrentity.Client, mail email.Sen
 		}
 		return o.CacheTTL
 	}
+	s.held.summary, s.held.typical = newStaleHold[*domain.BudgetSummary](), newStaleHold[*budgetTypical]()
 	s.typicals = newLoadCache[*budgetTypical](2, budgetTypicalTTL, 1, now)
 	s.typicals.ttlFor = func(v *budgetTypical) time.Duration {
 		if v.pending {
@@ -153,8 +160,9 @@ func budgetAdmin(p domain.Perms) bool {
 	return bothSuperAdmins(p) && p.Alloc.Has(23) && p.Travel.Has(29)
 }
 
-// budgetView may see the summary and the Needs a Budget Line list.
-func budgetView(p domain.Perms) bool { return budgetAdmin(p) || p.Travel.Any(1, 4, 5, 6, 35) }
+// budgetView may see the summary and the Needs a Budget Line list. Travel 29
+// is included: the owner picks lines from the email link.
+func budgetView(p domain.Perms) bool { return budgetAdmin(p) || p.Travel.Any(1, 4, 5, 6, 29, 35) }
 
 // budgetSetLine may choose the line of an existing trip.
 func budgetSetLine(p domain.Perms) bool { return p.Travel.Any(1, 4, 5, 6, 29) }
@@ -176,6 +184,7 @@ func budgetRef[T any](ctx context.Context, s *BudgetService, key string, load fu
 func (s *BudgetService) dropCache() {
 	s.ref.clear()
 	s.summary.clear()
+	s.held.summary.clear()
 }
 
 func (s *BudgetService) years(ctx context.Context) ([]engagemententity.BudgetYear, error) {
@@ -265,7 +274,8 @@ func (s *BudgetService) domainLine(l engagemententity.BudgetLine) domain.BudgetL
 // ── Lines and rules (settings) ──────────────────────────────────────────────
 
 // Lines lists a year's lines for the pickers and the Settings tab. Retired
-// lines are for the budget admin only.
+// lines are for the budget admin only; amounts and holders only for people who
+// may view or set budget lines.
 func (s *BudgetService) Lines(ctx context.Context, p domain.Perms, year int, includeRetired bool) ([]domain.BudgetLine, error) {
 	y, err := s.pickYear(ctx, year)
 	if err != nil {
@@ -281,11 +291,19 @@ func (s *BudgetService) Lines(ctx context.Context, p domain.Perms, year int, inc
 		return nil, err
 	}
 	includeRetired = includeRetired && budgetAdmin(p)
+	full := budgetView(p) || budgetSetLine(p)
 	out := make([]domain.BudgetLine, 0, len(ls))
 	for _, l := range ls {
-		if l.Status == domain.BudgetLineActive || includeRetired {
-			out = append(out, s.domainLine(l))
+		if l.Status != domain.BudgetLineActive && !includeRetired {
+			continue
 		}
+		d := s.domainLine(l)
+		if !full {
+			// The picker only needs names: no amounts or holders.
+			d = domain.BudgetLine{ID: d.ID, Year: d.Year, Code: d.Code, FunctionName: d.FunctionName,
+				SubFunction: d.SubFunction, Name: d.Name, Status: d.Status, SortOrder: d.SortOrder}
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }
@@ -652,6 +670,9 @@ func (s *BudgetService) yearSummary(ctx context.Context, year int) (*domain.Budg
 	if err != nil {
 		return nil, err
 	}
+	if v, ok := s.held.summary.get(fmt.Sprint(y.Year)); ok {
+		return v, nil
+	}
 	return s.summary.get(ctx, fmt.Sprint(y.Year), func() (*domain.BudgetSummary, error) { return s.buildSummary(ctx, y) })
 }
 
@@ -685,17 +706,17 @@ func (s *BudgetService) buildSummary(ctx context.Context, y engagemententity.Bud
 	tripByJob := make(map[string]engagemententity.BudgetLedgerTrip, len(ledger.Trips))
 	rateDate := make(map[string]string, len(ledger.Trips))
 	for _, t := range ledger.Trips {
-		tripByJob[t.JobNumber] = t
+		tripByJob[budgetJobKey(t.JobNumber)] = t
 		rd := t.StartDate
 		if t.RateDate != nil && *t.RateDate != "" {
 			rd = *t.RateDate
 		}
-		rateDate[t.JobNumber] = budgetRateDate(rd, today)
+		rateDate[budgetJobKey(t.JobNumber)] = budgetRateDate(rd, today)
 	}
 	var pairs []ratePair
 	for _, c := range ledger.Costs {
-		if _, ok := tripByJob[c.JobNumber]; ok {
-			pairs = append(pairs, ratePair{budgetCurrency(c.Currency), rateDate[c.JobNumber]})
+		if job := budgetJobKey(c.JobNumber); tripByJob[job].JobNumber != "" {
+			pairs = append(pairs, ratePair{budgetCurrency(c.Currency), rateDate[job]})
 		}
 	}
 	for _, u := range ledger.Unassigned {
@@ -718,16 +739,17 @@ func (s *BudgetService) buildSummary(ctx context.Context, y engagemententity.Bud
 	tripCost := map[string]float64{}
 	hasCost := map[string]bool{}
 	for _, c := range ledger.Costs {
-		if _, ok := tripByJob[c.JobNumber]; !ok {
+		job := budgetJobKey(c.JobNumber)
+		if tripByJob[job].JobNumber == "" {
 			continue
 		}
-		hasCost[c.JobNumber] = true
-		usd, ok := rs.usdOn(c.Currency, c.Amount, rateDate[c.JobNumber])
+		hasCost[job] = true
+		usd, ok := rs.usdOn(c.Currency, c.Amount, rateDate[job])
 		if !ok {
 			skip(c.Currency)
 			continue
 		}
-		tripCost[c.JobNumber] += usd
+		tripCost[job] += usd
 	}
 	noTrip := 0.0
 	for _, u := range ledger.Unassigned {
@@ -747,7 +769,8 @@ func (s *BudgetService) buildSummary(ctx context.Context, y engagemententity.Bud
 	}
 	unassigned, withoutLine := 0.0, 0
 	for _, t := range ledger.Trips {
-		cost := tripCost[t.JobNumber]
+		job := budgetJobKey(t.JobNumber)
+		cost := tripCost[job]
 		open := t.Status != domain.TravelStatusCancelled
 		var a *budgetAcc
 		if t.BudgetLineID != nil {
@@ -765,7 +788,7 @@ func (s *BudgetService) buildSummary(ctx context.Context, y engagemententity.Bud
 			continue
 		}
 		a.trips++
-		if t.Status != domain.TravelStatusCompleted && !hasCost[t.JobNumber] {
+		if t.Status != domain.TravelStatusCompleted && !hasCost[job] {
 			a.open++
 			usd, _, _ := typ.forCountry(budgetCountry(t.Country))
 			a.committed += usd
@@ -797,20 +820,32 @@ func (s *BudgetService) buildSummary(ctx context.Context, y engagemententity.Bud
 		out.Unconverted.Currencies = append(out.Unconverted.Currencies, c)
 	}
 	sort.Strings(out.Unconverted.Currencies)
-	out.RatesPending = out.Unconverted.Count > 0
+	// Pending only while a missing rate can still be fetched. A blank currency
+	// or a rate NetSuite does not have stays in Unconverted and the summary is
+	// cached as usual.
+	missing := missingPairs(pairs, rs)
+	out.RatesPending = out.Unconverted.Count > 0 && s.rates.fetchable(missing)
 	if out.RatesPending {
-		s.warmRates(ctx, missingPairs(pairs, rs))
+		key := fmt.Sprint(y.Year)
+		s.held.summary.set(key, out)
+		s.warmRates(ctx, missing, func() { s.held.summary.del(key) })
 	}
 	return out, nil
 }
 
+// budgetJobKey is a job number as the ledger maps it: trimmed and upper-cased.
+func budgetJobKey(j string) string { return strings.ToUpper(strings.TrimSpace(j)) }
+
 // warmRates resolves the rates a response had to leave out, after it was sent,
 // so the next call finds them in the cache.
-func (s *BudgetService) warmRates(ctx context.Context, missing []ratePair) {
+// done runs after, so the caller stops serving its stale copy.
+func (s *BudgetService) warmRates(ctx context.Context, missing []ratePair, done func()) {
 	if len(missing) == 0 {
+		done()
 		return
 	}
 	goSafe(ctx, &s.bg, nil, func() {
+		defer done()
 		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
 		s.rates.resolve(wctx, missing)
@@ -1075,7 +1110,7 @@ func (s *BudgetService) PlanTrip(ctx context.Context, in TripPlanInput) (*TripPl
 	if !ok {
 		return plan, nil
 	}
-	plan.InScope, plan.Year = true, y.Year
+	plan.InScope, plan.Year, plan.trip.Year = true, y.Year, y.Year
 	lines, err := s.lines(ctx, y.Year)
 	if err != nil {
 		slog.WarnContext(ctx, "budget line not decided: lines not read", "year", y.Year, "err", err)

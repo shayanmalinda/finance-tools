@@ -636,6 +636,12 @@ func (r *budgetRepo) expenseCosts(ctx context.Context, f domain.BudgetLedgerFilt
 		}
 		return cur, amt
 	}
+	// SQL IN ignores case, so a row may spell the job number differently from
+	// the trip. Costs are keyed by the trip's own job number.
+	canon := make(map[string]string, len(jobs))
+	for _, j := range jobs {
+		canon[strings.ToUpper(strings.TrimSpace(j))] = j
+	}
 	for _, s := range budgetExpenseSources {
 		for start := 0; start < len(jobs); start += travelInChunk {
 			chunk := jobs[start:min(start+travelInChunk, len(jobs))]
@@ -655,8 +661,12 @@ func (r *budgetRepo) expenseCosts(ctx context.Context, f domain.BudgetLedgerFilt
 					rows.Close()
 					return nil, fmt.Errorf("budget.Ledger %s scan: %w", s.source, err)
 				}
+				trip, ok := canon[strings.ToUpper(strings.TrimSpace(job))]
+				if !ok {
+					continue
+				}
 				c, a := money(cur, amt.Float64, ccCur, ccAmt.Float64)
-				sums[budgetCostKey{job, s.source, c}] += a
+				sums[budgetCostKey{trip, s.source, c}] += a
 			}
 			err = rows.Err()
 			rows.Close()

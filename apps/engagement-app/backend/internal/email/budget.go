@@ -18,6 +18,7 @@ package email
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -34,7 +35,9 @@ type BudgetSettings struct {
 
 // BudgetLineTrip is the trip the email names.
 type BudgetLineTrip struct {
-	JobNumber      string
+	JobNumber string
+	// Year is the budget year of the trip (0: no year in the link).
+	Year           int
 	TravellerName  string
 	TravellerEmail string
 	Country        string
@@ -49,6 +52,9 @@ type BudgetLineTrip struct {
 // trip the system could not place, using the generic finance template.
 func BudgetLineNeededMessage(s BudgetSettings, t BudgetLineTrip) Message {
 	link := strings.TrimRight(s.AppBaseURL, "/") + "/finance/engagement-app/travel-budgets/needs-a-line?job=" + url.QueryEscape(t.JobNumber)
+	if t.Year > 0 {
+		link += "&year=" + strconv.Itoa(t.Year)
+	}
 	details := detailsSection("Trip",
 		row{"Job Number", t.JobNumber},
 		personRow("Traveller", t.TravellerName, t.TravellerEmail),

@@ -131,10 +131,90 @@ func TestBudgetSummary_UnresolvedRatesArePendingAndNotCached(t *testing.T) {
 	if _, err := svc.Summary(context.Background(), budgetPerms(1), 2027); err != nil || f.ledgerCalls == calls {
 		t.Error("a pending summary must not be cached")
 	}
-	// Without any converter nothing in another currency converts either.
+	// Without any converter nothing can be fetched: the LKR cost is reported
+	// as unconverted, not pending.
 	svc = newBudgetSvc(summaryFake(), nil, &allocFakeSender{}, time.Minute)
-	if sum, _ = svc.Summary(context.Background(), budgetPerms(1), 2027); !sum.RatesPending {
-		t.Error("no converter should be pending")
+	if sum, _ = svc.Summary(context.Background(), budgetPerms(1), 2027); sum.RatesPending || sum.Unconverted.Count != 1 {
+		t.Errorf("no converter: %+v", sum)
+	}
+}
+
+// A blank currency, or one NetSuite has no rate for, never arrives: the
+// summary reports it as unconverted and is cached as usual.
+func TestBudgetSummary_UnconvertibleRowsDoNotMarkPending(t *testing.T) {
+	f := summaryFake()
+	f.ledger.Costs = []engagemententity.BudgetLedgerCost{lcost("T1", "USD", 1000), lcost("T1", "", 40), lcost("T1", "XYZ", 5)}
+	rates := &budgetRates{rate: 0} // answers, but with no usable USD rate
+	svc := newBudgetSvc(f, rates, &allocFakeSender{}, time.Minute)
+	sum, err := svc.Summary(context.Background(), budgetPerms(1), 2027)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.RatesPending || sum.Unconverted.Count != 2 || sum.Lines[0].SpentUSD != 1000 {
+		t.Fatalf("summary = %+v", sum)
+	}
+	svc.wait()
+	calls := f.ledgerCalls
+	if _, err := svc.Summary(context.Background(), budgetPerms(1), 2027); err != nil || f.ledgerCalls != calls {
+		t.Errorf("an unconvertible summary should be cached: %v %d %d", err, f.ledgerCalls, calls)
+	}
+	typ, err := svc.typical(context.Background())
+	if err != nil || typ.pending {
+		t.Errorf("typical pending = %+v %v", typ, err)
+	}
+}
+
+// While rates are being fetched the last summary is served, not rebuilt.
+func TestBudgetSummary_ServesTheLastSummaryWhileRatesWarm(t *testing.T) {
+	f := summaryFake()
+	rates := &budgetRates{fail: true}
+	svc := newBudgetSvc(f, rates, &allocFakeSender{}, time.Minute)
+	svc.held.summary.set("2027", &domain.BudgetSummary{Year: 2027, RatesPending: true})
+	calls := f.ledgerCalls
+	sum, err := svc.Summary(context.Background(), budgetPerms(1), 2027)
+	if err != nil || !sum.RatesPending || f.ledgerCalls != calls {
+		t.Errorf("held summary not served: %+v %v %d %d", sum, err, f.ledgerCalls, calls)
+	}
+	// A write drops it.
+	svc.dropCache()
+	if sum, _ = svc.Summary(context.Background(), budgetPerms(1), 2027); len(sum.Lines) == 0 || f.ledgerCalls == calls {
+		t.Errorf("held summary kept after a write: %+v", sum)
+	}
+	svc.wait()
+	// After the warm-up the hold is gone, so a pending build sets it once and
+	// the next call finds the rates cached.
+	if _, ok := svc.held.summary.get("2027"); ok {
+		t.Error("hold should end with the warm-up")
+	}
+}
+
+// Card and claim rows may spell the job number in another case.
+func TestBudgetSummary_CostsMatchTheTripJobNumberIgnoringCase(t *testing.T) {
+	f := summaryFake()
+	f.ledger.Costs = []engagemententity.BudgetLedgerCost{lcost(" t1 ", "USD", 700)}
+	svc := newBudgetSvc(f, &budgetRates{rate: 300}, &allocFakeSender{}, time.Minute)
+	sum, err := svc.Summary(context.Background(), budgetPerms(1), 2027)
+	if err != nil || sum.Lines[0].SpentUSD != 700 {
+		t.Errorf("summary = %+v %v", sum.Lines[0], err)
+	}
+}
+
+func TestBudgetLines_NamesOnlyWithoutBudgetAccess(t *testing.T) {
+	f := summaryFake()
+	f.lines[0].HolderName = sp("Ricardo")
+	svc := newBudgetSvc(f, nil, &allocFakeSender{}, 0)
+	picker := domain.Perms{Email: "e@wso2.com", Alloc: domain.NewPrivilegeSet([]int{12}), Travel: domain.NewPrivilegeSet(nil)}
+	ls, err := svc.Lines(context.Background(), picker, 2027, false)
+	if err != nil || len(ls) == 0 {
+		t.Fatalf("lines = %v %v", ls, err)
+	}
+	for _, l := range ls {
+		if l.AmountUSD != 0 || l.HolderName != nil || l.HolderEmail != nil || l.UpdatedBy != nil || l.Name == "" || l.Code == "" {
+			t.Errorf("picker line = %+v", l)
+		}
+	}
+	if ls, _ = svc.Lines(context.Background(), budgetPerms(35), 2027, false); ls[0].AmountUSD == 0 || ls[0].HolderName == nil {
+		t.Errorf("viewer line = %+v", ls[0])
 	}
 }
 
@@ -156,13 +236,13 @@ func TestBudgetAccessMatrix(t *testing.T) {
 		admin, view, setter bool
 	}{
 		{"admin", admin, true, true, true},
-		{"only the allocations group", both([]int{23}, []int{29}, true, false), false, false, true},
-		{"only the travel group", both([]int{23}, []int{29}, false, true), false, false, true},
-		{"groups without 23", both(nil, []int{29}, true, true), false, false, true},
+		{"only the allocations group", both([]int{23}, []int{29}, true, false), false, true, true},
+		{"only the travel group", both([]int{23}, []int{29}, false, true), false, true, true},
+		{"groups without 23", both(nil, []int{29}, true, true), false, true, true},
 		{"groups without 29", both([]int{23}, nil, true, true), false, false, false},
 		{"travel 35 views only", both(nil, []int{35}, false, false), false, true, false},
 		{"travel 6 views and sets", both(nil, []int{6}, false, false), false, true, true},
-		{"travel 29 sets only", both(nil, []int{29}, false, false), false, false, true},
+		{"travel 29 views and sets", both(nil, []int{29}, false, false), false, true, true},
 		{"allocations 23 alone", both([]int{23}, nil, false, false), false, false, false},
 		{"nothing", both(nil, nil, false, false), false, false, false},
 	}
@@ -178,7 +258,7 @@ func TestBudgetAccessMatrix(t *testing.T) {
 		}
 	}
 	svc := newBudgetSvc(summaryFake(), nil, &allocFakeSender{}, 0)
-	if _, err := svc.Summary(context.Background(), budgetPerms(29), 0); !errorsIsForbidden(err) {
+	if _, err := svc.Summary(context.Background(), budgetPerms(29), 0); err != nil {
 		t.Errorf("travel 29 summary: %v", err)
 	}
 	if _, err := svc.CreateLine(context.Background(), budgetPerms(29), domain.BudgetLineInput{}); !errorsIsForbidden(err) {

@@ -293,6 +293,28 @@ func TestBudgetLedger_GroupsCostsPerTripSourceCurrency(t *testing.T) {
 	}
 }
 
+func TestBudgetLedger_KeysCardCostsByTripJobNumber(t *testing.T) {
+	r, tm, em := newBudgetRepo(t, true)
+	tm.ExpectQuery(re("FROM travel AS t")).
+		WillReturnRows(sqlmock.NewRows([]string{"j", "l", "s", "c", "sd", "ed", "rd"}).
+			AddRow("TRV-1", nil, "New", "India", "2027-02-01", "2027-02-03", "2027-02-01"))
+	tm.ExpectQuery(re("FROM invoice AS i")).WillReturnRows(sqlmock.NewRows([]string{"j", "c", "a"}))
+	tm.ExpectQuery(re("FROM perdiem_payment AS pp")).WillReturnRows(sqlmock.NewRows([]string{"j", "c", "a"}))
+	// The expense row spells the job number in lower case; an unknown job is dropped.
+	em.ExpectQuery(re("FROM cc_txn AS c")).
+		WillReturnRows(sqlmock.NewRows([]string{"j", "c", "a", "cc", "cca"}).
+			AddRow("trv-1", "USD", 40.0, "", nil).AddRow("TRV-9", "USD", 5.0, "", nil))
+	em.ExpectQuery(re("FROM expense_claims AS c")).WillReturnRows(sqlmock.NewRows([]string{"j", "c", "a", "cc", "cca"}))
+
+	l, err := r.Ledger(context.Background(), domain.BudgetLedgerFilter{From: "2027-01-01", To: "2027-12-31"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Costs) != 1 || l.Costs[0] != (domain.BudgetLedgerCost{JobNumber: "TRV-1", Source: "card", Currency: "USD", Amount: 40}) {
+		t.Fatalf("costs = %+v", l.Costs)
+	}
+}
+
 func TestBudgetLedger_WithoutExpensePoolHasNoCardClaimOrUnassigned(t *testing.T) {
 	r, tm, _ := newBudgetRepo(t, false)
 	tm.ExpectQuery(re("FROM travel AS t LEFT JOIN travel_budget")).

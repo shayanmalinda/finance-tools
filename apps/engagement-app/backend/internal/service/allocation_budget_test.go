@@ -254,3 +254,45 @@ func TestAllocStatusCreatesTrip(t *testing.T) {
 		t.Error("travel not required")
 	}
 }
+
+func statusSetup(enabled bool) (AllocationService, *allocFakeEntity, *BudgetService) {
+	svc, ent, _, bs, _ := budgetAllocSetup(enabled)
+	ent.allocations = map[string]engagemententity.AllocationRecord{"A1": {ID: "A1", Email: "jane@wso2.com", StartDate: "2027-02-01", EndDate: "2027-02-05",
+		ClearanceStatus: sp("Accepted by Consultant"), IsTravelRequired: sp("Yes"), EngagementID: sp("E07201"),
+		Engagement: &engagemententity.AllocationEngagementRef{ID: "E07201", EngagementTypeID: 1, StartDate: sp("2027-01-01"), EndDate: sp("2027-12-31")}}}
+	ent.travelJob = sp("TRV-2027-02-0001")
+	return svc, ent, bs
+}
+
+func TestAllocationUpdateStatus_BudgetLineOfAnotherYearIsRefused(t *testing.T) {
+	svc, ent, bs := statusSetup(true)
+	for _, id := range []int{99} {
+		_, err := svc.UpdateStatus(context.Background(), allocPerms(20), "A1", domain.AllocationStatusUpdate{ClearanceStatus: sp("Confirmed"), BudgetLineID: ip(id)})
+		if !isAllocValidation(err, "Choose a budget line of the trip's year.") {
+			t.Errorf("line %d: %v", id, err)
+		}
+	}
+	bs.wait()
+	if len(ent.updates) != 0 {
+		t.Error("nothing should be written")
+	}
+}
+
+func TestAllocationUpdateStatus_BudgetsOffIgnoresTheLine(t *testing.T) {
+	svc, ent, _ := statusSetup(false)
+	// Line 99 does not exist; with the feature off it is not even looked at.
+	out, err := svc.UpdateStatus(context.Background(), allocPerms(20), "A1", domain.AllocationStatusUpdate{ClearanceStatus: sp("Confirmed"), BudgetLineID: ip(99)})
+	if err != nil || len(ent.updates) != 1 || ent.updates[0].TravelBudget != nil || out.Budget != nil {
+		t.Errorf("off: %v %+v", err, out.Budget)
+	}
+}
+
+func TestAllocationCreate_PartnerConsultantGetsNoBudgetWork(t *testing.T) {
+	svc, ent, _, _, snd := budgetAllocSetup(true)
+	req := budgetCreateReq(ip(2))
+	req.ConsultantEmail = sp("partner-allocations-group+acme@wso2.com")
+	_, err := svc.Create(context.Background(), allocPerms(16), "E07201", req)
+	if err == nil || len(ent.bulk) != 0 || len(snd.sent) != 0 {
+		t.Errorf("partner: %v %d %d", err, len(ent.bulk), len(snd.sent))
+	}
+}

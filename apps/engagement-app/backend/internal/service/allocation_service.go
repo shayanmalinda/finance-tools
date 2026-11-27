@@ -261,7 +261,7 @@ func (s *allocationService) Create(ctx context.Context, p domain.Perms, engageme
 	}
 	// The trip's budget line is decided on the server and saved with the trip.
 	var plan *TripPlan
-	if s.d.Budgets != nil && *req.TravelRequired && (clearance == domain.AllocationClearanceConfirmed || clearance == domain.AllocationClearanceConfirmedVisaPending) {
+	if s.d.Budgets != nil && !isPartner && *req.TravelRequired && (clearance == domain.AllocationClearanceConfirmed || clearance == domain.AllocationClearanceConfirmedVisaPending) {
 		if plan, err = s.d.Budgets.PlanTrip(ctx, TripPlanInput{Engagement: eng, ConsultantEmail: consultant,
 			StartDate: in.start, EndDate: in.end, RequestedLineID: req.BudgetLineID}); err != nil {
 			return none, err

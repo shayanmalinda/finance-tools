@@ -231,6 +231,21 @@ func (r *dashboardRates) fetch(ctx context.Context, p ratePair) (float64, bool) 
 	return v, true
 }
 
+// fetchable reports whether any of pairs still has no answer in the cache, so
+// a later call could resolve it. A rate that NetSuite does not have is an
+// answer (kept as 0); without a converter nothing is fetchable.
+func (r *dashboardRates) fetchable(pairs []ratePair) bool {
+	if r == nil || r.conv == nil {
+		return false
+	}
+	for _, p := range pairs {
+		if _, ok := r.cacheFor(p).Get(r.key(p)); !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // usdOn converts amount of currency at the rate of date (YYYY-MM-DD). USD is
 // used as recorded. ok is false when no rate was resolved for the pair.
 func (rs rateSet) usdOn(currency string, amount float64, date string) (float64, bool) {

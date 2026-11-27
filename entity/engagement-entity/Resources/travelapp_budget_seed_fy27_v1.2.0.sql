@@ -13,16 +13,14 @@
 -- KIND, either express or implied. See the License for the
 -- specific language governing permissions and limitations
 
--- FY27 travel budget seed. Idempotent: lines are upserted (amounts reset to these
--- figures on a re-run, so run it once before Finance edits lines in Settings),
--- rules are skipped when they exist. Needs a user that reads allocation_db and
+-- FY27 travel budget seed. Idempotent: the year, lines and rules are skipped when
+-- they exist, so a re-run never overwrites Finance's edits in Settings. Needs a user that reads allocation_db and
 -- writes travelapp.
 
-INSERT INTO travelapp.budget_year (budget_year, start_date, end_date, is_active)
-VALUES (2027, '2027-01-01', '2027-12-31', 1)
-ON DUPLICATE KEY UPDATE start_date = VALUES(start_date), end_date = VALUES(end_date), is_active = VALUES(is_active);
+INSERT IGNORE INTO travelapp.budget_year (budget_year, start_date, end_date, is_active)
+VALUES (2027, '2027-01-01', '2027-12-31', 1);
 
-INSERT INTO travelapp.budget_line (budget_year, code, function_name, sub_function, holder_name, amount_usd, sort_order) VALUES
+INSERT IGNORE INTO travelapp.budget_line (budget_year, code, function_name, sub_function, holder_name, amount_usd, sort_order) VALUES
   (2027, 'COS_NONREC', 'Non-Recurring Revenue COS', 'Direct delivery travel, non-recurring', NULL, 180000.00, 10),
   (2027, 'COS_REC', 'Recurring Revenue COS', 'Direct delivery travel, recurring', NULL, 520000.00, 20),
   (2027, 'SALES_APAC', 'Sales', 'APAC', 'Genie', 60000.00, 30),
@@ -44,9 +42,7 @@ INSERT INTO travelapp.budget_line (budget_year, code, function_name, sub_functio
   (2027, 'GA_BOARD', 'General Administration', 'Board meeting travel', 'Shivanga', 500000.00, 190),
   (2027, 'GA_SENIOR', 'General Administration', 'Senior leadership meetings', 'Shivanga', 455000.00, 200),
   (2027, 'GA_GENERAL', 'General Administration', 'General corporate team travel', 'Shivanga', 732000.00, 210),
-  (2027, 'MKT_TRAVEL', 'Marketing', 'Marketing travel', 'Thibaut', 15000.00, 220)
-ON DUPLICATE KEY UPDATE function_name = VALUES(function_name), sub_function = VALUES(sub_function),
-  holder_name = VALUES(holder_name), amount_usd = VALUES(amount_usd), sort_order = VALUES(sort_order);
+  (2027, 'MKT_TRAVEL', 'Marketing', 'Marketing travel', 'Thibaut', 15000.00, 220);
 
 -- Allocation type rules, one per allocation type name (every id with that name).
 INSERT IGNORE INTO travelapp.budget_allocation_type_rule (allocation_type_id, rule_kind, line_code) SELECT aT.id, 'LINE', 'SALES_APAC' FROM allocation_db.allocation_type AS aT WHERE aT.allocation_type = 'Sales - APAC';

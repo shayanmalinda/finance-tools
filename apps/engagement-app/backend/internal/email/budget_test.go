@@ -25,13 +25,14 @@ func TestBudgetLineNeededMessage(t *testing.T) {
 	s := BudgetSettings{Recipients: []string{"owner@example.com"}, AppBaseURL: "https://one.wso2.com/"}
 	trip := BudgetLineTrip{JobNumber: "TRV-2027-01-0042", TravellerName: "Jane <Doe>", TravellerEmail: "jane@example.com",
 		Country: "Sri Lanka", StartDate: "2027-01-18", EndDate: "2027-01-22", Engagement: "E06405 Acme & Sons", AllocationType: "Pre-Sale Engagement"}
+	trip.Year = 2027
 	m := BudgetLineNeededMessage(s, trip)
 	if m.App != AppTravel || m.TemplateID != FinanceTemplate || m.NotificationType != "travelBudgetLineNeeded" ||
 		m.ReferenceID != trip.JobNumber || len(m.To) != 1 || m.To[0] != "owner@example.com" || len(m.CC) != 0 ||
 		m.Subject != "[Engagement App] Budget Line Needed: TRV-2027-01-0042 Jane <Doe> to Sri Lanka" ||
 		m.Content["title"] != "Budget Line Needed" || m.Content["greeting_name"] != "Travel Budget Owner" ||
 		m.Content["action_label"] != "Choose Budget Line" ||
-		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-budgets/needs-a-line?job=TRV-2027-01-0042" ||
+		m.Content["action_link"] != "https://one.wso2.com/finance/engagement-app/travel-budgets/needs-a-line?job=TRV-2027-01-0042&year=2027" ||
 		len(m.Audience.To) != 1 || m.Audience.To[0] != "the travel budget owner" {
 		t.Errorf("message = %+v", m)
 	}
@@ -48,7 +49,7 @@ func TestBudgetLineNeededMessage(t *testing.T) {
 	}
 	// The link is escaped for a job number that is not a plain id.
 	trip.JobNumber = "A B&C"
-	if got := BudgetLineNeededMessage(s, trip).Content["action_link"]; !strings.HasSuffix(got, "?job=A+B%26C") {
+	if got := BudgetLineNeededMessage(s, trip).Content["action_link"]; !strings.HasSuffix(got, "?job=A+B%26C&year=2027") {
 		t.Errorf("action_link = %q", got)
 	}
 }

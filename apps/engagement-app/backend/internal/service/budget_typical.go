@@ -36,6 +36,10 @@ const (
 	budgetTypicalMinTrips = 5
 )
 
+// The fallback is country, then global. There is no region step: the ledger has
+// no country-to-region source (regions come from engagement funding, which a
+// trip row does not carry), so a thin country goes straight to the global median.
+
 // Bases of a typical cost.
 const (
 	budgetBasisCountry = "country"
@@ -72,9 +76,12 @@ func (t *budgetTypical) forCountry(country string) (usd float64, basis string, n
 	return 0, budgetBasisNone, 0
 }
 
-// typical returns the typical costs, kept for 6 hours unless some rate was
-// missing.
+// typical returns the typical costs, kept for 6 hours unless a rate is still
+// being fetched (the last result is served meanwhile).
 func (s *BudgetService) typical(ctx context.Context) (*budgetTypical, error) {
+	if v, ok := s.held.typical.get("typical"); ok {
+		return v, nil
+	}
 	return s.typicals.get(ctx, "typical", func() (*budgetTypical, error) { return s.buildTypical(ctx) })
 }
 
@@ -98,11 +105,11 @@ func (s *BudgetService) buildTypical(ctx context.Context) (*budgetTypical, error
 	}
 	trips := make(map[string]engagemententity.BudgetLedgerTrip, len(ledger.Trips))
 	for _, t := range ledger.Trips {
-		trips[t.JobNumber] = t
+		trips[budgetJobKey(t.JobNumber)] = t
 	}
 	var pairs []ratePair
 	for _, c := range ledger.Costs {
-		if t, ok := trips[c.JobNumber]; ok {
+		if t, ok := trips[budgetJobKey(c.JobNumber)]; ok {
 			pairs = append(pairs, ratePair{budgetCurrency(c.Currency), date(t.StartDate)})
 		}
 	}
@@ -111,16 +118,17 @@ func (s *BudgetService) buildTypical(ctx context.Context) (*budgetTypical, error
 	total := map[string]float64{}
 	broken := map[string]bool{}
 	for _, c := range ledger.Costs {
-		t, ok := trips[c.JobNumber]
+		job := budgetJobKey(c.JobNumber)
+		t, ok := trips[job]
 		if !ok {
 			continue
 		}
 		usd, ok := rs.usdOn(c.Currency, c.Amount, date(t.StartDate))
 		if !ok {
-			broken[c.JobNumber] = true
+			broken[job] = true
 			continue
 		}
-		total[c.JobNumber] += usd
+		total[job] += usd
 	}
 	out := &budgetTypical{country: map[string]budgetStat{}}
 	byCountry := map[string][]float64{}
@@ -134,14 +142,18 @@ func (s *BudgetService) buildTypical(ctx context.Context) (*budgetTypical, error
 		all = append(all, v)
 	}
 	// A trip with one unconverted cost is left out whole: a partial total
-	// would pull the median down.
-	out.pending = len(broken) > 0
+	// would pull the median down. Only a rate that can still be fetched keeps
+	// the result from being cached; a blank currency or a rate NetSuite does
+	// not have never will arrive.
+	missing := missingPairs(pairs, rs)
+	out.pending = len(broken) > 0 && s.rates.fetchable(missing)
 	for c, v := range byCountry {
 		out.country[c] = budgetStat{median: budgetMedian(v), n: len(v)}
 	}
 	out.global = budgetStat{median: budgetMedian(all), n: len(all)}
 	if out.pending {
-		s.warmRates(ctx, missingPairs(pairs, rs))
+		s.held.typical.set("typical", out)
+		s.warmRates(ctx, missing, func() { s.held.typical.del("typical") })
 	}
 	return out, nil
 }
