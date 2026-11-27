@@ -4219,7 +4219,6 @@ components:
           type: boolean
         sort:
           type: string
-          description: Optional column sort, a leading `-` is descending. Recognized keys are current, startDesc, jobNumber, startDate, destination, agency, status.
           default: current
           description: >-
             `current` lists trips ending today or later first (start date
