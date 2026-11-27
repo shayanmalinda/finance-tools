@@ -59,6 +59,7 @@ type finEntity struct {
 	pushed     []int
 	deleted    bool
 	subsidiary string
+	subCalls   int
 	basisErr   error
 }
 
@@ -151,6 +152,7 @@ func (f *finEntity) FinancePushPayment(_ context.Context, n, _ string, emp engag
 	return engagemententity.FinancePushResult{OK: true, Reference: fsp("7701")}, nil
 }
 func (f *finEntity) FinanceSubsidiary(context.Context, string) (engagemententity.FinanceSubsidiary, error) {
+	f.subCalls++
 	return engagemententity.FinanceSubsidiary{CurrencyCode: f.subsidiary}, nil
 }
 
@@ -619,5 +621,10 @@ func TestFinanceTripPayments_ParallelReadsKeepTheirErrors(t *testing.T) {
 	e.basisErr = errors.New("entity down")
 	if _, err := s.TripPayments(ctx, perms("f@wso2.com", 42, 43), job); !errors.Is(err, e.basisErr) {
 		t.Errorf("basis error = %v", err)
+	}
+	// No per diems: no summary, so the currency lookup is skipped.
+	e.basisErr, e.basis, e.subCalls = nil, engagemententity.FinancePaymentBasis{}, 0
+	if got, err := s.TripPayments(ctx, perms("f@wso2.com", 42, 43), job); err != nil || got.Summary != nil || e.subCalls != 0 {
+		t.Errorf("no per diems = %+v, %v, subsidiary calls %d", got, err, e.subCalls)
 	}
 }

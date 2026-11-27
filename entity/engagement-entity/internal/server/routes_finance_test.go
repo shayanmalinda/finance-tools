@@ -42,6 +42,8 @@ func TestFinanceRoutes_Validation(t *testing.T) {
 		{http.MethodGet, "/finance/invoices?failed=maybe", ""},
 		{http.MethodGet, "/finance/invoices?addedFrom=2026-13-01", ""},
 		{http.MethodGet, "/finance/per-diem-payments/TRV-1", ""},
+		{http.MethodGet, "/finance/travel-requests/TRV-2026-11-0001/counts?agencyId=-1", ""},
+		{http.MethodGet, "/finance/travel-requests/TRV-2026-11-0001/counts?agencyId=x", ""},
 		{http.MethodPost, "/finance/invoices/decisions", `{"invoiceIds":[1],"decision":"approve","step":"hr","updatedBy":"a@example.com"}`},
 		{http.MethodPost, "/finance/invoices/decisions", `{"unknown":1}`},
 	} {

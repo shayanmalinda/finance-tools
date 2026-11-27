@@ -157,7 +157,7 @@ func (s *FinanceService) TripPayments(ctx context.Context, p domain.Perms, jobNu
 	if _, err := viewScope(p, trip, false, []int{domain.TravelPrivViewPerDiemPayments}, domain.TravelPrivViewOwnPayments); err != nil {
 		return domain.TravelRequestPayments{}, err
 	}
-	// The rows, the summary and the traveller's currency do not depend on each other.
+	// The rows and the summary do not depend on each other; the currency is only needed for a summary.
 	var (
 		wg              sync.WaitGroup
 		rows            []engagemententity.FinancePayment
@@ -179,12 +179,10 @@ func (s *FinanceService) TripPayments(ctx context.Context, p domain.Perms, jobNu
 			sumErr = err
 			return
 		}
-		sum, sumErr = s.paymentBalance(ctx, basis)
+		if sum, sumErr = s.paymentBalance(ctx, basis); sumErr == nil && sum != nil && wantSub {
+			sub, subErr = s.travellerSubsidiary(ctx, trip.TravellerEmail)
+		}
 	}()
-	if wantSub {
-		wg.Add(1)
-		go func() { defer wg.Done(); sub, subErr = s.travellerSubsidiary(ctx, trip.TravellerEmail) }()
-	}
 	wg.Wait()
 	if rowsErr != nil {
 		return domain.TravelRequestPayments{}, rowsErr

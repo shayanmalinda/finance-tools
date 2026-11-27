@@ -176,7 +176,15 @@ func (h *FinanceHandler) TripExpenses(w http.ResponseWriter, r *http.Request) {
 
 // TripCounts handles GET /finance/travel-requests/{jobNumber}/counts?agencyId=&include=.
 func (h *FinanceHandler) TripCounts(w http.ResponseWriter, r *http.Request) {
-	agencyID, _ := strconv.Atoi(r.URL.Query().Get("agencyId"))
+	agencyID := 0
+	if v := r.URL.Query().Get("agencyId"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			writeServiceError(w, r, &apierror.ValidationError{Msg: "agencyId must be a positive integer"})
+			return
+		}
+		agencyID = n
+	}
 	out, err := h.svc.TripCounts(r.Context(), r.PathValue("jobNumber"), agencyID, financeList(r, "include"))
 	if err != nil {
 		writeServiceError(w, r, err)
