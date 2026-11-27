@@ -283,6 +283,11 @@ func (s *financeService) TripCounts(ctx context.Context, jobNumber string, agenc
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.ErrorContext(ctx, "finance: trip count panic", "count", name, "panic", r)
+				}
+			}()
 			n, err := c.run()
 			if err != nil {
 				slog.WarnContext(ctx, "finance: trip count failed", "count", name, "err", err)

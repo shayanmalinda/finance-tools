@@ -167,13 +167,10 @@ func (s *FinanceService) TripPayments(ctx context.Context, p domain.Perms, jobNu
 		subErr          error
 		wantSub         = p.Travel.Any(domain.TravelPrivAddPerDiemPayments, domain.TravelPrivEditPerDiemPayment)
 	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	goSafe(ctx, &wg, &rowsErr, func() {
 		rows, _, rowsErr = s.entity.FinancePayments(ctx, engagemententity.FinancePaymentFilter{JobNumber: jobNumber})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	goSafe(ctx, &wg, &sumErr, func() {
 		basis, err := s.entity.FinancePaymentBasis(ctx, jobNumber)
 		if err != nil {
 			sumErr = err
@@ -182,7 +179,7 @@ func (s *FinanceService) TripPayments(ctx context.Context, p domain.Perms, jobNu
 		if sum, sumErr = s.paymentBalance(ctx, basis); sumErr == nil && sum != nil && wantSub {
 			sub, subErr = s.travellerSubsidiary(ctx, trip.TravellerEmail)
 		}
-	}()
+	})
 	wg.Wait()
 	if rowsErr != nil {
 		return domain.TravelRequestPayments{}, rowsErr

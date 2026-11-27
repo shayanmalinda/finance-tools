@@ -370,10 +370,9 @@ func (s *travelService) detail(ctx context.Context, p domain.Perms, r engagement
 		wg     sync.WaitGroup
 		person travelPerson
 	)
-	wg.Add(3)
-	go func() { defer wg.Done(); person = s.people.get(ctx, r.TravellerEmail) }()
-	go func() { defer wg.Done(); s.opts.Campaigns.Fill(ctx, d.Campaign) }()
-	go func() { defer wg.Done(); d.Counts = s.counts(ctx, p, r.JobNumber, d.Tabs) }()
+	goSafe(ctx, &wg, nil, func() { person = s.people.get(ctx, r.TravellerEmail) })
+	goSafe(ctx, &wg, nil, func() { s.opts.Campaigns.Fill(ctx, d.Campaign) })
+	goSafe(ctx, &wg, nil, func() { d.Counts = s.counts(ctx, p, r.JobNumber, d.Tabs) })
 	wg.Wait()
 	d.Traveller.Name, d.BaseLocation = person.Name, person.Location
 	if travelSees(scope, "allocation") {
@@ -408,10 +407,13 @@ func (s *travelService) detail(ctx context.Context, p domain.Perms, r engagement
 // the entity call fails (the page opens without badges).
 func (s *travelService) counts(ctx context.Context, p domain.Perms, jobNumber string, t domain.TravelRequestTabs) *domain.TravelRequestCounts {
 	var include []string
-	for name, on := range map[string]bool{"perDiems": t.PerDiems, "invoices": t.Invoices, "payments": t.Payments,
-		"cardExpenses": t.Expenses, "expenseClaims": t.Expenses} {
-		if on {
-			include = append(include, name)
+	for _, c := range []struct {
+		name string
+		on   bool
+	}{{"perDiems", t.PerDiems}, {"invoices", t.Invoices}, {"payments", t.Payments},
+		{"cardExpenses", t.Expenses}, {"expenseClaims", t.Expenses}} {
+		if c.on {
+			include = append(include, c.name)
 		}
 	}
 	if len(include) == 0 {
