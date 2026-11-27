@@ -102,7 +102,10 @@ type costSet struct {
 	lines     []costLine
 	failed    []string
 	truncated bool
-	asOf      time.Time
+	// ratesPending: some exchange rates were still loading, so lines that need
+	// them are unconverted for now. Cached only briefly.
+	ratesPending bool
+	asOf         time.Time
 }
 
 func (s *dashboardService) costSetFor(ctx context.Context, from, to string) (*costSet, error) {
@@ -146,7 +149,8 @@ func (s *dashboardService) buildCostSet(ctx context.Context, res *engagemententi
 			pairs = append(pairs, ratePair{strings.ToUpper(strings.TrimSpace(e.OriginalCurrency)), dashboardRateDate(monthOf(e.Date), today)})
 		}
 	}
-	rs := s.rates.resolve(ctx, pairs)
+	rs, pending := s.rates.resolve(ctx, pairs)
+	set.ratesPending = pending
 
 	set.lines = make([]costLine, 0, len(res.Items))
 	for _, e := range res.Items {
@@ -982,6 +986,9 @@ func (c *costPrepared) incompleteText() string {
 	if c.set.truncated {
 		parts = append(parts, "20,000 line cap reached")
 	}
+	if c.set.ratesPending {
+		parts = append(parts, "Exchange rates still loading")
+	}
 	if len(c.prevFailed()) > 0 || (c.prevSet != nil && c.prevSet.truncated) {
 		parts = append(parts, "Last year incomplete")
 	}
@@ -1045,6 +1052,7 @@ func (s *dashboardService) TravelCosts(ctx context.Context, p domain.Perms, q Co
 	}
 	sum.DataAsOf = pr.set.asOf.Format(time.RFC3339)
 	sum.Truncated = pr.set.truncated
+	sum.RatesPending = pr.set.ratesPending && len(sum.NotConverted) > 0
 	for _, f := range pr.set.failed {
 		if contains(pr.allowed, f) {
 			sum.FailedSources = append(sum.FailedSources, f)
